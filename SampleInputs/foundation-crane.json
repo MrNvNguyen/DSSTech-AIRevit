@@ -1,0 +1,16 @@
+{
+  "elementId": "DEMO-FND-001",
+  "revitCategory": "OST_StructuralFoundation",
+  "familyName": "Footing",
+  "typeName": "1200x1800x500",
+  "materialName": "Concrete B25",
+  "quantity": 1.08,
+  "quantityUnit": "m3",
+  "properties": {
+    "ElementType": "Foundation",
+    "PlacementMethod": "Crane",
+    "ConcreteGrade": "B25",
+    "Width": 180,
+    "Height": 4.0
+  }
+}

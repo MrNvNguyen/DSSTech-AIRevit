@@ -1,0 +1,28 @@
+---
+description: No large binary artifacts in git — size/SHA pointers only under evidence and logs.
+alwaysApply: true
+---
+
+# No large binary artifacts in git
+
+GitHub **rejects files > 100 MiB**. Large binaries must **never** be committed under evidence, Agents Logs, or Draft paths.
+
+## Allowed in git
+
+- Markdown / JSON evidence: size bytes · SHA-256 · regenerate command · fixture pointer
+- `BINARY-NOT-IN-GIT.md` (or equivalent) pointer next to where the blob *would* live
+- Small screenshots / logs within normal repo hygiene
+
+## Forbidden in git
+
+- Embedding large base64 binary payloads in markdown
+- Browser QA scratch profiles (`**/chrome-profile*/`, `**/browser-profile*/`, …)
+- Revit models (`.rvt` / `.rte`) and extra SQLite dumps under evidence/logs
+- Any file known/likely > 50 MiB under docs/evidence without explicit PO exception
+
+## Agent checklist
+
+1. Record **byte length + SHA-256** of any large artifact — do **not** attach the file.
+2. Point regenerate instructions at script + fixture SHA.
+3. Before `git add`, run a size check if unsure (`> 50 MiB` = do not stage; `> 100 MiB` = hard fail).
+4. If a large binary appears under evidence/logs, **delete it**, add a pointer note, and keep `.gitignore` coverage.

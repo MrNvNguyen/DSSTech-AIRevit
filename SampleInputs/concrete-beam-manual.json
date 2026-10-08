@@ -1,0 +1,16 @@
+{
+  "elementId": "DEMO-BEAM-CONC-001",
+  "revitCategory": "OST_StructuralFraming",
+  "familyName": "Concrete Beam",
+  "typeName": "300x600",
+  "materialName": "Concrete B30",
+  "quantity": 5.2,
+  "quantityUnit": "m3",
+  "properties": {
+    "ElementType": "Beam",
+    "ConcreteGrade": "B30",
+    "ConcreteSupply": "ReadyMix",
+    "PlacementMethod": "Manual",
+    "Height": 4.0
+  }
+}

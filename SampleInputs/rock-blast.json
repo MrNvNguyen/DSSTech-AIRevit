@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-ROCK-001",
+  "revitCategory": "OST_GenericModel",
+  "familyName": "Hard rock blast",
+  "typeName": "Khoan pha da",
+  "materialName": "Rock",
+  "quantity": 40.0,
+  "quantityUnit": "m3",
+  "properties": {
+    "ElementType": "Rock",
+    "QuantityVolume": 40.0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "elementId": "DEMO-TILE-001",
+  "revitCategory": "OST_Floors",
+  "familyName": "Floor Finish",
+  "typeName": "Granite tile 300",
+  "materialName": "Granite",
+  "quantity": 48.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "QS_WorkItemId": "XD-TILE",
+    "QuantityArea": 48.0,
+    "SurfaceLocation": "Interior",
+    "TileArea": 0.09,
+    "Material": "Granite"
+  }
+}

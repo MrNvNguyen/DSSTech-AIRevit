@@ -1,0 +1,14 @@
+{
+  "elementId": "DEMO-WP-001",
+  "revitCategory": "OST_Roofs",
+  "familyName": "Waterproof membrane",
+  "typeName": "APP membrane 4mm",
+  "materialName": "Bitumen membrane",
+  "quantity": 220.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "QS_WorkItemId": "XD-WATERPROOF",
+    "QuantityArea": 220.0,
+    "Thickness": 0.4
+  }
+}

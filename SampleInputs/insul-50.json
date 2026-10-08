@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-INSUL-50",
+  "revitCategory": "OST_PipeInsulations",
+  "familyName": "Pipe Insulation",
+  "typeName": "Elastomeric 50mm",
+  "materialName": "Elastomeric",
+  "quantity": 8.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "ElementType": "Insulation",
+    "InsulationMaterial": "Elastomeric",
+    "InsulationThickness": 50,
+    "QuantityArea": 8.0
+  }
+}

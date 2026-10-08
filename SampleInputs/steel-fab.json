@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-STEEL-FAB-001",
+  "revitCategory": "OST_GenericModel",
+  "familyName": "Steel fab shop",
+  "typeName": "Gia cong thep cut weld",
+  "materialName": "Structural steel",
+  "quantity": 1250.0,
+  "quantityUnit": "kg",
+  "properties": {
+    "ElementType": "Member",
+    "SteelActivity": "Fabrication",
+    "SteelGrade": "CB400-V",
+    "QuantityMass": 1250.0
+  }
+}

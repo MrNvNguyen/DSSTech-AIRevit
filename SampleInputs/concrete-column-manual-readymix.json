@@ -1,0 +1,17 @@
+{
+  "elementId": "DEMO-COL-MANUAL-001",
+  "revitCategory": "OST_StructuralColumns",
+  "familyName": "Concrete Rectangular Column",
+  "typeName": "400x400",
+  "materialName": "Concrete B25",
+  "quantity": 10.0,
+  "quantityUnit": "m3",
+  "properties": {
+    "ElementType": "Column",
+    "ConcreteGrade": "B25",
+    "ConcreteSupply": "ReadyMix",
+    "PlacementMethod": "Manual",
+    "CrossSectionArea": 0.16,
+    "Height": 5.0
+  }
+}

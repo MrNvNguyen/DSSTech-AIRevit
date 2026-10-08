@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-FIRE-001",
+  "revitCategory": "OST_FireAlarmDevices",
+  "familyName": "Smoke Detector",
+  "typeName": "Photoelectric",
+  "materialName": "Plastic",
+  "quantity": 1,
+  "quantityUnit": "each",
+  "properties": {
+    "DeviceType": "FireAlarm",
+    "ElementType": "FireAlarm"
+  }
+}

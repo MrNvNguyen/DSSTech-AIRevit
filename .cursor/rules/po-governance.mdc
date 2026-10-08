@@ -1,0 +1,33 @@
+---
+description: PO governance — team autonomy, product-evidence-first, only four PO-human escalation gates when a signed campaign is active.
+alwaysApply: true
+---
+
+# PO governance (QSNormEngine)
+
+## Activation
+
+Full rules apply when a campaign/wave has a **PO-signed preplan/charter** and `authorized_box` / DoD under `0 Documents/1-Sprints/`. Research-only drafts in `0 Documents/1 - Thaoluan/**` or unsigned notes in `docs/` do not activate autonomy-to-PO messaging.
+
+## One-liner
+
+PO sets Rules + product goals + signed cap. Team runs **one arc** to SUCCESS or CEILING under **strategy as adversarial PO-proxy**. Message PO-human only for: Success Packet · Ceiling Packet · PO Visual/demo after QA PASS · signed **scope** checkpoint (bar/envelope — not technical phase ack).
+
+## Always enforce (even pre-campaign)
+
+- Product evidence first. CLI/python smoke and timing are supporting until the product claim is proven (Revit UI/adapter when the claim is in-Revit).
+- Label evidence scope; smoke ≠ binding gate.
+- No diagnostic churn; no Option-tick escalations to PO.
+- Unit/CLI harness PASS ≠ product PASS.
+- Weak measurement / Product Evidence mismatch → strategy `REJECT_AND_DIRECT` or `HOLD_MEASURE` — **not** a PO packet.
+- Do not implement against open scope questions (write-back, official-vs-Qc1 UX, digitization order, construction-method defaults) without a signed decision.
+
+## Do not message PO for
+
+QA FAIL · formula/pipeline · Option A/B/C · harness rem · “ack Lx→Ly” · dump logs · smoke-green claimed as Revit PASS.
+
+Escalate those via `@multi-agents` strategy PO-proxy → technical loop — not PO-human packets.
+
+## Telegram (khi gửi PO)
+
+Tin **ngắn, tiếng Việt**: `Kết quả` + `PO cần` (+ path `Chi tiết`). Chỉ sau `STRATEGY_PO_PACKET`. Không dump log / jargon.

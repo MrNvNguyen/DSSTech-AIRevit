@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-CARP-001",
+  "revitCategory": "OST_Walls",
+  "familyName": "Wood panel wall",
+  "typeName": "Carpentry veneer",
+  "materialName": "Gỗ trang trí",
+  "quantity": 28.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "ElementType": "Wall",
+    "QuantityArea": 28.0
+  }
+}

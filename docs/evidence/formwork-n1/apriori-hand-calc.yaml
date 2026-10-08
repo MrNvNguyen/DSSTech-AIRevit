@@ -1,0 +1,61 @@
+# A-priori hand calc for N1 — frozen BEFORE next Formwork N1 Measure run
+# N1 scope: Column Side; Beam Side+Bottom; Slab Side+Bottom; eps 5 mm
+# Contact: Column priority 1 owns join; Beam deducts contact patches.
+
+fixture_id: n1-col-beam-slab
+written_before_run_utc: "2026-09-14T08:24:00Z"
+pilot_model: "C:\\Users\\NguyenNguyenVan\\Desktop\\TEST FORMWORK.rvt"
+epsilon_mm: 5
+n1_scope_note: |
+  Hand from Revit type dims + join elevations (beam soffit / slab embed).
+  Do not edit after the next measurement timestamp.
+
+elements:
+  - role: column
+    element_id: "1659100"
+    type: "450 x 600mm"
+    dims_m: { b: 0.45, h: 0.60, height_eff: 3.9214, base_offset: -0.60 }
+    faces: [Side]
+    # Side = 2*(0.45+0.60)*H_eff. Model revision 2026-09-14: Base Offset -600 mm
+    # (footing embed). Prior H_eff 3.3214 → +0.60 → 3.9214; side 6.975+1.26 = 8.235.
+    hand_side_m2: 8.235
+    hand_bottom_m2: 0.0
+    hand_deduct_m2: 0.0
+    hand_total_m2: 8.235
+    notes: "Column owns contacts; no deduct. Hand refreshed after Base Offset change."
+
+  - role: beam
+    element_id: "1660193"
+    type: "300 x 600mm"
+    dims_m: { b: 0.30, h: 0.60, cut_length: 18.80, exposed_height: 0.45 }
+    faces: [Side, Bottom]
+    # Beam top embeds 150mm into slab (top 3.60, slab bottom 3.45) → exposed h=0.45
+    # Side ≈ 2*0.45*18.80 + 2*0.45*0.30 = 16.92+0.27 = 17.19
+    # Bottom = 0.30*18.80 = 5.64
+    # Deduct one column contact 0.30*0.45 = 0.135
+    hand_side_m2: 17.19
+    hand_bottom_m2: 5.64
+    hand_deduct_m2: 0.135
+    hand_total_m2: 22.695
+    notes: "Cut Length 61.68 ft = 18.80 m."
+
+  - role: slab
+    element_id: "1660566"
+    type: "Concrete 150mm"
+    dims_m: { thickness: 0.15, area_plan: 197.60, perimeter: 60.60 }
+    faces: [Side, Bottom]
+    # Side = perimeter * thickness = 60.60*0.15 = 9.09
+    # Bottom = plan area (N1 keeps bottom; no groundContact drop)
+    # Deduct: slab priority 4 loses contacts to column (pri 1) + beam (pri 3)
+    #   column top 0.45*0.60 = 0.27
+    #   beam top under slab ≈ 5.415 (width 0.30 × effective length after column join)
+    #   total deduct = 5.685 → net = 9.09+197.60-5.685 = 201.005
+    hand_side_m2: 9.09
+    hand_bottom_m2: 197.60
+    hand_deduct_m2: 5.685
+    hand_total_m2: 201.005
+    notes: "Floor 1660566; contact deduct required under N1 priority rules."
+
+bar:
+  metric: n1_total_area_vs_apriori_hand_pct
+  max_rel_error_pct: 1.0

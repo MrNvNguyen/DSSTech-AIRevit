@@ -1,0 +1,76 @@
+{
+  "schema": "formwork-spike/1",
+  "campaign": "N0-FORMWORK-SPIKE",
+  "wave_id": "N0-FORMWORK-SPIKE-ATTEMPT-1",
+  "authority": "DIAGNOSTIC",
+  "run_class": "PRODUCT_FAILURE_RUN",
+  "attempt_outcome": "FALSIFIED",
+  "classification_reason": "Gate fail: boolean_fail_rate=0.00%, probe_error_pct=25.00 (bars: fail\u0026lt;5%, probe\u22642%).",
+  "behavior_change": false,
+  "verify_sha": "unknown",
+  "timestamp_utc": "2026-09-12T13:59:17.5153980Z",
+  "revit_host_year": "2025",
+  "revit_build": "25.4.10.45",
+  "model_title": "TEST FORMWORK",
+  "structural_element_count": 11,
+  "geometry_timing": {
+    "batch_sizes": [
+      100,
+      1000,
+      10000
+    ],
+    "samples": [
+      {
+        "batch_size": 100,
+        "elements_timed": 11,
+        "solids_found": 11,
+        "total_ms": 1.9404,
+        "avg_ms_per_element": 0.1764,
+        "status": "MEASURED"
+      },
+      {
+        "batch_size": 1000,
+        "elements_timed": 11,
+        "solids_found": 11,
+        "total_ms": 1.5574,
+        "avg_ms_per_element": 0.14158181818181817,
+        "status": "MEASURED"
+      },
+      {
+        "batch_size": 10000,
+        "elements_timed": 11,
+        "solids_found": 11,
+        "total_ms": 1.5921,
+        "avg_ms_per_element": 0.14473636363636364,
+        "status": "MEASURED"
+      }
+    ]
+  },
+  "boolean_timing": {
+    "status": "MEASURED",
+    "pairs_considered": 17,
+    "pairs_attempted": 17,
+    "pairs_succeeded": 17,
+    "pairs_failed": 0,
+    "fail_rate": 0,
+    "total_ms": 8.3765,
+    "avg_ms_per_op": 0.49273529411764705,
+    "failure_reasons": []
+  },
+  "probe_epsilon": {
+    "status": "MEASURED",
+    "method": "face_extrusion_difference",
+    "epsilon_mm": 5,
+    "element_ids": [
+      "1659100",
+      "1660193"
+    ],
+    "hand_area_m2": 0.18,
+    "computed_area_m2": 0.13499999999999313,
+    "error_pct": 25.00000000000382,
+    "volume_a_m3": 0.837000000000005,
+    "volume_b_m3": 3.38399999999997,
+    "difference_ab_succeeded": true,
+    "difference_ba_succeeded": true
+  }
+}

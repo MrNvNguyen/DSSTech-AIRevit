@@ -1,0 +1,30 @@
+schema: formwork-n1-claims/1
+campaign: N1-FORMWORK-GEOMETRY
+wave_id: N1-FORMWORK-GEOMETRY-ATTEMPT-1
+status: closed_pass
+authority: PRODUCT
+run_class: PRODUCT_PASS_RUN
+attempt_outcome: PASS
+behavior_change: true
+bars_changed: false
+
+hypothesis: |
+  Production FormworkCalculator (SolidProvider → NeighborIndex → FaceClassifier →
+  ContactResolver → N1 hardcoded rules) returns per-element TotalAreaM2 within 1% of
+  a-priori hand calc for 1 column + 1 beam + 1 slab on the pilot model.
+
+claims:
+  - id: n1_pipeline_implemented
+    class: inferred
+    status: PASS
+    evidence: src/QSNormEngine.Revit/Formwork/* + Core FormworkResult DTO
+  - id: n1_total_area_vs_apriori
+    class: measured
+    status: PASS
+    evidence: docs/evidence/formwork-n1/N1-FORMWORK-GEOMETRY/result.json
+    detail: |
+      Column 6.975, Beam 22.695, Slab 201.005 — all ~0% vs join-aware a-priori.
+
+notes: |
+  Slab hand includes contact deduct 5.685 (priority 4 loses to column/beam).
+  Closed 2026-09-14 after PRODUCT_PASS_RUN.

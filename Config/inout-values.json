@@ -1,0 +1,9 @@
+{
+  "schema": "inout-values/1",
+  "values": [
+    { "code": "Interior", "labelVi": "Trong nhà" },
+    { "code": "Exterior", "labelVi": "Ngoài nhà" },
+    { "code": "Mixed", "labelVi": "Hỗn hợp" }
+  ],
+  "sources": ["Existing", "WallFunction", "Room", "Envelope", "SurfaceLocationHint", "CategoryDefault"]
+}

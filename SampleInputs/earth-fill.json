@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-EARTH-FILL-001",
+  "revitCategory": "OST_BuildingPad",
+  "familyName": "Building Pad",
+  "typeName": "Embankment fill",
+  "materialName": "Fill sand",
+  "quantity": 180.0,
+  "quantityUnit": "m3",
+  "properties": {
+    "ElementType": "Fill",
+    "QuantityVolume": 180.0
+  }
+}

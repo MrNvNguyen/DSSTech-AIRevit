@@ -1,0 +1,75 @@
+# This is a Revit shared parameter file for DSS.QSEngine.
+# Do not change GUIDs after projects have bound these parameters.
+*META	VERSION	MINVERSION
+META	2	1
+*GROUP	ID	NAME
+GROUP	1	QS-BIM
+*PARAM	GUID	NAME	DATATYPE	DATACATEGORY	GROUP	VISIBLE	DESCRIPTION	USERMODIFIABLE
+PARAM	8f3c1a2b-4d5e-6f70-8192-a3b4c5d6e7f0	QS_WorkItemId	TEXT		1	1	Work Item override	1
+PARAM	9a4d2b3c-5e6f-7081-92a3-b4c5d6e7f809	QS_ConstructionHeight	NUMBER		1	1	Construction height (m)	1
+PARAM	ab5e3c4d-6f70-8192-a3b4-c5d6e7f809aa	QS_Thickness	NUMBER		1	1	Layer thickness (cm)	1
+PARAM	bc6f4d5e-7081-92a3-b4c5-d6e7f809aabb	QS_ConcreteGrade	TEXT		1	1	Concrete grade	1
+PARAM	cd708162-8192-a3b4-c5d6-e7f809aabb01	QS_ConcreteSupply	TEXT		1	1	Concrete supply	1
+PARAM	de819273-92a3-b4c5-d6e7-f809aabb0c12	QS_PlacementMethod	TEXT		1	1	Placement method	1
+PARAM	ef92a384-a3b4-c5d6-e7f8-09aabb0c1d23	QS_PumpType	TEXT		1	1	Pump type	1
+PARAM	f0a3b495-b4c5-d6e7-f809-aabb0c1d2e34	QS_SurfaceLocation	TEXT		1	1	Surface location	1
+PARAM	01b4c5a6-c5d6-e7f8-09aa-bb0c1d2e3f45	QS_TileArea	NUMBER		1	1	Tile area (m2)	1
+PARAM	12c5d6b7-d6e7-f809-aabb-0c1d2e3f4056	QS_CoatSystem	TEXT		1	1	Coat system	1
+PARAM	23d6e7c8-e7f8-09aa-bb0c-1d2e3f405167	QS_PrePutty	YESNO		1	1	Pre-putty before paint	1
+PARAM	34e7f8d9-f809-aabb-0c1d-2e3f40516278	QS_FormworkSystem	TEXT		1	0	Formwork system	1
+PARAM	45f809ea-09aa-bb0c-1d2e-3f4051627389	QS_PaintThickness	NUMBER		1	1	Paint / marking thickness (mm)	1
+PARAM	56a91afb-1abb-0c1d-2e3f-4051627389a0	QS_BrickType	TEXT		1	1	Brick / masonry type	1
+PARAM	67ba2b0c-2bcc-1d2e-3f40-51627389a0b1	QS_MortarGrade	TEXT		1	1	Mortar grade	1
+PARAM	78cb3c1d-3cdd-2e3f-4051-627389a0b1c2	QS_PipeMaterial	TEXT		1	1	Pipe material	1
+PARAM	89dc4d2e-4dee-3f40-5162-7389a0b1c2d3	QS_JointType	TEXT		1	1	Joint / fitting type	1
+PARAM	9aed5e3f-5eff-4051-6273-89a0b1c2d3e4	QS_SystemType	TEXT		1	1	MEP system type	1
+PARAM	abfe6f40-60f0-5162-7389-a0b1c2d3e4f5	QS_EquipmentType	TEXT		1	1	Equipment type	1
+PARAM	bc0f7051-7101-6273-89a0-b1c2d3e4f506	QS_NormCode	TEXT		1	1	Selected norm code	1
+PARAM	cd108162-8212-7389-a0b1-c2d3e4f50617	QS_NormStatus	TEXT		1	1	Norm selection status	1
+PARAM	de219273-9323-89a0-b1c2-d3e4f5061728	QS_NormStamp	TEXT		1	1	Write-back timestamp	1
+PARAM	ef32a384-a434-9ab1-c2d3-e4f506172839	QS_ElementType	TEXT		1	1	Element type override	1
+PARAM	ab30e73c-9a8b-5c96-94f0-11b13064f644	QS_Environment	TEXT		1	1	Construction environment	1
+PARAM	07c2633a-6aff-5665-88be-611ceab37a66	QS_FormworkMaterial	TEXT		1	0	Formwork material	1
+PARAM	a1f4c8e2-7b3d-4e91-9c2a-5d6e8f0a1b2c	QS_FormworkArea	NUMBER		1	1	Total formwork area (m2)	1
+PARAM	b2e5d9f3-8c4e-5f02-ad3b-6e7f901b2c3d	QS_FormworkSide	NUMBER		1	1	Formwork side area incl. shoulder (m2)	1
+PARAM	c3f6e0a4-9d5f-6013-be4c-7f80112c3d4e	QS_FormworkBottom	NUMBER		1	1	Formwork bottom area (m2)	1
+PARAM	d407f1b5-ae60-7124-cf5d-8091223d4e5f	QS_FormworkDeduct	NUMBER		1	0	Formwork contact deduct (m2)	1
+PARAM	e51802c6-bf71-8235-d06e-91a2334e5f60	QS_FormworkWaitPour	NUMBER		1	0	Formwork wait-pour leftover (m2)	1
+PARAM	f62913d7-c082-9346-e17f-a2b3445f6071	QS_FormworkGroundContact	YESNO		1	0	Formwork ground-contact bottom drop	1
+PARAM	073a24e8-d193-a457-f280-b3c455607182	QS_FormworkConfidence	TEXT		1	0	Formwork takeoff confidence High/Low	1
+PARAM	184b35f9-e2a4-b568-0391-c4d566718293	QS_FormworkStamp	TEXT		1	0	Formwork takeoff timestamp	1
+PARAM	295c46a0-f3b5-c679-14a2-d5e6778293a4	QS_InOutBuilding	TEXT		1	1	Trong nha / Ngoai nha / Hon hop	1
+PARAM	3a6d57b1-04c6-d78a-25b3-e6f78893a4b5	QS_InOutSource	TEXT		1	1	InOut classifier source audit	1
+PARAM	4b7e68c2-15d7-e89b-36c4-f70899a4b5c6	QS_HostId	TEXT		1	1	Host element id	1
+PARAM	5c8f79d3-26e8-f9ac-47d5-0819aab5c6d7	QS_WeightKg	NUMBER		1	1	Element weight (kg)	1
+PARAM	6d908ae4-37f9-0abd-58e6-192abb6c7d8e	QS_MaterialGrade	TEXT		1	1	Material grade (concrete/steel/mortar)	1
+PARAM	2ab29438-a9c5-5b28-8e30-f8b3d2f21519	QS_StairType	TEXT		1	1	Stair type	1
+PARAM	64a78c4f-0d2c-536a-b174-7b766fbf7e89	QS_SteelGrade	TEXT		1	1	Steel grade	1
+PARAM	754de7fa-32ce-5541-96c3-5725aa28b57f	QS_Prestress	TEXT		1	1	Prestress type	1
+PARAM	f0d80bb1-d183-58e3-98ff-8530698bcbff	QS_BlockType	TEXT		1	1	Block type	1
+PARAM	f9ad057f-852c-57e5-89e6-5a4eb3e69de0	QS_MortarType	TEXT		1	1	Mortar type	1
+PARAM	5ae72847-1a80-556b-9a3d-2516262bdac4	QS_TileStoneType	TEXT		1	1	Tile or stone type	1
+PARAM	10e644b2-3090-59d7-8fe5-d8a1f6739554	QS_Pattern	TEXT		1	1	Tile pattern	1
+PARAM	8d09b122-dffb-5173-a8ed-e67fdd944813	QS_CeilingType	TEXT		1	1	Ceiling type	1
+PARAM	300a6b56-5bba-5e52-a1e0-5bd1746b4b85	QS_FrameType	TEXT		1	1	Ceiling frame type	1
+PARAM	588d6384-00ca-5f4e-ad5a-a2430c67a1ff	QS_PanelType	TEXT		1	1	Ceiling panel type	1
+PARAM	1fb7967b-acb3-541d-bcc0-e945dd2f6ba1	QS_RoofMaterial	TEXT		1	1	Roof material	1
+PARAM	a1c83a18-d561-5b81-9d57-684cc82db84f	QS_WaterproofType	TEXT		1	1	Waterproof type	1
+PARAM	0c255c62-63d1-51fc-9bc0-0fd873e3b491	QS_SoilClass	TEXT		1	1	Soil class	1
+PARAM	d633f355-6855-5fac-9f57-3e9b4871cc14	QS_RockClass	TEXT		1	1	Rock class	1
+PARAM	efd97b96-a8cd-5f0b-8e57-7c0e268acd8c	QS_PileMaterial	TEXT		1	1	Pile material	1
+PARAM	dc86085d-15aa-51a3-9269-651860187366	QS_PileType	TEXT		1	1	Pile type	1
+PARAM	d5f359cc-6688-5386-8452-87b2f8ede9a5	QS_SurfaceType	TEXT		1	1	Road surface type	1
+PARAM	06f628ff-7212-5a1b-aba4-0400c121dccf	QS_AsphaltType	TEXT		1	1	Asphalt type	1
+PARAM	a20951ac-24eb-59a5-bd28-1ff4a79fc6b0	QS_WallThickness	NUMBER		1	1	Wall thickness (cm)	1
+PARAM	8b964888-6f1f-5013-8d8e-383ef4a1efe6	QS_RebarDiameter	NUMBER		1	1	Rebar diameter (mm)	1
+PARAM	4b7e68c2-15d7-e89b-36c4-f70899a4b5c6	QS_ComponentType	TEXT		1	1	Component type	1
+PARAM	5c8f79d3-26e8-f9ac-47d5-0819aab5c6d7	QS_DeviceType	TEXT		1	1	Electrical device type	1
+PARAM	6d908ae4-37f9-0abd-58e6-192abb6c7d8e	QS_DrillMethod	TEXT		1	1	Drill / HDD method	1
+PARAM	7ea19bf5-480a-1bce-69f7-2a3bcc7d8e9f	QS_FixtureType	TEXT		1	1	Plumbing fixture type	1
+PARAM	8fb2ac06-591b-2cdf-7a08-3b4cdd8e9fa0	QS_InsulationMaterial	TEXT		1	1	Insulation material	1
+PARAM	90c3bd17-6a2c-3de0-8b19-4c5dee9fab01	QS_InsulationThickness	NUMBER		1	1	Insulation thickness (mm)	1
+PARAM	a1d4ce28-7b3d-4ef1-9c2a-5d6eff0abc12	QS_ProductType	TEXT		1	1	HDD product type	1
+PARAM	b2e5df39-8c4e-5f02-ad3b-6e7f001bcd23	QS_SoilRockClass	TEXT		1	1	Soil / rock class	1
+PARAM	c3f6e04a-9d5f-6013-be4c-7f80112cde34	QS_SteelActivity	TEXT		1	1	Steel fabrication or erection	1
+PARAM	d407f15b-ae60-7124-cf5d-8091223def45	QS_ValveType	TEXT		1	1	Valve type	1

@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-STEEL-COL-001",
+  "revitCategory": "OST_StructuralColumns",
+  "familyName": "Steel UC column",
+  "typeName": "UC 254x254x73 thep",
+  "materialName": "Steel",
+  "quantity": 480.0,
+  "quantityUnit": "kg",
+  "properties": {
+    "ElementType": "Column",
+    "SteelActivity": "Erection",
+    "SteelGrade": "CB400-V",
+    "QuantityMass": 480.0
+  }
+}

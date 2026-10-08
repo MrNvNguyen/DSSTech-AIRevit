@@ -1,0 +1,16 @@
+{
+  "elementId": "DEMO-REBAR-001",
+  "revitCategory": "OST_Rebar",
+  "familyName": "Rebar",
+  "typeName": "D20",
+  "materialName": "Steel CB400-V",
+  "quantity": 1000.0,
+  "quantityUnit": "kg",
+  "properties": {
+    "QS_WorkItemId": "XD-REBAR",
+    "ElementType": "Column",
+    "RebarDiameter": 20.0,
+    "Height": 18.0,
+    "SteelGrade": "CB400-V"
+  }
+}

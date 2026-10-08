@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-ROOF-001",
+  "revitCategory": "OST_Roofs",
+  "familyName": "Basic Roof",
+  "typeName": "Metal roof sheet",
+  "materialName": "Tôn lợp",
+  "quantity": 120.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "ElementType": "Roof",
+    "QuantityArea": 120.0
+  }
+}

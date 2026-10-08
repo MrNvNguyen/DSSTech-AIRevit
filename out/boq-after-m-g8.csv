@@ -1,0 +1,20 @@
+﻿STT,Ky hieu ban ve,Ma so Don gia,Ten cong tac,Don vi,So cau kien,Chieu dai,Chieu rong,Chieu cao,He so phu,Khoi luong
+1,DEMO-AAC-001,AE.88110,"Xây tường AAC thẳng, dày ≤11cm, cao ≤6m",m3,1,,,,1,4.5
+2,DEMO-WALL-001,AE.22110,"Xây tường thẳng, dày ≤11cm, cao ≤6m",m3,1,,,,1,7.2
+3,DEMO-CARP-001,AK.71100,Mộc trang trí/vách gỗ band pilot,m2,1,,,,1,28
+4,DEMO-CEIL-001,AK.61000,Trần band pilot,m2,1,,,,1,60
+5,DEMO-COL-MANUAL-001,AF.12230,"Bê tông cột, tiết diện >0,1m², cao ≤6m",m3,1,,,,1,10
+6,DEMO-COL-PUMP-MOBILE-001,AF.32230,"Bê tông cột, tiết diện >0,1m², cao ≤6m, bơm tĩnh",m3,1,,,,1,10
+7,DEMO-COL-001,AF.32230,"Bê tông cột, tiết diện >0,1m², cao ≤6m, bơm tĩnh",m3,1,,,,1,12.5
+8,DEMO-SCREED-001,AK.41100,Láng nền/sàn band pilot,m2,1,,,,1,45
+9,DEMO-TILE-001,AK.51240,"Lát nền/sàn, diện tích viên ≤0.09m²",m2,1,,,,1,48
+10,DEMO-FORM-001,AF.83111,"Ván khuôn Slab, cao ≤28m",100m2,1,,,,1,500
+11,DEMO-FND-001,AF.21210,"Bê tông móng, rộng ≤250cm",m3,1,,,,1,1.08
+12,DEMO-FIN-001,AK.21220,"Trát tường trong, dày 1.5cm",m2,1,,,,1,100
+13,DEMO-REBAR-001,AF.61432,"Cốt thép cột, trụ, D >18mm, cao >6 đến ≤28m",t,1,,,,1,1000
+14,DEMO-REF-001,AE.91000,"Xây gạch chịu lửa, band pilot",m3,1,,,,1,2
+15,DEMO-ROOF-001,AK.11200,Lợp mái band pilot,m2,1,,,,1,120
+16,DEMO-WP-001,AK.92111,Quét 3 lớp dung dịch chống thấm mái/tường/sê nô/ô văng,m2,1,,,,1,220
+17,DEMO-STONE-001,AE.11100,"Xây đá tường/móng, band pilot ≤6m",m3,1,,,,1,6
+18,DEMO-CLAD-001,AK.31180,"Ốp tường/trụ/cột, diện tích viên ≤0.54m²",m2,1,,,,1,85
+19,DEMO-PAINT-001,AK.83520,Sơn sắt thép 1P2F,m2,1,,,,1,120

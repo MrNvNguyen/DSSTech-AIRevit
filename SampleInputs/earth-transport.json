@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-EARTH-TRANS-001",
+  "revitCategory": "OST_GenericModel",
+  "familyName": "Earth haul truck",
+  "typeName": "Transport spoil",
+  "materialName": "Soil haul",
+  "quantity": 90.0,
+  "quantityUnit": "m3",
+  "properties": {
+    "ElementType": "Haul",
+    "QuantityVolume": 90.0
+  }
+}

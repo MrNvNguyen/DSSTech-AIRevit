@@ -1,0 +1,45 @@
+# A-priori for N2 — write BEFORE Formwork N2 Measure
+# N1 regression + L1 on-grade beam vs L2 upper beam (same 300×600 section).
+
+fixture_id: n2-rules-regression-and-ground
+written_before_run_utc: "2026-09-15T02:52:00Z"
+pilot_model: "C:\\Users\\NguyenNguyenVan\\Desktop\\TEST FORMWORK.rvt"
+epsilon_mm: 5
+model_note: |
+  L1 = dầm sát nền (Elevation at Bottom -600 mm). L2 = dầm tầng trên (bottom +3000 mm).
+  Chỉ có 1 Floor (1660566 @ L2). 7 dầm L1 cùng type; pilot ground = 1661054.
+
+elements:
+  # N1 regression (groundContactAutoDetect: false)
+  - role: column
+    element_id: "1659100"
+    hand_total_m2: 8.235
+  - role: beam_upper
+    element_id: "1660193"
+    hand_total_m2: 22.695
+    notes: "L2 · Cut Length 18.80 m · KEEP bottom when GC on"
+  - role: slab
+    element_id: "1660566"
+    hand_total_m2: 201.005
+
+  # Ground-contact pilot (same section 300×600 as upper)
+  - role: beam_ground
+    element_id: "1661054"
+    type: "300 x 600mm"
+    dims_m: { b: 0.30, h: 0.60, cut_length: 8.875, elev_bottom: -0.60, elev_top: 0.0 }
+    # GC=false Measure 2026-09-15: side 11.01 + bottom 2.6625 = 13.6725 (baseline toggle)
+    # GC=true expected: drop bottom → total 11.01
+    hand_side_m2: 11.01
+    hand_bottom_m2: 0.0
+    hand_bottom_m2_when_gc_false: 2.6625
+    hand_total_m2_when_gc_false: 13.6725
+    hand_deduct_m2: 0.0
+    hand_total_m2: 11.01
+    notes: |
+      Sibling L1 beams: 1661139,1661180,1661212,1661232,1661282,1661307.
+      Current hand_total is for groundContactAutoDetect=true.
+
+bar:
+  n1_regression_max_rel_error_pct: 1.0
+  ground_contact_bottom_delta_max_rel_error_pct: 1.0
+  json_toggle_requires_nonzero_delta: true

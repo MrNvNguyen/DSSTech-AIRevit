@@ -1,0 +1,39 @@
+# A-priori for N3 — per-story columns (modeling SSOT)
+# One column instance per story; top stops at floor above.
+# Amend: N3-FORMWORK-CLIP-AMEND-STORY-2026-09-15
+# PO clip rule: zTop = min(soffit of beam OR slab above) — beams govern when lower than slab.
+
+fixture_id: n3-height-clip-story-stack
+written_before_run_utc: "2026-09-15T03:33:00Z"
+pilot_model: "C:\\Users\\NguyenNguyenVan\\Desktop\\TEST FORMWORK.rvt"
+epsilon_mm: 5
+model_note: |
+  Stacked pair same XY: 1658761 (L1→L2) + 1661499 (L2→L3).
+  Perimeter = 2*(0.45+0.60) = 2.1 m/m.
+  First FALSIFIED run used hand at slab soffit (3.45/7.45); engine correctly
+  clipped to beam soffit (3.00/7.00). Hand corrected to beam-governed tops.
+
+elements:
+  # L1→L2: clip −0.60 → 3.00 (beam soffit) → H=3.60 → 2.1*3.60 = 7.56
+  # bbox H=4.20 > clipped (PASS require_clipped_height_lt_bbox)
+  - role: column_story_l1
+    element_id: "1658761"
+    segment_index: 0
+    dims_m: { b: 0.45, h: 0.60, clip_bottom_z: -0.60, clip_top_z: 3.00, bbox_height: 4.20 }
+    hand_total_m2: 7.56
+    notes: "zTop = beam soffit @ 3000 mm (lower than L2 slab soffit 3450)"
+
+  # L2→L3: clip 3.60 → 7.00 (beam soffit) → H=3.40 → 2.1*3.40 = 7.14
+  - role: column_story_l2
+    element_id: "1661499"
+    segment_index: 0
+    dims_m: { b: 0.45, h: 0.60, clip_bottom_z: 3.60, clip_top_z: 7.00, bbox_height: 4.00 }
+    hand_total_m2: 7.14
+    notes: "zTop = beam soffit @ 7000 mm (lower than L3 slab soffit 7450)"
+
+bar:
+  segment_max_rel_error_pct: 1.0
+  require_story_pair: true
+  require_clipped_height_lt_bbox: true
+  json_toggle_requires_nonzero_delta: true
+  modeling_ssot: one_column_per_story

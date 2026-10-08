@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>QSNormEngine.Revit</RootNamespace>
+    <AssemblyName>QSNormEngine.Revit</AssemblyName>
+    <Product>DSSTech</Product>
+    <AssemblyTitle>DSSTech</AssemblyTitle>
+    <TargetFramework Condition="'$(RevitTargetFramework)'==''">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(RevitTargetFramework)'!=''">$(RevitTargetFramework)</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <AppendTargetFrameworkToOutputPath Condition="'$(RevitHostLabel)'!=''">false</AppendTargetFrameworkToOutputPath>
+    <OutputPath Condition="'$(RevitHostLabel)'!=''">bin\$(Configuration)\$(RevitHostLabel)\</OutputPath>
+    <IntermediateOutputPath Condition="'$(RevitHostLabel)'!=''">obj\$(RevitHostLabel)\$(Configuration)\</IntermediateOutputPath>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+    <DefineConstants Condition="'$(RevitHostYear)'=='2024'">$(DefineConstants);REVIT2024</DefineConstants>
+  </PropertyGroup>
+  <Target Name="EnsureRevitApi" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(RevitApiPath)' == '' OR !Exists('$(RevitApiPath)\RevitAPI.dll')"
+           Text="Set RevitApiPath to a Revit install that contains RevitAPI.dll, or run scripts/build-revit.ps1." />
+  </Target>
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitApiPath)\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitApiPath)\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <ProjectReference Include="..\QSNormEngine.Core\QSNormEngine.Core.csproj" />
+    <ProjectReference Include="..\Dss.McpHost\Dss.McpHost.csproj" />
+    <ProjectReference Include="..\Dss.Cad2Bim.Core\Dss.Cad2Bim.Core.csproj" />
+    <Content Include="..\..\Data\norm-engine-runtime.json" Link="Data\norm-engine-runtime.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\norm-engine.config.json" Link="Config\norm-engine.config.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\QS_SharedParameters.txt" Link="Config\QS_SharedParameters.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\formwork-rules.json" Link="Config\formwork-rules.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\inout-values.json" Link="Config\inout-values.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\material-density.json" Link="Config\material-density.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\element-quantity-columns.json" Link="Config\element-quantity-columns.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\cad-layer-map.str.json" Link="Config\cad-layer-map.str.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\cad-layer-map.arch.json" Link="Config\cad-layer-map.arch.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\cad-layer-map.mepf.json" Link="Config\cad-layer-map.mepf.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\*.png" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

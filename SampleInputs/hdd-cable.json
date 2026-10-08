@@ -1,0 +1,14 @@
+{
+  "elementId": "DEMO-HDD-CABLE-001",
+  "revitCategory": "OST_GenericModel",
+  "familyName": "HDD directional drill cable",
+  "typeName": "MV Cable",
+  "materialName": "Copper",
+  "quantity": 40.0,
+  "quantityUnit": "m",
+  "properties": {
+    "ProductType": "Cable",
+    "ElementType": "HDD",
+    "QuantityLength": 40.0
+  }
+}

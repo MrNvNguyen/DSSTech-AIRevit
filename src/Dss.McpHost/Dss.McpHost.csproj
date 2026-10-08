@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Dss.McpHost</RootNamespace>
+    <AssemblyName>Dss.McpHost</AssemblyName>
+    <TargetFramework Condition="'$(RevitTargetFramework)'==''">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(RevitTargetFramework)'!=''">$(RevitTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath Condition="'$(RevitHostLabel)'!=''">false</AppendTargetFrameworkToOutputPath>
+    <OutputPath Condition="'$(RevitHostLabel)'!=''">bin\$(Configuration)\$(RevitHostLabel)\</OutputPath>
+    <IntermediateOutputPath Condition="'$(RevitHostLabel)'!=''">obj\$(RevitHostLabel)\$(Configuration)\</IntermediateOutputPath>
+  </PropertyGroup>
+  <Target Name="EnsureRevitApi" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(RevitApiPath)' == '' OR !Exists('$(RevitApiPath)\RevitAPI.dll')"
+           Text="Set RevitApiPath to a Revit install that contains RevitAPI.dll, or run scripts/build-revit.ps1." />
+  </Target>
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitApiPath)\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitApiPath)\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <ProjectReference Include="..\Dss.McpContracts\Dss.McpContracts.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows' OR '$(TargetFramework)' == 'net8.0'">
+    <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
+  </ItemGroup>
+</Project>

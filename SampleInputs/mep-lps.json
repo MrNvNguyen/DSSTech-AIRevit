@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-LPS-001",
+  "revitCategory": "OST_GenericModel",
+  "familyName": "Lightning earthing rod",
+  "typeName": "Chong set tiep dia",
+  "materialName": "Copper",
+  "quantity": 1,
+  "quantityUnit": "var",
+  "properties": {
+    "ComponentType": "LPS",
+    "ElementType": "LPS"
+  }
+}

@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logic Tính Formwork - Code Analysis</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', 'Monaco', monospace;
+            line-height: 1.6;
+            color: #333;
+            background: #0d1117;
+            color: #e6edf3;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: #0d1117;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1f6feb 0%, #388bfd 100%);
+            color: white;
+            padding: 40px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            text-align: center;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 1.1em;
+            opacity: 0.95;
+        }
+
+        section {
+            margin-bottom: 40px;
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 30px;
+        }
+
+        h2 {
+            color: #58a6ff;
+            font-size: 1.8em;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #30363d;
+        }
+
+        h3 {
+            color: #79c0ff;
+            font-size: 1.3em;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+
+        .code-block {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+            overflow-x: auto;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.85em;
+            line-height: 1.6;
+        }
+
+        .code-block code {
+            color: #e6edf3;
+            white-space: pre;
+            display: block;
+        }
+
+        .code-comment {
+            color: #8b949e;
+        }
+
+        .code-keyword {
+            color: #ff7b72;
+        }
+
+        .code-string {
+            color: #a5d6ff;
+        }
+
+        .code-type {
+            color: #79c0ff;
+        }
+
+        .code-method {
+            color: #d2a8ff;
+        }
+
+        .flow-diagram {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 0.9em;
+            line-height: 1.8;
+            color: #79c0ff;
+            overflow-x: auto;
+            white-space: pre;
+        }
+
+        .step-box {
+            background: #0d1117;
+            border-left: 4px solid #58a6ff;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+
+        .step-number {
+            display: inline-block;
+            background: #1f6feb;
+            color: white;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 32px;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        table th {
+            background: #1f6feb;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 1px solid #30363d;
+        }
+
+        table td {
+            padding: 12px;
+            border-bottom: 1px solid #30363d;
+            color: #e6edf3;
+        }
+
+        table tr:hover {
+            background: #161b22;
+        }
+
+        .highlight {
+            background: #3d444d;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #79c0ff;
+            font-weight: 500;
+        }
+
+        .arrow {
+            color: #58a6ff;
+            font-weight: bold;
+        }
+
+        .success {
+            color: #3fb950;
+        }
+
+        .error {
+            color: #f85149;
+        }
+
+        .warning {
+            color: #d29922;
+        }
+
+        .key-points {
+            background: #1f6feb;
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .key-points h3 {
+            color: white;
+            margin-top: 0;
+        }
+
+        .key-points ul {
+            list-style: none;
+            margin-left: 0;
+        }
+
+        .key-points li {
+            margin: 12px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+
+        .key-points li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #79c0ff;
+            font-weight: bold;
+        }
+
+        .trace-container {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 0.85em;
+            line-height: 1.7;
+            white-space: pre;
+            overflow-x: auto;
+        }
+
+        .trace-line {
+            color: #79c0ff;
+        }
+
+        .trace-success {
+            color: #3fb950;
+        }
+
+        .trace-error {
+            color: #f85149;
+        }
+
+        footer {
+            text-align: center;
+            margin-top: 50px;
+            padding: 20px;
+            border-top: 1px solid #30363d;
+            color: #8b949e;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.8em;
+            }
+
+            h2 {
+                font-size: 1.4em;
+            }
+
+            .code-block {
+                font-size: 0.85em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 Logic Tính Formwork - Code Analysis</h1>
+            <p>Giải thích chi tiết cách hoạt động từng bước trong code</p>
+        </header>
+
+        <!-- LUỒNG CHÍNH -->
+        <section>
+            <h2>📌 Luồng Chính (Main Flow)</h2>
+
+            <div class="flow-diagram">[User click "Calculate Formwork"]
+    <span class="arrow">↓</span>
+FormworkCalculatingEventHandler.Execute()
+    <span class="arrow">↓</span>
+[Loop: Tất cả Elements]
+    ├─ Foundation
+    ├─ Column         ← Ví dụ này
+    ├─ Beam
+    ├─ Wall
+    ├─ Floor
+    └─ GenericComponent
+    <span class="arrow">↓</span>
+[Gán kết quả vào Revit Parameters]
+    <span class="arrow">↓</span>
+[Hoàn thành]</div>
+        </section>
+
+        <!-- BƯỚC 1: ĐIỂM VÀO -->
+        <section>
+            <h2>🏗️ Bước 1: Điểm Vào (Entry Point)</h2>
+
+            <p><strong>File:</strong> <code>FormworkCalculatingEventHandler.cs</code> (dòng 166-194)</p>
+
+            <div class="code-block"><code><span class="code-keyword">foreach</span> (ColumnR column <span class="code-keyword">in</span> singleData.StructuralColumns)
+{
+    <span class="code-keyword">try</span>
+    {
+        Element revitElem = column.RevitElement;
+
+        <span class="code-comment">// ← Kiểm tra: Cột có geometry không?</span>
+        <span class="code-keyword">if</span> (column.GeometryData.InstanceSolid != <span class="code-keyword">null</span>)
+        {
+            <span class="code-comment">// ← Gọi hàm tính</span>
+            column.CalculateFormWorkArea_Total();
+
+            <span class="code-comment">// ← Xử lý lỗ mở</span>
+            revitElem.CalculateFormworkOpening(fwData);
+
+            <span class="code-comment">// ← Gán kết quả vào Revit</span>
+            revitElem.LookupParameter(paramFormwork_Total)?.Set(fwData.FW_Total);
+        }
+    }
+    <span class="code-keyword">catch</span> { }
+}</code></div>
+
+            <h3>Logic:</h3>
+            <div class="step-box">
+                <span class="step-number">1</span> Loop qua tất cả cột trong dự án
+            </div>
+            <div class="step-box">
+                <span class="step-number">2</span> Kiểm tra cột có 3D geometry không (nếu không → bỏ qua)
+            </div>
+            <div class="step-box">
+                <span class="step-number">3</span> Gọi hàm <code>CalculateFormWorkArea_Total()</code> để tính
+            </div>
+            <div class="step-box">
+                <span class="step-number">4</span> Lưu kết quả vào parameter <code>FW_Total</code> trong Revit
+            </div>
+        </section>
+
+        <!-- BƯỚC 2: HÀM TÍNH CHÍNH -->
+        <section>
+            <h2>🔢 Bước 2: Hàm Tính Chính (Code Thực Tế, Nguyên Văn)</h2>
+
+            <p><strong>File:</strong> <code>OOG.STRPlugin/Utilities/FormworkUtils.cs</code> (dòng 813-867)</p>
+
+            <div class="code-block"><code><span class="code-keyword">public static void</span> <span class="code-method">CalculateFormWorkArea_Total</span>(<span class="code-keyword">this</span> ColumnR column)
+{
+    <span class="code-comment">// If element has solid then start calculat formwork</span>
+    <span class="code-keyword">if</span> (column.GeometryData.InstanceSolid != <span class="code-keyword">null</span>)
+    {
+        <span class="code-keyword">double</span> fw_Side = 0;
+        <span class="code-keyword">double</span> fw_Sub_Beam = 0;
+        <span class="code-keyword">double</span> fw_Sub_Found = 0;
+        <span class="code-keyword">double</span> fw_Sub_Slab = 0;
+        <span class="code-keyword">double</span> fw_Sub_Col = 0;
+        <span class="code-keyword">double</span> fw_Sub_Wall = 0;
+        <span class="code-keyword">double</span> fw_Sub_Gen = 0;
+
+        List&lt;Face&gt; computedFaces = column.GeometryData.Faces;
+        List&lt;Element&gt; intersectingElements = column.IntersectingElements;
+        List&lt;Face&gt; computedSideFaces = <span class="code-keyword">new</span> List&lt;Face&gt;();
+        <span class="code-keyword">if</span> (column.IsSlanted)
+        {
+            XYZ colDir = (column.LocationCurve <span class="code-keyword">as</span> Line).Direction;
+            computedSideFaces = computedFaces.Where(x =&gt; x.ComputeNormal(<span class="code-keyword">new</span> UV(0.5, 0.5)).DotProduct(colDir).IsEqual(0)).ToList();
+        }
+        <span class="code-keyword">else</span>
+        {
+            computedSideFaces = computedFaces.Where(x =&gt; x.ComputeNormal(<span class="code-keyword">new</span> UV(0.5, 0.5)).DotProduct(XYZ.BasisZ).IsEqual(0)).ToList();
+        }
+        <span class="code-keyword">foreach</span> (Face elemFace <span class="code-keyword">in</span> computedSideFaces)
+        {
+            fw_Side += elemFace.Area;
+            <span class="code-keyword">foreach</span> (Element elem <span class="code-keyword">in</span> intersectingElements)
+            {
+                <span class="code-comment">// Retrieve GeometryData from element collection</span>
+                GeometryData elemGeom = elementCollection[elem.Id.AsValue()].GeometryData;
+
+                <span class="code-comment">// Element surely has instance solid because of checking intersecting elements step</span>
+                <span class="code-keyword">if</span> (elemGeom.InstanceSolid != <span class="code-keyword">null</span>)
+                {
+                    <span class="code-keyword">foreach</span> (Face checkface <span class="code-keyword">in</span> elemGeom.Faces)
+                    {
+                        Tuple&lt;<span class="code-keyword">bool</span>, <span class="code-keyword">double</span>, <span class="code-keyword">bool</span>&gt; overlappingResult = elemFace.OverlappingResult(checkface);
+                        <span class="code-keyword">if</span> (overlappingResult.Item3) <span class="code-comment">// failed calculating overlap</span>
+                        {
+                            warningIDPairCollection.AddIdsToList(column.RevitElement, elem);
+                        }
+                        <span class="code-keyword">else if</span> (overlappingResult.Item1)
+                        {
+                            AssignOverlapAreaIntoCategory(elem, overlappingResult.Item2, <span class="code-keyword">ref</span> fw_Sub_Found, <span class="code-keyword">ref</span> fw_Sub_Beam, <span class="code-keyword">ref</span> fw_Sub_Slab, <span class="code-keyword">ref</span> fw_Sub_Col, <span class="code-keyword">ref</span> fw_Sub_Wall, <span class="code-keyword">ref</span> fw_Sub_Gen);
+                            fw_Side -= overlappingResult.Item2;
+                        }
+                    }
+                }
+            }
+        }
+        SetFormworkDataSide(column.FormworkData, fw_Side, fw_Sub_Found, fw_Sub_Beam, fw_Sub_Slab, fw_Sub_Col, fw_Sub_Wall, fw_Sub_Gen);
+    }
+}</code></div>
+
+            <h3>Hàm phụ: Phân Loại Overlap Theo Category</h3>
+            <p><strong>File:</strong> <code>OOG.STRPlugin/Utilities/FormworkUtils.cs</code> (dòng 96-127)</p>
+            <div class="code-block"><code><span class="code-keyword">private static void</span> <span class="code-method">AssignOverlapAreaIntoCategory</span>(Element e, <span class="code-keyword">double</span> value, <span class="code-keyword">ref double</span> found, <span class="code-keyword">ref double</span> beam, <span class="code-keyword">ref double</span> slab, <span class="code-keyword">ref double</span> col, <span class="code-keyword">ref double</span> wall, <span class="code-keyword">ref double</span> gen)
+{
+    Category cat = e.Category;
+    <span class="code-keyword">if</span> (cat != <span class="code-keyword">null</span>)
+    {
+        BuiltInCategory bic = (BuiltInCategory)cat.Id.AsValue();
+        <span class="code-keyword">if</span> (bic == BuiltInCategory.OST_StructuralFoundation)
+        {
+            found += value;
+        }
+        <span class="code-keyword">else if</span> (bic == BuiltInCategory.OST_StructuralFraming)
+        {
+            beam += value;
+        }
+        <span class="code-keyword">else if</span> (bic == BuiltInCategory.OST_Floors)
+        {
+            slab += value;
+        }
+        <span class="code-keyword">else if</span> (bic == BuiltInCategory.OST_StructuralColumns)
+        {
+            col += value;
+        }
+        <span class="code-keyword">else if</span> (bic == BuiltInCategory.OST_Walls)
+        {
+            wall += value;
+        }
+        <span class="code-keyword">else if</span> (bic == BuiltInCategory.OST_GenericModel)
+        {
+            gen += value;
+        }
+    }
+}</code></div>
+
+            <h3>Hàm phụ: Ghi Kết Quả Vào FormworkData</h3>
+            <p><strong>File:</strong> <code>OOG.STRPlugin/Utilities/FormworkUtils.cs</code> (dòng 128-150)</p>
+            <div class="code-block"><code><span class="code-keyword">private static void</span> <span class="code-method">SetFormworkDataSide</span>(FormworkData fwData, <span class="code-keyword">double</span> side, <span class="code-keyword">double</span> found, <span class="code-keyword">double</span> beam, <span class="code-keyword">double</span> slab, <span class="code-keyword">double</span> col, <span class="code-keyword">double</span> wall, <span class="code-keyword">double</span> gen)
+{
+    fwData.FW_Side += side.Round(3);
+    fwData.FW_Side = fwData.FW_Side &lt; 0 ? 0 : fwData.FW_Side;
+
+    fwData.FW_Sub_Found += found.Round(3);
+    fwData.FW_Sub_Found = fwData.FW_Sub_Found &lt; 0 ? 0 : fwData.FW_Sub_Found;
+
+    fwData.FW_Sub_Beam += beam.Round(3);
+    fwData.FW_Sub_Beam = fwData.FW_Sub_Beam &lt; 0 ? 0 : fwData.FW_Sub_Beam;
+
+    <span class="code-comment">// ... tương tự cho Slab, Col, Wall, Gen</span>
+}</code></div>
+        </section>
+
+        <!-- BƯỚC 3: TÍNH OVERLAP -->
+        <section>
+            <h2>🔢 Bước 3: Hàm Tính Overlap (Code Thực Tế, Nguyên Văn)</h2>
+
+            <p><strong>File:</strong> <code>Core.Revit/BiMoLib/Revit/Utils/FaceUtil.cs</code> (dòng 123-323, phần chính cho Planar Face)</p>
+
+            <div class="code-block"><code><span class="code-keyword">public static</span> Tuple&lt;<span class="code-keyword">bool</span>, <span class="code-keyword">double</span>, <span class="code-keyword">bool</span>&gt; <span class="code-method">OverlappingResult</span>(<span class="code-keyword">this</span> Face _f1, Face _f2)
+{
+    <span class="code-keyword">bool</span> check = <span class="code-keyword">false</span>;
+    <span class="code-keyword">double</span> area = 0;
+    <span class="code-keyword">bool</span> failed = <span class="code-keyword">false</span>;
+    <span class="code-keyword">double</span> extrudeDist = 0.1;
+    <span class="code-keyword">double</span> offsetDist1 = 0.005;
+    <span class="code-keyword">double</span> offsetDist2 = 0.001;
+    <span class="code-keyword">if</span> (_f1.IsPlanarFaceOnSamePlane(_f2))
+    {
+        IList&lt;CurveLoop&gt; _f1CurveLoops = _f1.GetEdgesAsCurveLoops();
+        IList&lt;CurveLoop&gt; _f2CurveLoops = _f2.GetEdgesAsCurveLoops();
+        XYZ extrudeDir = _f1.ComputeNormal(<span class="code-keyword">new</span> UV(0.5, 0.5));
+        <span class="code-keyword">try</span> <span class="code-comment">// Execute normal checking process</span>
+        {
+            Solid solid1 = _f1CurveLoops.Try_ExtrudeCurveLoops(extrudeDir, extrudeDist);
+            Solid solid2 = _f2CurveLoops.Try_ExtrudeCurveLoops(extrudeDir, extrudeDist);
+            Solid intersectResult = BooleanOperationsUtils.ExecuteBooleanOperation(solid1, solid2, BooleanOperationsType.Intersect);
+            <span class="code-keyword">double</span> volume = Math.Abs(intersectResult.Volume);
+            <span class="code-keyword">if</span> (volume &gt; 0.000001)
+            {
+                check = <span class="code-keyword">true</span>;
+                area = volume / extrudeDist;
+            }
+        }
+        <span class="code-keyword">catch</span> <span class="code-comment">// If the process has error, try to create slightly offset curveloops and run checking. If still has error, return failed</span>
+        {
+            <span class="code-keyword">try</span>
+            {
+                <span class="code-keyword">double</span> volume = 0;
+                IList&lt;CurveLoop&gt; _f1CurveLoops_Offset = <span class="code-keyword">new</span> List&lt;CurveLoop&gt;();
+                <span class="code-keyword">foreach</span> (CurveLoop cl <span class="code-keyword">in</span> _f1CurveLoops)
+                {
+                    _f1CurveLoops_Offset.Add(CurveLoop.CreateViaOffset(cl, offsetDist1, _f1.ComputeNormal(<span class="code-keyword">new</span> UV(0.5, 0.5))));
+                }
+                IList&lt;CurveLoop&gt; _f2CurveLoops_Offset = <span class="code-keyword">new</span> List&lt;CurveLoop&gt;();
+                <span class="code-keyword">foreach</span> (CurveLoop cl <span class="code-keyword">in</span> _f2CurveLoops)
+                {
+                    _f2CurveLoops_Offset.Add(CurveLoop.CreateViaOffset(cl, offsetDist2, _f2.ComputeNormal(<span class="code-keyword">new</span> UV(0.5, 0.5))));
+                }
+
+                Solid solid1 = _f1CurveLoops_Offset.Try_ExtrudeCurveLoops(extrudeDir, extrudeDist);
+                Solid solid2 = _f2CurveLoops_Offset.Try_ExtrudeCurveLoops(extrudeDir, extrudeDist);
+                Solid intersectResult = BooleanOperationsUtils.ExecuteBooleanOperation(solid1, solid2, BooleanOperationsType.Intersect);
+                volume = Math.Abs(intersectResult.Volume);
+
+                <span class="code-keyword">if</span> (volume &gt; 0.000001)
+                {
+                    check = <span class="code-keyword">true</span>;
+                    area = volume / extrudeDist;
+                }
+            }
+            <span class="code-keyword">catch</span>
+            {
+                failed = <span class="code-keyword">true</span>;
+                check = <span class="code-keyword">false</span>;
+            }
+        }
+    }
+    <span class="code-comment">// ... (nhánh else if xử lý Cylindrical Face bị lược bớt cho gọn)</span>
+    <span class="code-keyword">else</span>
+    {
+        <span class="code-comment">// 1 planar and 1 curve face will return false</span>
+    }
+    <span class="code-keyword">return new</span> Tuple&lt;<span class="code-keyword">bool</span>, <span class="code-keyword">double</span>, <span class="code-keyword">bool</span>&gt;(check, area, failed);
+}</code></div>
+
+            <h3>Hàm phụ điều kiện: Kiểm Tra 2 Mặt Cùng Mặt Phẳng</h3>
+            <p><strong>File:</strong> <code>Core.Revit/BiMoLib/Revit/Utils/FaceUtil.cs</code> (dòng 16-35)</p>
+            <div class="code-block"><code><span class="code-keyword">public static bool</span> <span class="code-method">IsPlanarFaceOnSamePlane</span>(<span class="code-keyword">this</span> Face _f1, Face _f2)
+{
+    <span class="code-keyword">if</span> (_f1 <span class="code-keyword">is</span> PlanarFace &amp;&amp; _f2 <span class="code-keyword">is</span> PlanarFace)
+    {
+        XYZ f1_normal = _f1.ComputeNormal(<span class="code-keyword">new</span> UV(0.5, 0.5));
+        XYZ f2_normal = _f2.ComputeNormal(<span class="code-keyword">new</span> UV(0.5, 0.5));
+        XYZ pt0 = XYZ.Zero;
+        XYZ pt1 = _f1.Evaluate(<span class="code-keyword">new</span> UV(0.5, 0.5));
+        XYZ pt2 = _f2.Evaluate(<span class="code-keyword">new</span> UV(0.5, 0.5));
+        <span class="code-keyword">double</span> dist1 = Math.Round(Math.Abs(pt0.Subtract(pt1).DotProduct(f1_normal)), 3);
+        <span class="code-keyword">double</span> dist2 = Math.Round(Math.Abs(pt0.Subtract(pt2).DotProduct(f2_normal)), 3);
+        <span class="code-keyword">bool</span> check = (f1_normal.IsParallel(f2_normal) &amp;&amp; dist1 == dist2) ? <span class="code-keyword">true</span> : <span class="code-keyword">false</span>;
+        <span class="code-keyword">return</span> check;
+    }
+    <span class="code-keyword">else</span>
+    {
+        <span class="code-keyword">return false</span>;
+    }
+}</code></div>
+            <p style="color:#8b949e; margin-top:10px;">→ 2 mặt được coi là "cùng mặt phẳng" khi normal của chúng song song (<code>IsParallel</code>) VÀ khoảng cách từ gốc tọa độ tới mỗi mặt (chiếu theo normal) bằng nhau.</p>
+        </section>
+
+        <!-- VÍ DỤ THỰC TẾ -->
+        <section>
+            <h2>📊 Ví Dụ Thực Tế: Cột + Dầm</h2>
+
+            <h3>Input Data</h3>
+            <div class="code-block"><code><span class="code-string">Column:</span>
+  - 4 vertical faces: mỗi 0.4m × 4m = 1.6 m²
+  - Tổng = 6.4 m²
+  - IntersectingElements = [Beam_1]
+
+<span class="code-string">Beam:</span>
+  - Xuyên qua cột ở độ cao 1.5m
+  - Size: 0.3m × 0.5m
+  - Overlap = 0.15 m²</code></div>
+
+            <h3>Execution Trace</h3>
+            <div class="trace-container">
+<span class="trace-line">CalculateFormWorkArea_Total(column):</span>
+<span class="trace-line">    ├─ fw_Side = 0</span>
+<span class="trace-line">    ├─ computedSideFaces = [Face_1, Face_2, Face_3, Face_4]</span>
+<span class="trace-line">    │</span>
+<span class="trace-line">    ├─ <span style="color: #79c0ff;">Loop Face 1</span> (1.6 m²):</span>
+<span class="trace-line">    │  ├─ fw_Side = 0 + 1.6 = <span class="trace-success;">1.6</span></span>
+<span class="trace-line">    │  ├─ Check Beam_1:</span>
+<span class="trace-line">    │  │  ├─ OverlappingResult(Face_1, Beam.Face):</span>
+<span class="trace-line">    │  │  │  ├─ Same plane? <span class="trace-success;">YES</span></span>
+<span class="trace-line">    │  │  │  ├─ Volume = 0.015 cubic feet</span>
+<span class="trace-line">    │  │  │  └─ area = 0.015 / 0.1 = <span class="trace-success;">0.15 m²</span></span>
+<span class="trace-line">    │  │  │</span>
+<span class="trace-line">    │  │  ├─ result.Item1 = <span class="trace-success;">true</span> (overlap)</span>
+<span class="trace-line">    │  │  ├─ fw_Sub_Beam += 0.15</span>
+<span class="trace-line">    │  │  └─ fw_Side -= 0.15  →  fw_Side = <span class="trace-success;">1.45</span></span>
+<span class="trace-line">    │</span>
+<span class="trace-line">    ├─ <span style="color: #79c0ff;">Loop Face 2</span>: fw_Side = 1.45 + 1.6 = <span class="trace-success;">3.05</span></span>
+<span class="trace-line">    ├─ <span style="color: #79c0ff;">Loop Face 3</span>: fw_Side = 3.05 + 1.6 = <span class="trace-success;">4.65</span></span>
+<span class="trace-line">    ├─ <span style="color: #79c0ff;">Loop Face 4</span>: fw_Side = 4.65 + 1.6 = <span class="trace-success;">6.25</span></span>
+<span class="trace-line">    │</span>
+<span class="trace-line">    └─ SetFormworkDataSide(column.FormworkData, 6.25, ...)</span>
+<span class="trace-line">       └─ Result: <span class="trace-success;">FW_Total = 6.25 m² ✓</span></span>
+            </div>
+
+            <h3>Output</h3>
+            <div class="code-block"><code><span class="trace-success">FW_Total = 6.25 m²</span>
+├─ Tổng diện tích 4 mặt: 6.4 m²
+├─ Trừ overlap beam: -0.15 m²
+└─ Kết quả cuối: <span class="trace-success;">6.25 m² ✓</span></code></div>
+        </section>
+
+        <!-- KEY POINTS -->
+        <section>
+            <div class="key-points">
+                <h3>🎯 Key Points (Các Điểm Chính)</h3>
+                <ul>
+                    <li><strong>Loop Elements:</strong> Duyệt tất cả cột, dầm, tường, ...</li>
+                    <li><strong>Lấy Faces:</strong> Từ 3D solid lấy ra tất cả mặt 2D</li>
+                    <li><strong>Lọc Vertical:</strong> Chỉ lấy mặt bên (không lấy đáy)</li>
+                    <li><strong>Cộng Area:</strong> Cộng dần diện tích từng mặt</li>
+                    <li><strong>Check Overlap:</strong> So sánh với elements giao qua</li>
+                    <li><strong>Boolean Intersection:</strong> Tìm phần giao → Volume → Area</li>
+                    <li><strong>Trừ Overlap:</strong> fw_Side -= overlap area</li>
+                    <li><strong>Lưu Kết Quả:</strong> SetFormworkDataSide() → Revit Parameter</li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- ERROR HANDLING -->
+        <section>
+            <h2>⚠️ Error Handling</h2>
+
+            <h3>Trường Hợp 1: Overlap Có Lỗi Tính Toán</h3>
+            <div class="code-block"><code><span class="code-keyword">if</span> (overlappingResult.Item3)  <span class="code-comment">// ← failed = true</span>
+{
+    <span class="code-error">❌ Lỗi tính toán</span>
+    warningIDPairCollection.AddIdsToList(column.RevitElement, elem);
+    <span class="code-comment">// → Thêm vào danh sách cảnh báo cho user</span>
+}</code></div>
+
+            <h3>Trường Hợp 2: Boolean Operation Lỗi</h3>
+            <div class="code-block"><code><span class="code-keyword">catch</span>
+{
+    <span class="code-comment">// Offset curve loops (loại bỏ noise)</span>
+    IList&lt;CurveLoop&gt; offsetCurves = ...
+
+    <span class="code-comment">// Thử lại</span>
+    <span class="code-keyword">try</span>
+    {
+        Solid solid1_offset = offsetCurves.Try_ExtrudeCurveLoops(...);
+        Solid intersectResult = BooleanOperationsUtils.Execute...(...);
+        <span class="trace-success">// ✓ Thành công lần thứ 2</span>
+    }
+    <span class="code-keyword">catch</span>
+    {
+        <span class="code-error">failed = true;</span>  <span class="code-comment">// ← Không thể tính được</span>
+    }
+}</code></div>
+        </section>
+
+        <footer>
+            <p>📖 Hướng dẫn phân tích logic code tính formwork | FormworkUtils.cs + FaceUtil.cs</p>
+        </footer>
+    </div>
+</body>
+</html>

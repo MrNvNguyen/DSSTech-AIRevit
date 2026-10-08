@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-FORM-001",
+  "revitCategory": "OST_GenericModel",
+  "familyName": "Formwork Proxy",
+  "typeName": "Slab Formwork",
+  "materialName": "Plywood",
+  "quantity": 500.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "QS_WorkItemId": "XD-FORM",
+    "ElementType": "Slab",
+    "FormworkSystem": "PlywoodFrame",
+    "Height": 20.0
+  }
+}

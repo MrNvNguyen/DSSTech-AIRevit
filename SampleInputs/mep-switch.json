@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-SWITCH-001",
+  "revitCategory": "OST_ElectricalFixtures",
+  "familyName": "Switch and outlet",
+  "typeName": "Cong tac 1 cuc",
+  "materialName": "Plastic",
+  "quantity": 1,
+  "quantityUnit": "each",
+  "properties": {
+    "DeviceType": "Switch",
+    "ElementType": "Switch"
+  }
+}

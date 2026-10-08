@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-AC-001",
+  "revitCategory": "OST_MechanicalEquipment",
+  "familyName": "Split air conditioner",
+  "typeName": "Dieu hoa 12000 BTU",
+  "materialName": "AC",
+  "quantity": 1,
+  "quantityUnit": "set",
+  "properties": {
+    "EquipmentType": "SplitAC",
+    "ElementType": "Equipment"
+  }
+}

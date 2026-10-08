@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-CEIL-001",
+  "revitCategory": "OST_Ceilings",
+  "familyName": "Compound Ceiling",
+  "typeName": "Gypsum ceiling",
+  "materialName": "Thạch cao",
+  "quantity": 60.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "ElementType": "Ceiling",
+    "QuantityArea": 60.0
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-INSUL-100",
+  "revitCategory": "OST_DuctInsulations",
+  "familyName": "Duct Insulation",
+  "typeName": "PIR 100mm",
+  "materialName": "PIR",
+  "quantity": 6.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "ElementType": "Insulation",
+    "InsulationMaterial": "PIR",
+    "InsulationThickness": 100,
+    "QuantityArea": 6.0
+  }
+}

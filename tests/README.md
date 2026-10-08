@@ -1,0 +1,27 @@
+# Tests
+
+## Canonical harness (binding)
+
+**CLI** is the authoritative regression harness for leaf-code selection:
+
+```powershell
+dotnet build src\QSNormEngine.Cli\QSNormEngine.Cli.csproj -c Release
+dotnet exec src\QSNormEngine.Cli\bin\Release\net8.0\QSNormEngine.Cli.dll --smoke
+dotnet exec src\QSNormEngine.Cli\bin\Release\net8.0\QSNormEngine.Cli.dll --boq
+dotnet exec src\QSNormEngine.Cli\bin\Release\net8.0\QSNormEngine.Cli.dll --boq-xlsx out\boq-smoke.xlsx
+```
+
+Expected leaf codes: `tests/expected.json` (currently **9** fixtures including foundation).
+
+BOQ integrity: `--boq` asserts Σ BIM quantity detail == grouped.
+
+## Supporting smoke (non-binding)
+
+- `reference_smoke_test.py` — legacy Python reference engine; **deprecated** for product claims; kept for cross-check during migration.
+- `resource_adjustment_smoke_test.py` — adjustment rule sanity.
+
+Use `py -3` on Windows.
+
+## Product evidence (Revit)
+
+CLI PASS ≠ Revit PASS. In-Revit claims require Layer B screenshots under `docs/evidence/`.

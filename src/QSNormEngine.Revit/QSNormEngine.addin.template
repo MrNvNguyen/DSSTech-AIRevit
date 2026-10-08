@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>DSSTech</Name>
+    <Assembly>__ABSOLUTE_PATH__\QSNormEngine.Revit.dll</Assembly>
+    <AddInId>7B52A0F1-7C61-4C8B-A6A4-0AC7398341A2</AddInId>
+    <FullClassName>QSNormEngine.Revit.App</FullClassName>
+    <VendorId>NVNG</VendorId>
+    <VendorDescription>DSSTech</VendorDescription>
+  </AddIn>
+</RevitAddIns>

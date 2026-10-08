@@ -1,0 +1,23 @@
+{
+  "schema": "formwork-n4-evidence-index/1",
+  "campaign": "N4-FORMWORK-PARAMS-READONLY",
+  "wave_id": "N4-FORMWORK-PARAMS-READONLY-ATTEMPT-1",
+  "authority": "PRODUCT",
+  "behavior_change": false,
+  "status": "harness_pass_pending_revit_bind",
+  "scope": "READ-ONLY shared params + quantity map; no write Transaction",
+  "bars": {
+    "shared_params_and_aliases": "PASS",
+    "bim_xd_form_maps": "PASS",
+    "cli_quantity_formwork_area": "PASS",
+    "setup_parameters_bind": "NOT_MEASURED",
+    "no_write_back": "PASS"
+  },
+  "artifacts": [
+    "docs/evidence/formwork-n4/N4-FORMWORK-PARAMS-READONLY/claims.yaml",
+    "docs/evidence/formwork-n4/N4-FORMWORK-PARAMS-READONLY/result.json",
+    "SampleInputs/formwork-slab-area42.json",
+    "Config/QS_SharedParameters.txt",
+    "scripts/migrate-engine-v1.py (#14)"
+  ]
+}

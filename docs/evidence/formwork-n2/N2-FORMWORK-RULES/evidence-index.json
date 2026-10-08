@@ -1,0 +1,52 @@
+{
+  "schema": "formwork-n2-evidence-index/1",
+  "campaign": "N2-FORMWORK-RULES",
+  "wave_id": "N2-FORMWORK-RULES-ATTEMPT-1",
+  "authority": "PRODUCT",
+  "behavior_change": true,
+  "status": "measured_pass_pending_strategy_close",
+  "revit": {
+    "host_year": "2025",
+    "build": "25.4.10.45",
+    "model_title": "TEST FORMWORK",
+    "model_path_local": "C:\\Users\\NguyenNguyenVan\\Desktop\\TEST FORMWORK.rvt",
+    "rvt_in_git": false
+  },
+  "artifacts": [
+    {
+      "path": "docs/evidence/formwork-n2/N2-FORMWORK-RULES/result.json",
+      "role": "machine_ssot",
+      "status": "measured_pass",
+      "timestamp_utc": "2026-09-15T02:54:13.5843999Z",
+      "ground_contact_auto_detect": true
+    },
+    {
+      "path": "docs/evidence/formwork-n2/rules-toggle/baseline-result.json",
+      "role": "json_toggle_baseline",
+      "ground_contact_auto_detect": false
+    },
+    {
+      "path": "docs/evidence/formwork-n2/rules-toggle/toggled-result.json",
+      "role": "json_toggle_toggled",
+      "ground_contact_auto_detect": true
+    },
+    {
+      "path": "docs/evidence/formwork-n2/rules-toggle/compare-summary.json",
+      "role": "json_toggle_proof",
+      "status": "PASS"
+    },
+    {
+      "path": "docs/evidence/formwork-n2/apriori-hand-calc.yaml",
+      "role": "apriori_hand_calc"
+    },
+    {
+      "path": "Config/formwork-rules.json",
+      "role": "rules_ssot"
+    }
+  ],
+  "bars": {
+    "json_toggle": "PASS",
+    "ground_contact": "PASS",
+    "n1_regression": "PASS"
+  }
+}

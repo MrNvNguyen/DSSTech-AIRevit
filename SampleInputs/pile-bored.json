@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-PILE-BORED-001",
+  "revitCategory": "OST_StructuralFoundation",
+  "familyName": "Bored pile khoan nhoi",
+  "typeName": "D800 barrette",
+  "materialName": "Concrete bored pile",
+  "quantity": 32.0,
+  "quantityUnit": "m",
+  "properties": {
+    "ElementType": "Pile",
+    "PileType": "Bored",
+    "Diameter": 0.8,
+    "QuantityLength": 32.0
+  }
+}

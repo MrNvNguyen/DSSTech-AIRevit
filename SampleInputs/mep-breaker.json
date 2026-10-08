@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-BREAKER-001",
+  "revitCategory": "OST_ElectricalEquipment",
+  "familyName": "MCB panel breaker",
+  "typeName": "Aptomat 1 pha 32A",
+  "materialName": "Breaker",
+  "quantity": 1,
+  "quantityUnit": "each",
+  "properties": {
+    "DeviceType": "Breaker",
+    "ElementType": "Protect"
+  }
+}

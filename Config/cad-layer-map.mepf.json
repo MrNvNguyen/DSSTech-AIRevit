@@ -1,0 +1,32 @@
+{
+  "discipline": "mepf",
+  "version": 1,
+  "lengthUnit": "mm",
+  "centerlineOnly": true,
+  "offsetsMm": {
+    "coldWaterFromFloor": 300,
+    "sanitaryFromFloor": -300,
+    "supplyAirFromCeiling": -400
+  },
+  "rules": [
+    { "pattern": "^P-CW-D(\\d+)$", "kind": "Pipe", "system": "Domestic Cold Water", "systemPrefix": "CW", "diameterMm": "$1" },
+    { "pattern": "^P-HW-D(\\d+)$", "kind": "Pipe", "system": "Domestic Hot Water", "systemPrefix": "HW", "diameterMm": "$1" },
+    { "pattern": "^P-SAN-D(\\d+)$", "kind": "Pipe", "system": "Sanitary", "systemPrefix": "SAN", "diameterMm": "$1" },
+    { "pattern": "^P-DR-D(\\d+)$", "kind": "Pipe", "system": "Drainage", "systemPrefix": "DR", "diameterMm": "$1" },
+    { "pattern": "^P-GAS-D(\\d+)$", "kind": "Pipe", "system": "Gas", "systemPrefix": "GAS", "diameterMm": "$1" },
+    { "pattern": "^F-PIPE-D(\\d+)$", "kind": "Pipe", "system": "Fire Protection", "diameterMm": "$1" },
+    { "pattern": "^M-PIPE-D(\\d+)$", "kind": "Pipe", "diameterMm": "$1" },
+    { "pattern": "^M-DUCT-SUP-(\\d+)x(\\d+)$", "kind": "Duct", "system": "Supply Air", "widthMm": "$1", "heightMm": "$2" },
+    { "pattern": "^M-DUCT-RET-(\\d+)x(\\d+)$", "kind": "Duct", "system": "Return Air", "widthMm": "$1", "heightMm": "$2" },
+    { "pattern": "^M-DUCT-EXH-D(\\d+)$", "kind": "Duct", "system": "Exhaust Air", "diameterMm": "$1" },
+    { "pattern": "^E-TRAY-(\\d+)$", "kind": "CableTray", "widthMm": "$1" },
+    { "pattern": "^M-EQP-", "kind": "MechanicalEquipment", "requireBlock": true },
+    { "pattern": "^P-EQP-", "kind": "PlumbingEquipment", "requireBlock": true },
+    { "pattern": "^E-EQP-", "kind": "ElectricalEquipment", "requireBlock": true },
+    { "pattern": "^F-EQP-", "kind": "FireEquipment", "requireBlock": true },
+    { "pattern": "^F-SPK", "kind": "Sprinkler", "requireBlock": true },
+    { "pattern": "^E-LITE", "kind": "LightingFixture", "requireBlock": true }
+  ],
+  "failIfSizeUnparsed": true,
+  "ignoreLayerPatterns": ["^M-ANNO-", "^P-ANNO-", "^E-ANNO-", "^F-ANNO-", "^\\*-ANNO-", "^Defpoints$"]
+}

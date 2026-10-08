@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-WIRE-001",
+  "revitCategory": "OST_CableTray",
+  "familyName": "Cable tray",
+  "typeName": "Day cap mang 300",
+  "materialName": "Steel",
+  "quantity": 28.0,
+  "quantityUnit": "m",
+  "properties": {
+    "ElementType": "Cable",
+    "QuantityLength": 28.0
+  }
+}

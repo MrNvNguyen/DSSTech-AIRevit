@@ -1,0 +1,22 @@
+{
+  "schema": "formwork-n2-toggle-compare/1",
+  "baseline": "docs/evidence/formwork-n2/rules-toggle/baseline-result.json",
+  "toggled": "docs/evidence/formwork-n2/rules-toggle/toggled-result.json",
+  "baseline_ground_contact": false,
+  "toggled_ground_contact": true,
+  "baseline_rules_sha256": "5298c9de92b27b81030af426e3f757894f3125fd0dc81727ae5f27f7dd25ffe3",
+  "toggled_rules_sha256": "c598d2d72886275fc208152561259dc85bd5f49a71bdb472df07f0390c30905f",
+  "sha_changed": true,
+  "elements_with_delta": 1,
+  "deltas": [
+    {
+      "element_id": "1661054",
+      "role": "Beam",
+      "delta_bottom_area_m2": -2.6624999999999894,
+      "delta_total_area_m2": -2.662499999999989,
+      "baseline_total_m2": 13.672499999999978,
+      "toggled_total_m2": 11.00999999999999
+    }
+  ],
+  "json_toggle_bar": "PASS"
+}

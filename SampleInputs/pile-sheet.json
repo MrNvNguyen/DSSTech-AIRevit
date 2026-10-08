@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-PILE-SHEET-001",
+  "revitCategory": "OST_StructuralFoundation",
+  "familyName": "Steel sheet pile Larssen",
+  "typeName": "Cu thep PU400",
+  "materialName": "Steel sheet",
+  "quantity": 18.0,
+  "quantityUnit": "m",
+  "properties": {
+    "ElementType": "Sheet",
+    "PileType": "Sheet",
+    "PileMaterial": "Steel",
+    "QuantityLength": 18.0
+  }
+}

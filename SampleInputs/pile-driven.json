@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-PILE-DRIVE-001",
+  "revitCategory": "OST_StructuralFoundation",
+  "familyName": "Precast driven pile",
+  "typeName": "Square pile 300 ep coc",
+  "materialName": "Concrete pile",
+  "quantity": 24.0,
+  "quantityUnit": "m",
+  "properties": {
+    "ElementType": "Pile",
+    "PileType": "Driven",
+    "PileMaterial": "Concrete",
+    "QuantityLength": 24.0
+  }
+}

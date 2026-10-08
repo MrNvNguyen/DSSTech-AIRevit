@@ -1,0 +1,14 @@
+{
+  "elementId": "DEMO-FIN-001",
+  "revitCategory": "OST_Walls",
+  "familyName": "Finish Layer",
+  "typeName": "Interior plaster 15mm",
+  "materialName": "Vữa xi măng",
+  "quantity": 100.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "QS_WorkItemId": "XD-PLASTER",
+    "SurfaceLocation": "Interior",
+    "Thickness": 1.5
+  }
+}

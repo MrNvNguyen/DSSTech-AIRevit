@@ -1,0 +1,60 @@
+{
+  "schema": "formwork-n3/1",
+  "campaign": "N3-FORMWORK-CLIP",
+  "wave_id": "N3-FORMWORK-CLIP-ATTEMPT-1",
+  "authority": "PRODUCT",
+  "run_class": "PRODUCT_OBSERVE_RUN",
+  "attempt_outcome": "TOGGLE_BASELINE",
+  "classification_reason": "clipHeight=false dual-run baseline (no apriori bar).",
+  "behavior_change": true,
+  "verify_sha": "unknown",
+  "timestamp_utc": "2026-09-15T03:49:53.0809204Z",
+  "revit_host_year": "2025",
+  "revit_build": "25.4.10.45",
+  "model_title": "TEST FORMWORK",
+  "epsilon_mm": 5,
+  "elements_processed": 2,
+  "neighbor_pairs": 1,
+  "rules_path": "Config/formwork-rules.json#clipHeight=false",
+  "rules_sha256": "0c9137fc45b255719e3362e87eacbc9b3ad2eb08fa771e069a19d3e8dcad70b3",
+  "ground_contact_auto_detect": true,
+  "apriori_path": "docs/evidence/formwork-n3/apriori-hand-calc.yaml",
+  "apriori_slab_pending": false,
+  "elements": [
+    {
+      "element_id": "1658761",
+      "role": "Column",
+      "kind": "Column",
+      "clip_height_applied": false,
+      "side_area_m2": 8.235000000000008,
+      "bottom_area_m2": 0,
+      "top_area_m2": 0,
+      "gross_area_m2": 8.235000000000008,
+      "deduct_area_m2": 0,
+      "total_area_m2": 8.235000000000008,
+      "ground_contact_drop_bottom": false,
+      "status": "OK"
+    },
+    {
+      "element_id": "1661499",
+      "role": "Column",
+      "kind": "Column",
+      "clip_height_applied": false,
+      "side_area_m2": 7.5450000000000275,
+      "bottom_area_m2": 0,
+      "top_area_m2": 0,
+      "gross_area_m2": 7.5450000000000275,
+      "deduct_area_m2": 0,
+      "total_area_m2": 7.5450000000000275,
+      "ground_contact_drop_bottom": false,
+      "status": "OK"
+    }
+  ],
+  "comparisons": [
+    {
+      "role": "all",
+      "status": "NOT_MEASURED",
+      "reason": "Missing or empty docs/evidence/formwork-n3/apriori-hand-calc.yaml"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "elementId": "DEMO-FORM-AREA-001",
+  "revitCategory": "OST_Floors",
+  "familyName": "Floor",
+  "typeName": "Concrete Slab",
+  "materialName": "Concrete",
+  "quantity": 1.0,
+  "quantityUnit": "m3",
+  "properties": {
+    "QS_WorkItemId": "XD-FORM",
+    "ElementType": "Slab",
+    "FormworkSystem": "PlywoodFrame",
+    "FormworkMaterial": "Plywood",
+    "FormworkArea": 42.0,
+    "Height": 20.0
+  }
+}

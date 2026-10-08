@@ -1,0 +1,16 @@
+{
+  "elementId": "DEMO-PAINT-001",
+  "revitCategory": "OST_Walls",
+  "familyName": "Paint Finish",
+  "typeName": "Interior paint 2 coats",
+  "materialName": "Paint",
+  "quantity": 120.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "QS_WorkItemId": "XD-PAINT",
+    "QuantityArea": 120.0,
+    "SurfaceLocation": "Interior",
+    "CoatSystem": "1P2F",
+    "PrePutty": true
+  }
+}

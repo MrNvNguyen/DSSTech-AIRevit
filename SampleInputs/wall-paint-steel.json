@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-PAINT-STEEL-001",
+  "revitCategory": "OST_Walls",
+  "familyName": "Paint Finish",
+  "typeName": "Steel paint 1P2F",
+  "materialName": "Steel paint",
+  "quantity": 35.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "QS_WorkItemId": "XD-PAINT",
+    "QuantityArea": 35.0,
+    "CoatSystem": "1P2F",
+    "ElementType": "Steel"
+  }
+}

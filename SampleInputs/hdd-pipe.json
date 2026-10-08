@@ -1,0 +1,14 @@
+{
+  "elementId": "DEMO-HDD-PIPE-001",
+  "revitCategory": "OST_GenericModel",
+  "familyName": "HDD directional drill pipe",
+  "typeName": "HDPE D160",
+  "materialName": "HDPE",
+  "quantity": 50.0,
+  "quantityUnit": "m",
+  "properties": {
+    "ProductType": "HDPE",
+    "ElementType": "HDD",
+    "QuantityLength": 50.0
+  }
+}

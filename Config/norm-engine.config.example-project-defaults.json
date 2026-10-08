@@ -1,0 +1,13 @@
+{
+  "allowQc1Calculation": true,
+  "allowCodeOnlyResult": true,
+  "requireExplicitConstructionMethod": false,
+  "globalDefaults": {},
+  "workItemDefaults": {
+    "XD-CONC": {
+      "ConcreteSupply": "ReadyMix",
+      "PlacementMethod": "Pump",
+      "PumpType": "Static"
+    }
+  }
+}

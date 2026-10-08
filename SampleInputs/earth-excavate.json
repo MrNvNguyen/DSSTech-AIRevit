@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-EARTH-EXC-001",
+  "revitCategory": "OST_Topography",
+  "familyName": "Topography",
+  "typeName": "Site cut",
+  "materialName": "Soil",
+  "quantity": 250.0,
+  "quantityUnit": "m3",
+  "properties": {
+    "ElementType": "Excavation",
+    "QuantityVolume": 250.0
+  }
+}

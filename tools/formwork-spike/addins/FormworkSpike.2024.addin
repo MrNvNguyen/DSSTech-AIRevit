@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="Command">
+    <Name>Formwork Spike N0</Name>
+    <Assembly>__ASSEMBLY__</Assembly>
+    <AddInId>4E2A9C31-8B55-4F0E-9A6D-1C0F5E8D2B71</AddInId>
+    <FullClassName>FormworkSpike.AddIn.FormworkSpikeCommand</FullClassName>
+    <Text>Formwork Spike N0</Text>
+    <Description>N0 geometry observe-only spike (timing + boolean + probe epsilon)</Description>
+    <VendorId>NVNG</VendorId>
+    <VendorDescription>QSNormEngine N0 harness</VendorDescription>
+  </AddIn>
+</RevitAddIns>

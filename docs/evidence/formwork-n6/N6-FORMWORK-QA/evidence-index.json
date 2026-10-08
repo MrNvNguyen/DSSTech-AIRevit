@@ -1,0 +1,19 @@
+{
+  "schema": "formwork-n6-evidence-index/1",
+  "campaign": "N6-FORMWORK-QA",
+  "wave_id": "N6-FORMWORK-QA-ATTEMPT-1",
+  "status": "blocked_on_n5_q2",
+  "depends_on": "N5-FORMWORK-TAKEOFF Q2 PASS",
+  "bars": {
+    "five_samples_le_2pct": "NOT_MEASURED",
+    "low_confidence_lt_5pct": "NOT_MEASURED",
+    "n1n3_regression": "NOT_MEASURED"
+  },
+  "pilot_samples": [
+    "column_interior",
+    "column_edge",
+    "main_beam",
+    "slab_with_opening",
+    "pile_cap"
+  ]
+}

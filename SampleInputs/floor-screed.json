@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-SCREED-001",
+  "revitCategory": "OST_Floors",
+  "familyName": "Floor",
+  "typeName": "Cement screed 40",
+  "materialName": "Vữa láng",
+  "quantity": 45.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "ElementType": "Floor",
+    "QuantityArea": 45.0
+  }
+}

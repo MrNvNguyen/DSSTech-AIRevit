@@ -1,0 +1,14 @@
+{
+  "elementId": "DEMO-PIPE-PVC-001",
+  "revitCategory": "OST_PipeCurves",
+  "familyName": "PVC pipe",
+  "typeName": "PVC D90",
+  "materialName": "PVC",
+  "quantity": 20.0,
+  "quantityUnit": "m",
+  "properties": {
+    "PipeMaterial": "PVC",
+    "ElementType": "Pipe",
+    "QuantityLength": 20.0
+  }
+}

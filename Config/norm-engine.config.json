@@ -1,0 +1,30 @@
+{
+  "allowQc1Calculation": true,
+  "allowCodeOnlyResult": true,
+  "requireExplicitConstructionMethod": true,
+  "globalDefaults": {
+    "SurfaceLocation": "Interior"
+  },
+  "workItemDefaults": {
+    "XD-TILE": {
+      "SurfaceLocation": "Interior",
+      "Material": "Ceramic"
+    },
+    "XD-PAINT": {
+      "SurfaceLocation": "Interior",
+      "CoatSystem": "1P2F"
+    },
+    "XD-PLASTER": {
+      "SurfaceLocation": "Interior"
+    },
+    "XD-WATERPROOF": {
+      "Thickness": 4
+    },
+    "XD-CLAD": {
+      "SurfaceLocation": "Exterior"
+    },
+    "XD-FORM": {
+      "FormworkFace": "Contact"
+    }
+  }
+}

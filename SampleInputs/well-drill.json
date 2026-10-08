@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-WELL-001",
+  "revitCategory": "OST_GenericModel",
+  "familyName": "Water well borehole",
+  "typeName": "Cable percussion D200",
+  "materialName": "Steel",
+  "quantity": 30.0,
+  "quantityUnit": "m",
+  "properties": {
+    "DrillMethod": "CablePercussion",
+    "SoilRockClass": "Medium",
+    "ElementType": "Well",
+    "QuantityLength": 30.0
+  }
+}

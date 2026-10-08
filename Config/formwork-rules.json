@@ -1,0 +1,57 @@
+{
+  "probeEpsilonMm": 5,
+  "verticalToleranceDeg": 15,
+  "useRevitJoinOrder": false,
+  "groundContactAutoDetect": false,
+  "groundContactToleranceMm": 50,
+  "slabOnGradeSkipsBottom": false,
+  "slabOpeningThresholdM2": 1.0,
+  "slabDeductSupportContact": true,
+  "rules": [
+    {
+      "kind": "Column",
+      "categories": ["OST_StructuralColumns"],
+      "faces": ["Side"],
+      "priority": 1,
+      "clipHeight": false,
+      "keepUnjoinedAround": ["Beam"]
+    },
+    {
+      "kind": "Wall",
+      "categories": ["OST_Walls"],
+      "faces": ["Side"],
+      "priority": 1,
+      "clipHeight": false,
+      "structuralOnly": true,
+      "keepUnjoinedAround": ["Beam"]
+    },
+    {
+      "kind": "Beam",
+      "categories": ["OST_StructuralFraming"],
+      "faces": ["Side", "Bottom"],
+      "priority": 3,
+      "dropBottomWhenGroundContact": true
+    },
+    {
+      "kind": "Slab",
+      "categories": ["OST_Floors"],
+      "faces": ["Side", "Bottom"],
+      "priority": 4,
+      "dropBottomWhenGroundContact": true
+    },
+    {
+      "kind": "Pile",
+      "categories": ["OST_StructuralFoundation"],
+      "typePattern": "pile|cọc|coc",
+      "skip": true
+    },
+    {
+      "kind": "Footing",
+      "categories": ["OST_StructuralFoundation"],
+      "faces": ["Side"],
+      "priority": 5,
+      "dropBottomWhenGroundContact": true,
+      "clipHeight": false
+    }
+  ]
+}

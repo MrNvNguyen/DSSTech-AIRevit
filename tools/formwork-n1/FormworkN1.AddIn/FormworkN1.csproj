@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>FormworkN1.AddIn</RootNamespace>
+    <AssemblyName>FormworkN1.AddIn</AssemblyName>
+    <Product>FormworkN1</Product>
+    <TargetFramework Condition="'$(RevitTargetFramework)'==''">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(RevitTargetFramework)'!=''">$(RevitTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath Condition="'$(RevitHostLabel)'!=''">false</AppendTargetFrameworkToOutputPath>
+    <!-- deploy/ avoids locking the same path Revit already loaded via DevLink -->
+    <OutputPath Condition="'$(RevitHostLabel)'!=''">..\deploy\$(RevitHostLabel)\</OutputPath>
+    <IntermediateOutputPath Condition="'$(RevitHostLabel)'!=''">obj\$(RevitHostLabel)\$(Configuration)\</IntermediateOutputPath>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+  <Target Name="EnsureRevitApi" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(RevitApiPath)' == '' OR !Exists('$(RevitApiPath)\RevitAPI.dll')"
+           Text="Set RevitApiPath to a Revit install that contains RevitAPI.dll, or run tools/formwork-n1/run-n1-measure.ps1." />
+  </Target>
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitApiPath)\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitApiPath)\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Core only — do NOT reference QSNormEngine.Revit (Revit AppDomain already loads the
+         installed product DLL without Formwork types → "Could not load type FormworkCalculator"). -->
+    <ProjectReference Include="..\..\..\src\QSNormEngine.Core\QSNormEngine.Core.csproj" />
+    <Compile Include="..\..\..\src\QSNormEngine.Revit\Formwork\**\*.cs" Link="Formwork\%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

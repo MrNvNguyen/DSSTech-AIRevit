@@ -1,0 +1,303 @@
+{
+  "schemaVersion": "1.0",
+  "ruleSets": [
+    {
+      "setId": "CLS-FOUND-PILE-SOILMIX",
+      "revitCategory": "OST_StructuralFoundation",
+      "workItemId": "XD-SOIL-MIX",
+      "priority": 5,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "soil mix|xi mang dat|cfg|dsm|cfa soil", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-FOUND-PILE-SHEET",
+      "revitCategory": "OST_StructuralFoundation",
+      "workItemId": "XD-PILE-SHEET",
+      "priority": 6,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "sheet|cu thep|van thep|larssen|sheet pile", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-FOUND-PILE-BORED",
+      "revitCategory": "OST_StructuralFoundation",
+      "workItemId": "XD-PILE-BORED",
+      "priority": 7,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "bored|khoan nhoi|barrette|drilled pile", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-FOUND-PILE-DRIVE",
+      "revitCategory": "OST_StructuralFoundation",
+      "workItemId": "XD-PILE-DRIVE",
+      "priority": 8,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "driven|dong coc|ep coc|precast pile|pile drive", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-WALL-BRICK",
+      "revitCategory": "OST_Walls",
+      "workItemId": "XD-MASON-BRICK",
+      "priority": 10,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "gach|brick|masonry|block", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-WALL-AAC",
+      "revitCategory": "OST_Walls",
+      "workItemId": "XD-MASON-AAC",
+      "priority": 5,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "aac|be tong khi|aerated", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-WALL-STONE",
+      "revitCategory": "OST_Walls",
+      "workItemId": "XD-MASON-STONE",
+      "priority": 6,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "stone|da xay|xay da|masonry stone", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-WALL-REF",
+      "revitCategory": "OST_Walls",
+      "workItemId": "XD-MASON-REF",
+      "priority": 4,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "refractory|chiu lua|firebrick", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-ROOF",
+      "revitCategory": "OST_Roofs",
+      "workItemId": "XD-ROOF",
+      "priority": 20,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "NOT_CONTAINS", "value1": "waterproof|chong tham|membrane", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-FLOOR-SCREED",
+      "revitCategory": "OST_Floors",
+      "workItemId": "XD-SCREED",
+      "priority": 25,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "screed|lang|vua lang", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-CEILING",
+      "revitCategory": "OST_Ceilings",
+      "workItemId": "XD-CEILING",
+      "priority": 25,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "ceiling|tran|gypsum|thach cao", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-CARPENTRY-WALL",
+      "revitCategory": "OST_Walls",
+      "workItemId": "XD-CARPENTRY",
+      "priority": 8,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "carpentry|moc|go trang tri|wood panel|vach go", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-TOPO-EXC",
+      "revitCategory": "OST_Topography",
+      "workItemId": "XD-EARTH-EXC",
+      "priority": 40,
+      "conditions": []
+    },
+    {
+      "setId": "CLS-PAD-FILL",
+      "revitCategory": "OST_BuildingPad",
+      "workItemId": "XD-EARTH-FILL",
+      "priority": 40,
+      "conditions": []
+    },
+    {
+      "setId": "CLS-GENERIC-ROCK",
+      "revitCategory": "OST_GenericModel",
+      "workItemId": "XD-ROCK",
+      "priority": 15,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "rock|pha da|blast|khoan da", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-GENERIC-EARTH-EXC",
+      "revitCategory": "OST_GenericModel",
+      "workItemId": "XD-EARTH-EXC",
+      "priority": 20,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "excav|dao dat|earth cut|cut earth", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-GENERIC-EARTH-FILL",
+      "revitCategory": "OST_GenericModel",
+      "workItemId": "XD-EARTH-FILL",
+      "priority": 20,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "fill|dap dat|embank", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-GENERIC-EARTH-TRANS",
+      "revitCategory": "OST_GenericModel",
+      "workItemId": "XD-EARTH-TRANS",
+      "priority": 20,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "haul|transport|van chuyen dat", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-WALL-CONC",
+      "revitCategory": "OST_Walls",
+      "workItemId": "XD-CONC",
+      "priority": 20,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "concrete|be tong", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-PIPE-PVC",
+      "revitCategory": "OST_PipeCurves",
+      "workItemId": "MEP-PIPE-PLASTIC",
+      "priority": 10,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "pvc|hdpe|ppr|plastic|nhua", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-PIPE-COPPER",
+      "revitCategory": "OST_PipeCurves",
+      "workItemId": "MEP-PIPE-COPPER",
+      "priority": 10,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "copper|dong", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-PIPE-CI",
+      "revitCategory": "OST_PipeCurves",
+      "workItemId": "MEP-PIPE-CI",
+      "priority": 10,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "cast iron|gang", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-PIPE-CONC",
+      "revitCategory": "OST_PipeCurves",
+      "workItemId": "MEP-PIPE-CONC",
+      "priority": 10,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "concrete|be tong", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-PIPE-STEEL",
+      "revitCategory": "OST_PipeCurves",
+      "workItemId": "MEP-PIPE-STEEL",
+      "priority": 10,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "steel|thep|inox|stainless", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-HVAC-AC",
+      "revitCategory": "OST_MechanicalEquipment",
+      "workItemId": "MEP-HVAC-AC",
+      "priority": 10,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "air conditioner|dieu hoa|split|vrv|vrf", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-HVAC-FAN",
+      "revitCategory": "OST_MechanicalEquipment",
+      "workItemId": "MEP-HVAC-FAN",
+      "priority": 10,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "fan|quat", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-INSUL-PIPE",
+      "revitCategory": "OST_PipeInsulations",
+      "workItemId": "MEP-INSUL",
+      "priority": 10,
+      "conditions": []
+    },
+    {
+      "setId": "CLS-INSUL-DUCT",
+      "revitCategory": "OST_DuctInsulations",
+      "workItemId": "MEP-INSUL",
+      "priority": 10,
+      "conditions": []
+    },
+    {
+      "setId": "CLS-FIRE-ALARM",
+      "revitCategory": "OST_FireAlarmDevices",
+      "workItemId": "MEP-FIRE-CTRL",
+      "priority": 10,
+      "conditions": []
+    },
+    {
+      "setId": "CLS-HDD",
+      "revitCategory": "OST_GenericModel",
+      "workItemId": "MEP-HDD",
+      "priority": 12,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "hdd|khoan ngam|horizontal drill|directional drill", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-WELL",
+      "revitCategory": "OST_GenericModel",
+      "workItemId": "MEP-WELL",
+      "priority": 12,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "well|khoan gieng|borehole|water well", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-STEEL-FAB",
+      "revitCategory": "OST_GenericModel",
+      "workItemId": "XD-STEEL-FAB",
+      "priority": 15,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "steel fab|gia cong thep|fabricat|shop steel|cut weld", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-STEEL-MEMBER",
+      "revitCategory": "OST_StructuralColumns",
+      "workItemId": "XD-STEEL-ERECT",
+      "priority": 10,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "steel|thep", "conditionGroup": 1 },
+        { "paramKey": "_ClassifyText", "operator": "NOT_CONTAINS", "value1": "reinforced concrete|be tong cot thep", "conditionGroup": 1 }
+      ]
+    },
+    {
+      "setId": "CLS-STEEL-FRAMING",
+      "revitCategory": "OST_StructuralFraming",
+      "workItemId": "XD-STEEL-ERECT",
+      "priority": 10,
+      "conditions": [
+        { "paramKey": "_ClassifyText", "operator": "CONTAINS", "value1": "steel|thep", "conditionGroup": 1 },
+        { "paramKey": "_ClassifyText", "operator": "NOT_CONTAINS", "value1": "reinforced concrete|be tong cot thep", "conditionGroup": 1 }
+      ]
+    }
+  ]
+}

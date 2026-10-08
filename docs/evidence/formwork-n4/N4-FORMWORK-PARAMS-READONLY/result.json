@@ -1,0 +1,22 @@
+{
+  "schema": "formwork-n4-result/1",
+  "campaign": "N4-FORMWORK-PARAMS-READONLY",
+  "wave_id": "N4-FORMWORK-PARAMS-READONLY-ATTEMPT-1",
+  "timestamp_utc": "2026-09-15T03:55:00Z",
+  "scope": "READ-ONLY",
+  "harness": {
+    "reference_smoke": "PASS",
+    "resource_adjustment_smoke": "PASS",
+    "bim_property_map_final_count": 27,
+    "xd_form_rows": 5,
+    "quantity_parameter": "QS_FormworkArea",
+    "cli_sample": "SampleInputs/formwork-slab-area42.json",
+    "cli_norm_code": "AF.83111",
+    "cli_quantity": 42.0,
+    "cli_quantity_unit": "m2",
+    "cli_quantity_bar": "PASS"
+  },
+  "no_write_transaction": true,
+  "revit_bind": "NOT_MEASURED",
+  "outcome": "HARNESS_PASS"
+}

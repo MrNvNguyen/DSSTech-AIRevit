@@ -1,0 +1,34 @@
+schema: formwork-n3-claims/1
+campaign: N3-FORMWORK-CLIP
+wave_id: N3-FORMWORK-CLIP-ATTEMPT-1
+status: closed_pass
+authority: PRODUCT
+run_class: PRODUCT_PASS_RUN
+attempt_outcome: PASS
+
+hypothesis: |
+  HeightClipResolver clips per-story columns to beam/slab soffit; JSON toggle
+  changes output without rebuild; modeling SSOT = one column per story.
+
+claims:
+  - id: n3_two_segments_accuracy
+    class: measured
+    status: PASS
+    evidence: docs/evidence/formwork-n3/N3-FORMWORK-CLIP/result.json
+    detail: "1658761=7.56 · 1661499=7.14"
+  - id: n3_json_toggle
+    class: measured
+    status: PASS
+    evidence: docs/evidence/formwork-n3/rules-toggle/compare-summary.json
+    detail: "Δ−0.675 / Δ−0.405 · SHA changed · PRODUCT_PASS_RUN"
+  - id: n3_n2_regression_guard
+    class: inferred
+    status: PASS
+    evidence: FormworkN2MeasureCommand forces Column.ClipHeight=false
+  - id: n3_waitpour_inert
+    class: measured
+    status: PASS
+    evidence: grep — no WaitPour / KeepUnjoinedAround runtime branches
+
+notes: |
+  Closed 2026-09-15. Modeling SSOT: one column instance per story.

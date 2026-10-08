@@ -1,0 +1,20 @@
+{
+  "discipline": "structure",
+  "version": 1,
+  "lengthUnit": "mm",
+  "rules": [
+    { "pattern": "^G-GRID$", "kind": "Grid", "nameFrom": "nearestText" },
+    { "pattern": "^S-COL-(\\d+)x(\\d+)$", "kind": "Column", "widthMm": "$1", "depthMm": "$2", "shape": "rect" },
+    { "pattern": "^S-COL-D(\\d+)$", "kind": "Column", "diameterMm": "$1", "shape": "round" },
+    { "pattern": "^S-COL", "kind": "Column", "sizeFrom": "blockAttrOrGeometry" },
+    { "pattern": "^S-WALL-(\\d+)$", "kind": "StructuralWall", "thicknessMm": "$1", "structural": true },
+    { "pattern": "^S-BEAM-(\\d+)x(\\d+)$", "kind": "Beam", "widthMm": "$1", "heightMm": "$2" },
+    { "pattern": "^S-BEAM", "kind": "Beam", "sizeFrom": "nearestText" },
+    { "pattern": "^S-SLAB-(\\d+)$", "kind": "Floor", "thicknessMm": "$1", "structural": true },
+    { "pattern": "^S-SLAB-HOLE", "kind": "FloorHole" },
+    { "pattern": "^S-FOOT-(\\d+)x(\\d+)-H(\\d+)$", "kind": "IsolatedFoundation", "widthMm": "$1", "depthMm": "$2", "heightMm": "$3" },
+    { "pattern": "^S-PILE-D(\\d+)$", "kind": "Pile", "diameterMm": "$1" },
+    { "pattern": "^S-STRIP-(\\d+)x(\\d+)$", "kind": "StripFoundation", "widthMm": "$1", "heightMm": "$2" }
+  ],
+  "ignoreLayerPatterns": ["^S-ANNO-", "^\\*-ANNO-", "^Defpoints$"]
+}

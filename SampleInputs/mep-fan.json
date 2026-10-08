@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-FAN-001",
+  "revitCategory": "OST_MechanicalEquipment",
+  "familyName": "Exhaust fan",
+  "typeName": "Quat hut 300",
+  "materialName": "Steel",
+  "quantity": 1,
+  "quantityUnit": "each",
+  "properties": {
+    "EquipmentType": "Fan",
+    "ElementType": "Fan"
+  }
+}

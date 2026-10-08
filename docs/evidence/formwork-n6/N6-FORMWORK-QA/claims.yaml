@@ -1,0 +1,29 @@
+schema: formwork-n6-claims/1
+campaign: N6-FORMWORK-QA
+wave_id: N6-FORMWORK-QA-ATTEMPT-1
+status: blocked_on_n5_q2
+authority: PRODUCT
+
+hypothesis: |
+  After N5 Formwork Takeoff Q2 PASS, Layer B 5-element pilot ≤2% hand;
+  Low-confidence <5%; N1/N3 regression holds.
+
+claims:
+  - id: n6_five_samples
+    class: measured
+    status: NOT_MEASURED
+    evidence: |
+      Pilot set (user): cột giữa, cột biên, dầm chính, sàn có lỗ, đài móng
+  - id: n6_low_confidence_rate
+    class: measured
+    status: NOT_MEASURED
+  - id: n6_n1n3_regression
+    class: measured
+    status: NOT_MEASURED
+    evidence: frozen IDs via Formwork Takeoff grid
+
+howto: |
+  1. Complete N5 Q2 first (Formwork Takeoff Ghi + totals).
+  2. Run Formwork Takeoff on 5 Layer B samples; hand-calc ≤2%.
+  3. Export CSV → docs/evidence/formwork-n6/ (path only; no large binary).
+  4. Fill result.json + flip claims to PASS.

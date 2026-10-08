@@ -1,0 +1,48 @@
+{
+  "schema": "formwork-n1-evidence-index/1",
+  "campaign": "N1-FORMWORK-GEOMETRY",
+  "wave_id": "N1-FORMWORK-GEOMETRY-ATTEMPT-1",
+  "authority": "PRODUCT",
+  "behavior_change": true,
+  "status": "closed_pass",
+  "revit": {
+    "host_year": "2025",
+    "build": "25.4.10.45",
+    "model_title": "TEST FORMWORK",
+    "model_path_local": "C:\\Users\\NguyenNguyenVan\\Desktop\\TEST FORMWORK.rvt",
+    "rvt_in_git": false
+  },
+  "artifacts": [
+    {
+      "path": "docs/evidence/formwork-n1/N1-FORMWORK-GEOMETRY/result.json",
+      "role": "machine_ssot",
+      "status": "measured_pass",
+      "timestamp_utc": "2026-09-14T04:28:10.8301033Z"
+    },
+    {
+      "path": "docs/evidence/formwork-n1/N1-FORMWORK-GEOMETRY/claims.yaml",
+      "role": "claims"
+    },
+    {
+      "path": "docs/evidence/formwork-n1/apriori-hand-calc.yaml",
+      "role": "apriori_hand_calc",
+      "slab_pending": false
+    },
+    {
+      "path": "docs/evidence/formwork-n1/N1-FORMWORK-GEOMETRY-RESULT-MEMO.md",
+      "role": "result_memo"
+    },
+    {
+      "path": "src/QSNormEngine.Revit/Formwork/FormworkCalculator.cs",
+      "role": "production_pipeline"
+    },
+    {
+      "path": "tools/formwork-n1/FormworkN1.AddIn/FormworkN1MeasureCommand.cs",
+      "role": "measurement_harness"
+    }
+  ],
+  "bars": {
+    "max_rel_error_pct": 1.0,
+    "n1_gate": "PASS"
+  }
+}

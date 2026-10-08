@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Dss.Cad2Bim.Core</RootNamespace>
+    <AssemblyName>Dss.Cad2Bim.Core</AssemblyName>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <ProjectReference Include="..\Dss.McpContracts\Dss.McpContracts.csproj" />
+  </ItemGroup>
+</Project>

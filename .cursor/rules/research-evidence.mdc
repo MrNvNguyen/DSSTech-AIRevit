@@ -1,0 +1,29 @@
+---
+description: Conventions for research memos and evidence under docs/ and 0 Documents — observation only, no large binaries.
+globs: "{docs,0 Documents}/**/*"
+alwaysApply: false
+---
+
+# Research & evidence docs
+
+Applies when editing `docs/**` or `0 Documents/**`.
+
+## Observation only
+
+- Thaoluan / unsigned `docs/` notes = **observation**. Không mở `authorized_box` hay claim official-ready từ memo.
+- Implementation authorize sống ở `0 Documents/1-Sprints/**` sau PO quyết định.
+- `docs/ROADMAP.md` Phase 2–5 là backlog, không phải hộp đã ký.
+
+## Evidence hygiene
+
+- Mỗi run: `result.json` + `claims.yaml` + `evidence-index.json` (hoặc `run-manifest.json` + `analyst-notes.md`).
+- Screenshot Revit / CSV export: đường dẫn trong index — **không** nhúng base64 lớn vào markdown.
+- Không commit file `.rvt` lớn, dump SQLite phụ, hay binary >50 MiB vào evidence.
+- Phân biệt rõ: measured · inferred · hypothesis.
+- Ghi Revit build (host year + build number), .NET TFM (`net48` / `net8.0-windows` / `net10.0-windows`), runtime JSON source, config flags.
+
+## Writing
+
+- Tiêu đề có ngày ISO (`YYYY-MM-DD`) khi là snapshot session.
+- Link tương đối tới evidence folder.
+- Khi so sánh mã lá: nêu WorkItem, facts (category, method, height/thickness), expected vs actual code, `SelectionStatus`.

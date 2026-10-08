@@ -1,0 +1,38 @@
+schema: formwork-n2-claims/1
+campaign: N2-FORMWORK-RULES
+wave_id: N2-FORMWORK-RULES-ATTEMPT-1
+status: measured_pass
+authority: PRODUCT
+run_class: PRODUCT_PASS_RUN
+attempt_outcome: PASS
+
+hypothesis: |
+  FormworkRuleSet from Config/formwork-rules.json drives faces/priority/groundContact;
+  JSON-only edits change harness output without rebuild; N1 IDs regress ≤1% with
+  groundContactAutoDetect=false; L1 ground beam drops bottom when GC=true.
+
+claims:
+  - id: n2_rules_loaded_from_json
+    class: inferred
+    status: PASS
+    evidence: Config/formwork-rules.json + rules_sha256 stamped in result.json
+  - id: n2_json_toggle_changes_result
+    class: measured
+    status: PASS
+    evidence: docs/evidence/formwork-n2/rules-toggle/compare-summary.json
+    detail: "Only beam 1661054 changed; Δbottom=−2.6625; Δtotal=−2.6625"
+  - id: n2_ground_contact_pair
+    class: measured
+    status: PASS
+    evidence: docs/evidence/formwork-n2/N2-FORMWORK-RULES/result.json
+    detail: |
+      L1 1661054: bottom 0, drop_bottom=true, total 11.01 vs hand 11.01.
+      L2 1660193: bottom 5.64 retained (unchanged vs GC=false).
+  - id: n1_regression_frozen_ids
+    class: measured
+    status: PASS
+    evidence: docs/evidence/formwork-n2/rules-toggle/baseline-result.json
+    detail: "GC=false: column 8.235, beam 22.695, slab 201.005 — all PASS"
+
+notes: |
+  Measured 2026-09-15 on TEST FORMWORK.rvt / Revit 2025. N3–N6 still closed.

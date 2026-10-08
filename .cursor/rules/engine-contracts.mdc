@@ -1,0 +1,16 @@
+---
+description: Hard contracts when editing QSNormEngine Core, CLI, Revit add-in, data, or tests.
+globs: "{src,Config,Data,Database,tests,scripts,SampleInputs}/**"
+alwaysApply: false
+---
+
+# Engine contracts
+
+- `QSNormEngine.Core` must not reference Autodesk.Revit. Keep Revit types in `QSNormEngine.Revit`.
+- Norm Selector uses `[Transaction(TransactionMode.Manual)]` because ResultsWindow may write `QS_*` after **explicit user confirm** (Gán biện pháp đổ / Ghi vào cấu kiện). Analysis itself does not auto-write. Never auto-write on command start.
+- `CanIssueOfficially` is true only for approved/ready resources — never for `SelectedQc1` or `SelectedCodeOnly`.
+- After SQLite/rule changes: migrate (`scripts/migrate-engine-v1.py`) → export (`scripts/export-runtime-data.py`) → run `tests/reference_smoke_test.py` and `tests/resource_adjustment_smoke_test.py`. Do not hand-edit `Data/norm-engine-runtime.json` as master.
+- Prefer extending existing selector/condition/adjustment tables over new parallel engines.
+- New WorkItem coverage must keep the same interfaces (`ElementFacts` → `NormSelectionResult`).
+- Shared parameter names: `QS_*` canonical; aliases live in `ParameterAliases.cs`. Numeric values use units in `docs/SHARED_PARAMETERS.md`.
+- Match existing C# style; no speculative configurability. Config flags already exist: `allowQc1Calculation`, `allowCodeOnlyResult`, `requireExplicitConstructionMethod`.

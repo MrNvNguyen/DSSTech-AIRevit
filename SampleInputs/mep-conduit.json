@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-CONDUIT-001",
+  "revitCategory": "OST_Conduit",
+  "familyName": "Conduit",
+  "typeName": "PVC 20",
+  "materialName": "PVC",
+  "quantity": 45.0,
+  "quantityUnit": "m",
+  "properties": {
+    "ElementType": "Conduit",
+    "QuantityLength": 45.0
+  }
+}

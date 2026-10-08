@@ -1,0 +1,14 @@
+{
+  "elementId": "DEMO-PIPE-CI-001",
+  "revitCategory": "OST_PipeCurves",
+  "familyName": "Cast iron pipe",
+  "typeName": "Gang D100",
+  "materialName": "Cast iron",
+  "quantity": 8.0,
+  "quantityUnit": "m",
+  "properties": {
+    "PipeMaterial": "CastIron",
+    "ElementType": "Pipe",
+    "QuantityLength": 8.0
+  }
+}

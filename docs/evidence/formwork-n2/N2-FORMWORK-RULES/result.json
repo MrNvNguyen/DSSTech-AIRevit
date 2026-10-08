@@ -1,0 +1,119 @@
+{
+  "schema": "formwork-n2/1",
+  "campaign": "N2-FORMWORK-RULES",
+  "wave_id": "N2-FORMWORK-RULES-ATTEMPT-1",
+  "authority": "PRODUCT",
+  "run_class": "PRODUCT_PASS_RUN",
+  "attempt_outcome": "PASS",
+  "classification_reason": "All measured elements within 1% of a-priori hand calc.",
+  "behavior_change": true,
+  "verify_sha": "unknown",
+  "timestamp_utc": "2026-09-15T02:54:13.5843999Z",
+  "revit_host_year": "2025",
+  "revit_build": "25.4.10.45",
+  "model_title": "TEST FORMWORK",
+  "epsilon_mm": 5,
+  "elements_processed": 4,
+  "neighbor_pairs": 3,
+  "rules_path": "Config/formwork-rules.json",
+  "rules_sha256": "c598d2d72886275fc208152561259dc85bd5f49a71bdb472df07f0390c30905f",
+  "ground_contact_auto_detect": true,
+  "apriori_path": "docs/evidence/formwork-n2/apriori-hand-calc.yaml",
+  "apriori_slab_pending": false,
+  "elements": [
+    {
+      "element_id": "1659100",
+      "role": "Column",
+      "kind": "Column",
+      "side_area_m2": 8.23500000000002,
+      "bottom_area_m2": 0,
+      "top_area_m2": 0,
+      "gross_area_m2": 8.23500000000002,
+      "deduct_area_m2": 0,
+      "total_area_m2": 8.23500000000002,
+      "ground_contact_drop_bottom": false,
+      "status": "OK"
+    },
+    {
+      "element_id": "1660193",
+      "role": "Beam",
+      "kind": "Beam",
+      "side_area_m2": 17.190000000000026,
+      "bottom_area_m2": 5.639999999999956,
+      "top_area_m2": 0,
+      "gross_area_m2": 22.829999999999984,
+      "deduct_area_m2": 0.13500000000000031,
+      "total_area_m2": 22.694999999999983,
+      "ground_contact_drop_bottom": false,
+      "status": "OK"
+    },
+    {
+      "element_id": "1660566",
+      "role": "Slab",
+      "kind": "Slab",
+      "side_area_m2": 9.090000000000002,
+      "bottom_area_m2": 197.60000000000005,
+      "top_area_m2": 0,
+      "gross_area_m2": 206.69000000000005,
+      "deduct_area_m2": 5.684999999999984,
+      "total_area_m2": 201.00500000000008,
+      "ground_contact_drop_bottom": false,
+      "status": "OK"
+    },
+    {
+      "element_id": "1661054",
+      "role": "Beam",
+      "kind": "Beam",
+      "side_area_m2": 11.00999999999999,
+      "bottom_area_m2": 0,
+      "top_area_m2": 0,
+      "gross_area_m2": 11.00999999999999,
+      "deduct_area_m2": 0,
+      "total_area_m2": 11.00999999999999,
+      "ground_contact_drop_bottom": true,
+      "status": "OK"
+    }
+  ],
+  "comparisons": [
+    {
+      "role": "column",
+      "element_id": "1659100",
+      "hand_total_m2": 8.235,
+      "computed_total_m2": 8.23500000000002,
+      "gross_area_m2": 8.23500000000002,
+      "deduct_area_m2": 0,
+      "error_pct": 2.588498126630602E-13,
+      "status": "PASS"
+    },
+    {
+      "role": "beam_upper",
+      "element_id": "1660193",
+      "hand_total_m2": 22.695,
+      "computed_total_m2": 22.694999999999983,
+      "gross_area_m2": 22.829999999999984,
+      "deduct_area_m2": 0.13500000000000031,
+      "error_pct": 7.827084553426968E-14,
+      "status": "PASS"
+    },
+    {
+      "role": "slab",
+      "element_id": "1660566",
+      "hand_total_m2": 201.005,
+      "computed_total_m2": 201.00500000000008,
+      "gross_area_m2": 206.69000000000005,
+      "deduct_area_m2": 5.684999999999984,
+      "error_pct": 4.241940662730381E-14,
+      "status": "PASS"
+    },
+    {
+      "role": "beam_ground",
+      "element_id": "1661054",
+      "hand_total_m2": 11.01,
+      "computed_total_m2": 11.00999999999999,
+      "gross_area_m2": 11.00999999999999,
+      "deduct_area_m2": 0,
+      "error_pct": 9.680418743325617E-14,
+      "status": "PASS"
+    }
+  ]
+}

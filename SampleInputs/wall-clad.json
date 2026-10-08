@@ -1,0 +1,17 @@
+{
+  "elementId": "DEMO-CLAD-001",
+  "revitCategory": "OST_Walls",
+  "familyName": "Aluminum cladding panel",
+  "typeName": "Exterior panel 600",
+  "materialName": "Aluminum",
+  "quantity": 85.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "QS_WorkItemId": "XD-CLAD",
+    "QuantityArea": 85.0,
+    "SurfaceLocation": "Exterior",
+    "PanelWidth": 0.6,
+    "PanelHeight": 1.2,
+    "TileArea": 0.5
+  }
+}

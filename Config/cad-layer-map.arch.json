@@ -1,0 +1,20 @@
+{
+  "discipline": "arch",
+  "version": 1,
+  "lengthUnit": "mm",
+  "wallPair": { "distanceTolMm": 5, "parallelAngleDeg": 3 },
+  "rules": [
+    { "pattern": "^A-WALL-(\\d+)$", "kind": "ArchWall", "thicknessMm": "$1", "structural": false },
+    { "pattern": "^A-WALL", "kind": "ArchWall", "thicknessFrom": "parallelPairGap", "structural": false },
+    { "pattern": "^A-DOOR-(\\d+)x(\\d+)$", "kind": "Door", "widthMm": "$1", "heightMm": "$2", "requireBlock": true, "hostWallMaxMm": 200 },
+    { "pattern": "^A-DOOR", "kind": "Door", "sizeFrom": "blockAttrWH", "requireBlock": true, "hostWallMaxMm": 200 },
+    { "pattern": "^A-WIND-(\\d+)x(\\d+)$", "kind": "Window", "widthMm": "$1", "heightMm": "$2", "sillMmDefault": 900, "requireBlock": true },
+    { "pattern": "^A-WIND", "kind": "Window", "sillFrom": "attrSILL", "sillMmDefault": 900, "requireBlock": true },
+    { "pattern": "^A-ROOM$", "kind": "Room", "nameFrom": "textInsideLoop" },
+    { "pattern": "^A-FLOR-", "kind": "FinishFloor", "structural": false },
+    { "pattern": "^A-CLNG-OFF-(\\d+)$", "kind": "Ceiling", "offsetMm": "$1" },
+    { "pattern": "^A-CLNG-", "kind": "Ceiling" }
+  ],
+  "skipOverlap": { "kind": "ArchWall", "against": "StructuralWall", "axisTolMm": 50 },
+  "ignoreLayerPatterns": ["^A-ANNO-", "^\\*-ANNO-", "^Defpoints$"]
+}

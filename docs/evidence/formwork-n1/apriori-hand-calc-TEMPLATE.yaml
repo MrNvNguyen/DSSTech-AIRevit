@@ -1,0 +1,49 @@
+# N1 a-priori hand calc — fill BEFORE running FormworkCalculator on pilot model.
+# Copy to apriori-hand-calc.yaml and complete all fields. Do not edit after run starts.
+
+schema: formwork-n1-apriori/1
+campaign: N1-FORMWORK-GEOMETRY
+written_before_run_utc: ""          # ISO-8601 — required
+author: ""
+pilot_model_path: ""                 # local .rvt — not committed
+revit_host_year: ""                  # e.g. 2025
+n1_scope_note: |
+  Hand calc must match N1-only scope:
+  - Column: Side faces only (full solid height — no N3 clip)
+  - Beam: Side + Bottom (no groundContact drop — N2 deferred)
+  - Slab: Side + Bottom (no groundContact drop — N2 deferred)
+  - Contact: probe epsilon 5 mm; priority Column=1 Beam=3 Slab=4
+  - No WaitPour / keepUnjoinedAround (N2 deferred)
+
+elements:
+  - role: column
+    element_id: ""
+    type_name: ""
+    dimensions_m: { width: null, depth: null, height: null }  # from type + instance BEFORE run
+    faces_included: [Side]
+    gross_side_area_m2: null
+    contact_deductions_m2: []   # { neighbor_role, neighbor_id, area_m2, reason }
+    expected_total_area_m2: null
+
+  - role: beam
+    element_id: ""
+    type_name: ""
+    dimensions_m: { width: null, depth: null, length: null }
+    faces_included: [Side, Bottom]
+    gross_area_m2: null
+    contact_deductions_m2: []
+    expected_total_area_m2: null
+
+  - role: slab
+    element_id: ""
+    type_name: ""
+    dimensions_m: { thickness: null }   # plan area from footprint if needed
+    faces_included: [Side, Bottom]
+    gross_area_m2: null
+    contact_deductions_m2: []
+    expected_total_area_m2: null
+
+bar:
+  metric: n1_total_area_vs_apriori_hand_pct
+  max_error_pct: 1.0
+  per_element: true                  # each of 3 elements must pass ≤1%

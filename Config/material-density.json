@@ -1,0 +1,23 @@
+{
+  "densities": {
+    "concrete": 2400,
+    "bê tông": 2400,
+    "be tong": 2400,
+    "steel": 7850,
+    "thép": 7850,
+    "thep": 7850,
+    "rebar": 7850,
+    "brick": 1800,
+    "gạch": 1800,
+    "gach": 1800,
+    "mortar": 2000,
+    "vữa": 2000,
+    "vua": 2000,
+    "timber": 600,
+    "wood": 600,
+    "gỗ": 600,
+    "go": 600
+  },
+  "unit": "kg/m3",
+  "note": "Substring match on MaterialName (case-insensitive). Missing → WeightKg left blank."
+}

@@ -1,0 +1,14 @@
+{
+  "elementId": "DEMO-PIPE-CU-001",
+  "revitCategory": "OST_PipeCurves",
+  "familyName": "Copper pipe",
+  "typeName": "Dong D22",
+  "materialName": "Copper",
+  "quantity": 15.0,
+  "quantityUnit": "m",
+  "properties": {
+    "PipeMaterial": "Copper",
+    "ElementType": "Pipe",
+    "QuantityLength": 15.0
+  }
+}

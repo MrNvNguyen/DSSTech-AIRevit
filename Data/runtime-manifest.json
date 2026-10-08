@@ -1,0 +1,30 @@
+{
+  "engineVersion": "0.1.0",
+  "runtimeSchema": "1.0",
+  "files": {
+    "Database/Database_DinhMuc_QS_BIM_FINAL_v2_original.sqlite": {
+      "bytes": 716800,
+      "sha256": "94f3594438c3d66577c1044a1f7e5fb10aa8baba59a5d7de7965cab4020fd89e"
+    },
+    "Database/Database_DinhMuc_QS_BIM_ENGINE_v1.sqlite": {
+      "bytes": 724992,
+      "sha256": "b561bbdc0e050aaaccbcd5dd432558d62f974a77a4bd03605966ac399ceaedcc"
+    },
+    "Data/norm-engine-runtime.json": {
+      "bytes": 795112,
+      "sha256": "6f358cd415d9ffce31f08ab394780d4c6b065e22de0c22c3a1c5b92d308182e2"
+    }
+  },
+  "qa": {
+    "work_family_final": 98,
+    "norm_index_final": 1328,
+    "norm_variant": 155,
+    "norm_condition": 437,
+    "resource": 51,
+    "norm_resource": 995,
+    "adjustment_rule": 4,
+    "bim_property_map_final": 22,
+    "orphanNormResources": 0,
+    "resourceBackedVariants": 155
+  }
+}

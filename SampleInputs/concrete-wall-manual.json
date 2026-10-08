@@ -1,0 +1,18 @@
+{
+  "elementId": "DEMO-WALL-CONC-001",
+  "revitCategory": "OST_Walls",
+  "familyName": "Basic Wall",
+  "typeName": "Concrete 300",
+  "materialName": "Concrete B25",
+  "quantity": 8.4,
+  "quantityUnit": "m3",
+  "properties": {
+    "ElementType": "Wall",
+    "ConcreteGrade": "B25",
+    "ConcreteSupply": "ReadyMix",
+    "PlacementMethod": "Manual",
+    "Thickness": 30.0,
+    "WallThickness": 30.0,
+    "Height": 3.5
+  }
+}

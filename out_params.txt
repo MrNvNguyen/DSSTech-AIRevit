@@ -1,0 +1,66 @@
+﻿=== parameterDictionary ===
+ElementType | text |  | Cß╗Öt/T╞░ß╗¥ng/Dß║ºm/S├án/M├│ng... | Loß║íi cß║Ñu kiß╗çn
+ConcreteGrade | text |  | B15/B20/B25/B30... | Cß║Ñp ─æß╗Ö bß╗ün/M├íc b├¬ t├┤ng
+ConcreteSupply | enum |  | Trß╗Ön tß║íi chß╗ù/Trß║ím trß╗Ön/Th╞░╞íng phß║⌐m | Nguß╗ôn b├¬ t├┤ng
+PlacementMethod | enum |  | Thß╗º c├┤ng/Cß║ºn cß║⌐u/M├íy b╞ím | Biß╗çn ph├íp ─æß╗ò b├¬ t├┤ng
+PumpType | enum |  | T─⌐nh/Tß╗▒ h├ánh | Loß║íi b╞ím
+Height | number | m | Theo cß╗æt ┬▒0.00 | Chiß╗üu cao thi c├┤ng
+Thickness | number | cm | D├╣ng cho t╞░ß╗¥ng | Chiß╗üu d├áy cß║Ñu kiß╗çn
+CrossSectionArea | number | m2 | D├╣ng cho cß╗Öt | Tiß║┐t diß╗çn cß║Ñu kiß╗çn
+Width | number | cm | M├│ng/l├│t m├│ng... | Chiß╗üu rß╗Öng
+Diameter | number | cm | ß╗Éng/cß╗ìc... | ─É╞░ß╗¥ng k├¡nh
+Depth | number | m | ─É├áo/cß╗ìc/hß╗æ... | Chiß╗üu s├óu
+Environment | text |  | Tr├¬n cß║ín/d╞░ß╗¢i n╞░ß╗¢c/hß║ºm... | ─Éiß╗üu kiß╗çn m├┤i tr╞░ß╗¥ng/thi c├┤ng
+NormSource | text |  | TT38/2026... | Nguß╗ôn ─æß╗ïnh mß╗⌐c
+NormCode | text |  | AF.12210... | M├ú ─æß╗ïnh mß╗⌐c
+AdjustmentSet | text |  | V├¡ dß╗Ñ: PUMP_MOBILE | Bß╗Ö hß╗ç sß╗æ ─æiß╗üu chß╗ënh
+RebarDiameter | number | mm | 10/18/20... | ─É╞░ß╗¥ng k├¡nh cß╗æt th├⌐p
+WallThickness | number | cm | 11/22/33... | Chiß╗üu d├áy t╞░ß╗¥ng x├óy
+TileArea | number | m2 | 0.04/0.09... | Diß╗çn t├¡ch 1 vi├¬n gß║ích/─æ├í
+SurfaceLocation | enum |  | Interior/Exterior/Wall/Ceiling... | Vß╗ï tr├¡ bß╗ü mß║╖t
+CoatSystem | enum |  | 1P1F/1P2F | Hß╗ç lß╗¢p s╞ín
+PrePutty | boolean |  | 0/1 | Bß╗ü mß║╖t ─æ├ú bß║ú
+StairType | enum |  | Regular/Spiral | Loß║íi cß║ºu thang
+FormworkSystem | enum |  | PlywoodFrame/Steel/Wood | Hß╗ç v├ín khu├┤n
+PaintThickness | number | mm | 1.0/1.5/2.0/3.0/3.2 | Chiß╗üu d├áy s╞ín kß║╗
+=== selectorSchemas sample ===
+KS-TOPO => SurveyClass|TerrainClass|Scale|Accuracy|Distance
+KS-GEOPH => Method|TerrainClass|ObservationType|Depth
+KS-DRILL => DrillMethod|Depth|Diameter|SoilRockClass|Environment
+KS-FIELD => TestType|Depth|SoilClass|Equipment
+KS-SAMPLE => SampleType|Depth|Preservation
+KS-HYDRO => HydroMethod|TerrainClass|Duration
+KS-MON => MonitoringType|Accuracy|Cycle
+XD-PREP-CLEAR => VegetationClass|Method|Diameter|Density
+XD-DEMO => ElementType|Material|Method|Thickness|Height
+XD-EARTH-EXC => SoilClass|Method|Equipment|Depth|Width|Environment
+XD-EARTH-FILL => Material|CompactionK|Equipment|LayerThickness|Moisture
+XD-EARTH-TRANS => Material|Distance|TruckCapacity|RoadClass
+XD-ROCK => RockClass|HoleDiameter|Method|Depth|Environment
+XD-DREDGE => DredgeType|SoilClass|Power|TransportDistance
+XD-PILE-DRIVE => PileMaterial|PileType|Section|Length|Method|HammerCapacity|Environment
+XD-PILE-SHEET => PileType|Profile|Length|Method|Environment
+XD-PILE-BORED => Diameter|Depth|DrillMethod|SoilRockClass|Casing|PolymerBentonite
+XD-SOIL-MIX => Diameter|Depth|MixMethod|CementContent
+XD-ROAD-BASE => Material|LayerThickness|CompactionK|Equipment
+XD-ROAD-SURF => SurfaceType|AsphaltType|Thickness|Binder|Equipment
+XD-ROAD-SIGN => DeviceType|Size|Material|Method
+XD-MASON-STONE => StoneType|MortarGrade|ElementType|Thickness
+XD-MASON-BRICK => BrickType|Dimension|MortarGrade|Thickness|Height
+XD-MASON-AAC => BlockType|Dimension|MortarType|Thickness|Height
+XD-MASON-REF => BrickType|MortarType|TemperatureClass|ElementType
+XD-CONC => ElementType|ConcreteGrade|Supply|PlacementMethod|Height|Thickness|CrossSectionArea|Environment
+XD-REBAR => ElementType|Diameter|SteelGrade|Method|Environment|Prestress
+XD-FORM => FormworkMaterial|ElementType|Height|Curvature|System
+XD-PRECAST-PROD => ElementType|Weight|ConcreteGrade|Method
+XD-PRECAST-ERECT => ElementType|Weight|CraneCapacity|Height|Environment
+XD-TIMBER => ElementType|WoodGroup|Section|Method
+XD-STEEL-FAB => ProfileType|Weight|SteelGrade|Connection|Complexity
+XD-STEEL-ERECT => ElementType|Weight|Height|CraneCapacity|Connection
+XD-ROOF => RoofMaterial|Slope|SheetTileType|Height
+XD-PLASTER => Surface|MortarGrade|Thickness|Height|IndoorOutdoor
+XD-CLAD => Material|TileStoneType|Size|Height|Surface
+XD-SCREED => Material|Thickness|FinishType|Slope
+XD-TILE => Material|TileStoneType|Size|Pattern
+XD-CEILING => CeilingType|FrameType|PanelType|Height
+XD-CARPENTRY => WoodType|ElementType|Finish|Thickness

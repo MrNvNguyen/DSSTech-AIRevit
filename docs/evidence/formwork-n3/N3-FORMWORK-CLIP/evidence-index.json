@@ -1,0 +1,21 @@
+{
+  "schema": "formwork-n3-evidence-index/1",
+  "campaign": "N3-FORMWORK-CLIP",
+  "wave_id": "N3-FORMWORK-CLIP-ATTEMPT-1",
+  "amend": "N3-FORMWORK-CLIP-AMEND-STORY-2026-09-15",
+  "authority": "PRODUCT",
+  "behavior_change": true,
+  "status": "closed_pass",
+  "revit": {
+    "host_year": "2025",
+    "build": "25.4.10.45",
+    "model_title": "TEST FORMWORK",
+    "rvt_in_git": false
+  },
+  "bars": {
+    "story_pair_clip_accuracy": "PASS",
+    "clipped_height_lt_bbox": "PASS",
+    "json_toggle": "PASS",
+    "modeling_ssot": "one_column_per_story"
+  }
+}

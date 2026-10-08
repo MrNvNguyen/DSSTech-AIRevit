@@ -1,0 +1,16 @@
+# N0 hand-calc fixture — matched to TEST FORMWORK.rvt join
+
+# Column: M_Concrete-Rectangular-Column 450 x 600mm
+# Beam:   M_Concrete-Rectangular Beam 300 x 600mm
+# Contact (beam width × column 450mm face): 0.30 m * 0.45 m = 0.135 m2
+# (Earlier 0.18 assumed full beam end 0.30×0.60 — wrong for this join face.)
+
+fixture_id: hand-calc-beam-column
+description: Joined rectangular column + beam for probe-epsilon validation (TEST FORMWORK)
+hand_area_m2: 0.135
+epsilon_mm: 5
+pilot_model: "C:\\Users\\NguyenNguyenVan\\Desktop\\TEST FORMWORK.rvt"
+element_ids:
+  - id: "1659100"
+  - id: "1660193"
+# Probe measured 2026-09-12T13:59Z → computed_area_m2 ≈ 0.135 (error ≈ 0% vs corrected hand).

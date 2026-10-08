@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-STEEL-BEAM-001",
+  "revitCategory": "OST_StructuralFraming",
+  "familyName": "Steel UB beam",
+  "typeName": "UB 356x171x51 thep",
+  "materialName": "Steel",
+  "quantity": 620.0,
+  "quantityUnit": "kg",
+  "properties": {
+    "ElementType": "Beam",
+    "SteelActivity": "Erection",
+    "SteelGrade": "CB400-V",
+    "QuantityMass": 620.0
+  }
+}

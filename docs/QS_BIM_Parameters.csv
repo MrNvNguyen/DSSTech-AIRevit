@@ -1,0 +1,32 @@
+Parameter,DataType,CanonicalUnitOrValues,Purpose
+QS_WorkItemId,Text,WorkItem ID,Manual classification override
+QS_ConstructionHeight,Number,m from project ±0.00,Norm height/elevation selector
+QS_Thickness,Number,cm,Generic finish/layer thickness
+QS_ConcreteGrade,Text,B20/B25/B30...,Concrete specification
+QS_ConcreteSupply,Text,SiteMix/SiteBatchPlant/ReadyMix,Concrete supply/adjustment
+QS_PlacementMethod,Text,Manual/Crane/Pump,Construction method selector
+QS_PumpType,Text,Static/Mobile,Pump adjustment
+QS_SurfaceLocation,Text,Interior/Exterior/Wall/Ceiling,Finish selector
+QS_TileArea,Number,m2,Tile size selector
+QS_CoatSystem,Text,1P1F/1P2F,Paint layer selector
+QS_PrePutty,YesNo,true/false,Paint selector
+QS_FormworkSystem,Text,PlywoodFrame/Steel/Wood,Formwork selector
+QS_FormworkMaterial,Text,Dictionary,Formwork material
+QS_FormworkArea,Number,m2,Formwork takeoff total (read)
+QS_FormworkSide,Number,m2,Formwork side area (read)
+QS_FormworkBottom,Number,m2,Formwork bottom area (read)
+QS_FormworkDeduct,Number,m2,Formwork contact deduct (read)
+QS_FormworkWaitPour,Number,m2,Formwork wait-pour leftover (read)
+QS_FormworkGroundContact,YesNo,true/false,Formwork ground-contact flag
+QS_FormworkConfidence,Text,High/Low,Formwork takeoff confidence
+QS_FormworkStamp,Text,ISO timestamp,Formwork takeoff stamp
+QS_PaintThickness,Number,mm,Road marking selector
+QS_BrickType,Text,Dictionary,Masonry specification
+QS_MortarGrade,Text,M50/M75/M100...,Masonry/plaster specification
+QS_PipeMaterial,Text,PVC/HDPE/Steel/Copper/CastIron/Concrete,MEP family classification
+QS_JointType,Text,Dictionary,Pipe/fitting selector
+QS_SystemType,Text,Dictionary,MEP selector
+QS_EquipmentType,Text,Dictionary,Equipment classification
+QS_NormCode,Text,Leaf code,Write-back
+QS_NormStatus,Text,Selection status,Write-back
+QS_NormStamp,Text,ISO timestamp,Write-back

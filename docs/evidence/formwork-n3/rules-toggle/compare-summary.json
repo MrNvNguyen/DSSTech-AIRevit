@@ -1,0 +1,29 @@
+{
+  "schema": "formwork-n3-toggle-compare/1",
+  "baseline": "docs/evidence/formwork-n3/rules-toggle/baseline-result.json",
+  "toggled": "docs/evidence/formwork-n3/rules-toggle/toggled-result.json",
+  "baseline_rules_sha256": "0c9137fc45b255719e3362e87eacbc9b3ad2eb08fa771e069a19d3e8dcad70b3",
+  "toggled_rules_sha256": "c598d2d72886275fc208152561259dc85bd5f49a71bdb472df07f0390c30905f",
+  "sha_changed": true,
+  "elements_with_delta": 2,
+  "deltas": [
+    {
+      "element_id": "1658761",
+      "delta_total_area_m2": -0.6750000000000096,
+      "baseline_total_m2": 8.235000000000008,
+      "toggled_total_m2": 7.559999999999999,
+      "baseline_clip_height_applied": false,
+      "toggled_clip_height_applied": true
+    },
+    {
+      "element_id": "1661499",
+      "delta_total_area_m2": -0.40500000000003045,
+      "baseline_total_m2": 7.5450000000000275,
+      "toggled_total_m2": 7.139999999999997,
+      "baseline_clip_height_applied": false,
+      "toggled_clip_height_applied": true
+    }
+  ],
+  "json_toggle_bar": "PASS",
+  "repo_root": "D:\\DEV\\QSNormEngine_Revit"
+}

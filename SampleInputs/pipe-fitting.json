@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-FITTING-001",
+  "revitCategory": "OST_PipeFitting",
+  "familyName": "Elbow fitting",
+  "typeName": "Cut 90 PVC",
+  "materialName": "PVC",
+  "quantity": 1,
+  "quantityUnit": "each",
+  "properties": {
+    "ElementType": "Fitting",
+    "JointType": "Socket"
+  }
+}

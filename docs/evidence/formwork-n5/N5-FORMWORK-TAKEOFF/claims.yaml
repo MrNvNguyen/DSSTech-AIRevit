@@ -1,0 +1,43 @@
+schema: formwork-n5-claims/1
+campaign: N5-FORMWORK-TAKEOFF
+wave_id: N5-FORMWORK-TAKEOFF-ATTEMPT-1
+status: harness_build_pass_pending_q2
+authority: PRODUCT
+run_class: HARNESS_PASS_RUN
+
+hypothesis: |
+  Product FormworkTakeoffCommand on DSS.QSEngine ribbon shows grid and writes
+  QS_Formwork* only after Ghi; Norm trio unchanged; Core stays Revit-free.
+
+claims:
+  - id: n5_ribbon_button
+    class: inferred
+    status: PASS
+    evidence: App.cs — Setup→Norm; Formwork Takeoff→BOQ Extract
+  - id: n5_build_2025
+    class: harness
+    status: PASS
+    evidence: scripts/build-revit.ps1 -Year 2025 → 0 errors
+  - id: n5_no_auto_write
+    class: inferred
+    status: PASS
+    evidence: FormworkTakeoffCommand has no Transaction write before ShowDialog
+  - id: n5_write_allowlist
+    class: inferred
+    status: PASS
+    evidence: FormworkWriteBack — QS_Formwork* only; no NormCode/Status/WorkItemId
+  - id: n5_grid_vs_fixtures
+    class: measured
+    status: NOT_MEASURED
+    evidence: Q2 — IDs 1659100/1660193/1660566 + 1658761/1661499 ≤1%
+  - id: n5_ghi_fill
+    class: measured
+    status: NOT_MEASURED
+    evidence: Q2 — before empty; after Ghi ≥3 elements match grid
+  - id: n5_norm_unchanged
+    class: measured
+    status: NOT_MEASURED
+    evidence: Q2 — QS_NormCode/Status unchanged on same run
+
+notes: |
+  N6 Layer B after this Q2 PASS. P is separate WAVE after App.cs N5 freeze.

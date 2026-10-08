@@ -1,0 +1,43 @@
+schema: formwork-spike-claims/1
+campaign: N0-FORMWORK-SPIKE
+wave_id: N0-FORMWORK-SPIKE-ATTEMPT-1
+status: measured
+authority: DIAGNOSTIC
+run_class: PRODUCT_FAILURE_RUN
+attempt_outcome: FALSIFIED
+behavior_change: false
+bars_changed: false
+adjudication:
+  plan_boolean_gate: PASS
+  probe_method: MEASURED
+  probe_error_vs_corrected_hand_pct: 0.0
+  corrected_hand_area_m2: 0.135
+  run_time_hand_area_m2: 0.18
+  falsified_cause: wrong_hand_fixture_definition
+  n1_stop_rule_boolean_gt_5pct: not_tripped
+
+hypothesis: |
+  Revit Fine geometry + BooleanOperationsUtils on structural solids is fast enough
+  for interactive takeoff (selection scope) and reliable enough (boolean fail rate ≤ 5%)
+  to build FormworkGeometry in N1. Face-extrusion probe contact matches corrected hand
+  calc for the actual join face.
+
+claims:
+  - id: geometry_timing_measurable
+    class: measured
+    status: PASS
+    evidence: result.json geometry_timing samples batch 100 timed 11 elements ~0.18 ms/elem
+  - id: boolean_fail_rate_le_5pct
+    class: measured
+    status: PASS
+    evidence: boolean_timing.fail_rate=0 on 17/17 neighbor pairs
+  - id: probe_epsilon_hand_calc
+    class: measured
+    status: PASS_AFTER_DEFINITION_FIX
+    evidence: |
+      computed 0.135 m2; run used hand 0.18 (25% error → machine FALSIFIED).
+      Corrected hand 0.30×0.45=0.135 → ~0% error. Method face_extrusion_difference.
+
+notes: |
+  Machine FALSIFIED retained in result.json for audit. Strategy may treat boolean gate +
+  corrected probe as N0 go for N1 authorize without PO packet.

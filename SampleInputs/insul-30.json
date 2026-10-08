@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-INSUL-30",
+  "revitCategory": "OST_PipeInsulations",
+  "familyName": "Pipe Insulation",
+  "typeName": "Glasswool 30mm",
+  "materialName": "Glasswool",
+  "quantity": 10.0,
+  "quantityUnit": "m2",
+  "properties": {
+    "ElementType": "Insulation",
+    "InsulationMaterial": "Glasswool",
+    "InsulationThickness": 30,
+    "QuantityArea": 10.0
+  }
+}

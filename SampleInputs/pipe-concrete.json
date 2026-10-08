@@ -1,0 +1,14 @@
+{
+  "elementId": "DEMO-PIPE-CONC-001",
+  "revitCategory": "OST_PipeCurves",
+  "familyName": "Concrete pipe",
+  "typeName": "Be tong D300",
+  "materialName": "Concrete",
+  "quantity": 12.0,
+  "quantityUnit": "m",
+  "properties": {
+    "PipeMaterial": "Concrete",
+    "ElementType": "Pipe",
+    "QuantityLength": 12.0
+  }
+}

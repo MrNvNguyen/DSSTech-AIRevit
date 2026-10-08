@@ -1,0 +1,14 @@
+{
+  "elementId": "DEMO-PIPE-STL-001",
+  "revitCategory": "OST_PipeCurves",
+  "familyName": "Steel pipe",
+  "typeName": "Thep DN50",
+  "materialName": "Steel",
+  "quantity": 18.0,
+  "quantityUnit": "m",
+  "properties": {
+    "PipeMaterial": "Steel",
+    "ElementType": "Pipe",
+    "QuantityLength": 18.0
+  }
+}

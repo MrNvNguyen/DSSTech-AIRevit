@@ -1,0 +1,14 @@
+{
+  "elementId": "DEMO-STONE-001",
+  "revitCategory": "OST_Walls",
+  "familyName": "Basic Wall",
+  "typeName": "Stone masonry 300",
+  "materialName": "Đá xây",
+  "quantity": 6.0,
+  "quantityUnit": "m3",
+  "properties": {
+    "ElementType": "Wall",
+    "WallThickness": 30.0,
+    "Height": 3.0
+  }
+}

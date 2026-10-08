@@ -1,0 +1,43 @@
+schema: formwork-n4-claims/1
+campaign: N4-FORMWORK-PARAMS-READONLY
+wave_id: N4-FORMWORK-PARAMS-READONLY-ATTEMPT-1
+status: harness_pass_pending_revit_bind
+authority: PRODUCT
+run_class: HARNESS_PASS_RUN
+
+hypothesis: |
+  Shared formwork params + aliases + QuantityResolver + bim_property_map XD-FORM
+  rows let Norm Selector / CLI read QS_FormworkArea without any write Transaction.
+
+claims:
+  - id: n4_shared_params_defined
+    class: inferred
+    status: PASS
+    evidence: Config/QS_SharedParameters.txt (QS_FormworkArea..Stamp)
+  - id: n4_aliases_and_catalog
+    class: inferred
+    status: PASS
+    evidence: ParameterAliases.cs + QsValueCatalog.FactToQsParam
+  - id: n4_quantity_resolver_map
+    class: inferred
+    status: PASS
+    evidence: QuantityResolver ParameterMap QS_FormworkArea → FormworkArea
+  - id: n4_bim_xd_form_rows
+    class: harness
+    status: PASS
+    evidence: migrate patch #14 → bim_property_map_final=27; runtime XD-FORM×5
+  - id: n4_cli_formwork_area_quantity
+    class: harness
+    status: PASS
+    evidence: SampleInputs/formwork-slab-area42.json → Quantity 42 m2 (CLI)
+  - id: n4_setup_params_bind
+    class: measured
+    status: NOT_MEASURED
+    evidence: Revit Setup Parameters binds new QS_* (Q2 user)
+  - id: n4_no_write_transaction
+    class: inferred
+    status: PASS
+    evidence: no Formwork write-back / Ghi / ribbon Takeoff in this box
+
+notes: |
+  Write-back (N4 full / N5) remains closed — no signed Phase 3.

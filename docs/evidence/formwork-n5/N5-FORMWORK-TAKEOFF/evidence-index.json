@@ -1,0 +1,34 @@
+{
+  "schema": "formwork-n5-evidence-index/1",
+  "campaign": "N5-FORMWORK-TAKEOFF",
+  "wave_id": "N5-FORMWORK-TAKEOFF-ATTEMPT-1",
+  "authority": "PRODUCT",
+  "status": "harness_build_pass_pending_q2",
+  "scope": "Product Formwork Takeoff + confirm QS_Formwork* write; no Norm write",
+  "ribbon": {
+    "cost_and_norm": ["Setup Parameters", "Norm Selector"],
+    "boq": ["Formwork Takeoff", "BOQ Extract"]
+  },
+  "bars": {
+    "ribbon_order": "PASS_CODE",
+    "build_2025": "PASS",
+    "grid_vs_n1n3": "NOT_MEASURED",
+    "ghi_formwork_params": "NOT_MEASURED",
+    "norm_unchanged": "NOT_MEASURED",
+    "csv_export": "NOT_MEASURED"
+  },
+  "artifacts": [
+    "src/QSNormEngine.Revit/FormworkTakeoffCommand.cs",
+    "src/QSNormEngine.Revit/FormworkResultsWindow.cs",
+    "src/QSNormEngine.Revit/FormworkWriteBack.cs",
+    "src/QSNormEngine.Core/Formwork/FormworkTakeoffRow.cs",
+    "Config/formwork-rules.json"
+  ],
+  "q2_howto": [
+    "Close Revit → scripts/build-revit.ps1 -Year 2025 → scripts/install-revit.ps1 -Year 2025",
+    "Open TEST FORMWORK.rvt → Setup Parameters",
+    "Select col+beam+slab → Formwork Takeoff → Selection → verify totals",
+    "Ghi vào cấu kiện → check QS_FormworkArea; confirm NormCode unchanged",
+    "Export CSV → copy path into this evidence-index (no large binary)"
+  ]
+}

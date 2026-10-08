@@ -1,0 +1,15 @@
+{
+  "elementId": "DEMO-SOIL-MIX-001",
+  "revitCategory": "OST_StructuralFoundation",
+  "familyName": "CFG soil mix column",
+  "typeName": "Xi mang dat D600",
+  "materialName": "Cement-soil",
+  "quantity": 15.0,
+  "quantityUnit": "m",
+  "properties": {
+    "ElementType": "SoilMix",
+    "PileType": "CFA",
+    "Diameter": 0.6,
+    "QuantityLength": 15.0
+  }
+}

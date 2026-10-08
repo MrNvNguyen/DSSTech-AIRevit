@@ -1,0 +1,13 @@
+{
+  "elementId": "DEMO-PUBLIGHT-001",
+  "revitCategory": "OST_LightingFixtures",
+  "familyName": "Street pole light",
+  "typeName": "Cot den 9m",
+  "materialName": "Steel",
+  "quantity": 1,
+  "quantityUnit": "var",
+  "properties": {
+    "ComponentType": "Pole",
+    "ElementType": "StreetLight"
+  }
+}

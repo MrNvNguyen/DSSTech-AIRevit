@@ -1,0 +1,47 @@
+{
+  "schema": "formwork-spike-evidence-index/1",
+  "campaign": "N0-FORMWORK-SPIKE",
+  "wave_id": "N0-FORMWORK-SPIKE-ATTEMPT-1",
+  "authority": "DIAGNOSTIC",
+  "behavior_change": false,
+  "revit": {
+    "host_year": "2025",
+    "build": "25.4.10.45",
+    "model_title": "TEST FORMWORK",
+    "model_path_local": "C:\\Users\\NguyenNguyenVan\\Desktop\\TEST FORMWORK.rvt",
+    "rvt_in_git": false
+  },
+  "artifacts": [
+    {
+      "path": "docs/evidence/formwork-spike/N0-FORMWORK-SPIKE/result.json",
+      "role": "machine_ssot",
+      "timestamp_utc": "2026-09-12T13:59:17.5153980Z"
+    },
+    {
+      "path": "docs/evidence/formwork-spike/N0-FORMWORK-SPIKE/claims.yaml",
+      "role": "claims"
+    },
+    {
+      "path": "docs/evidence/formwork-spike/N0-FORMWORK-SPIKE-RESULT-MEMO.md",
+      "role": "human_memo"
+    },
+    {
+      "path": "tools/formwork-spike/fixtures/hand-calc-beam-column.yaml",
+      "role": "hand_calc_fixture_corrected"
+    },
+    {
+      "path": "docs/Agents Logs/007. qa-n0-formwork-spike-measured-2026-09-12.md",
+      "role": "qa_log"
+    }
+  ],
+  "bars": {
+    "boolean_fail_rate": 0.0,
+    "boolean_gate": "PASS",
+    "probe_status": "MEASURED",
+    "probe_computed_area_m2": 0.135,
+    "probe_hand_area_runtime_m2": 0.18,
+    "probe_hand_area_corrected_m2": 0.135,
+    "probe_error_runtime_pct": 25.0,
+    "probe_error_corrected_pct": 0.0
+  }
+}

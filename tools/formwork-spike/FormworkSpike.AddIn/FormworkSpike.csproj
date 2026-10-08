@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>FormworkSpike.AddIn</RootNamespace>
+    <AssemblyName>FormworkSpike.AddIn</AssemblyName>
+    <Product>FormworkSpike</Product>
+    <TargetFramework Condition="'$(RevitTargetFramework)'==''">net8.0-windows</TargetFramework>
+    <TargetFramework Condition="'$(RevitTargetFramework)'!=''">$(RevitTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
+    <AppendTargetFrameworkToOutputPath Condition="'$(RevitHostLabel)'!=''">false</AppendTargetFrameworkToOutputPath>
+    <OutputPath Condition="'$(RevitHostLabel)'!=''">bin\$(Configuration)\$(RevitHostLabel)\</OutputPath>
+    <IntermediateOutputPath Condition="'$(RevitHostLabel)'!=''">obj\$(RevitHostLabel)\$(Configuration)\</IntermediateOutputPath>
+    <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+  <Target Name="EnsureRevitApi" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(RevitApiPath)' == '' OR !Exists('$(RevitApiPath)\RevitAPI.dll')"
+           Text="Set RevitApiPath to a Revit install that contains RevitAPI.dll, or run tools/formwork-spike/run-spike.ps1." />
+  </Target>
+  <ItemGroup>
+    <Reference Include="RevitAPI">
+      <HintPath>$(RevitApiPath)\RevitAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="RevitAPIUI">
+      <HintPath>$(RevitApiPath)\RevitAPIUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

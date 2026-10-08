@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<RevitAddIns>
+  <AddIn Type="Command">
+    <Name>Formwork N1 Measure</Name>
+    <Assembly>__ASSEMBLY__</Assembly>
+    <AddInId>7C3B1E52-4D9A-4F6B-A1E8-2D5C9F0B8E41</AddInId>
+    <FullClassName>FormworkN1.AddIn.FormworkN1MeasureCommand</FullClassName>
+    <Text>Formwork N1 Measure</Text>
+    <Description>N1 FormworkCalculator measurement harness (read-only)</Description>
+    <VendorId>NVNG</VendorId>
+    <VendorDescription>QSNormEngine formwork harness</VendorDescription>
+  </AddIn>
+  <AddIn Type="Command">
+    <Name>Formwork N2 Measure</Name>
+    <Assembly>__ASSEMBLY__</Assembly>
+    <AddInId>8D4C2F63-5E0B-5A7C-B2F9-3E6D0A1C9F52</AddInId>
+    <FullClassName>FormworkN1.AddIn.FormworkN2MeasureCommand</FullClassName>
+    <Text>Formwork N2 Measure</Text>
+    <Description>N2 FormworkRuleSet measurement harness (read-only)</Description>
+    <VendorId>NVNG</VendorId>
+    <VendorDescription>QSNormEngine formwork harness</VendorDescription>
+  </AddIn>
+
+  <AddIn Type="Command">
+    <Name>Formwork N3 Measure</Name>
+    <Assembly>__ASSEMBLY__</Assembly>
+    <AddInId>9E5D3A74-6F1C-6B8D-C3A0-4F7E1B2D0A63</AddInId>
+    <FullClassName>FormworkN1.AddIn.FormworkN3MeasureCommand</FullClassName>
+    <Text>Formwork N3 Measure</Text>
+    <Description>N3 Formwork height-clip measurement harness (read-only)</Description>
+    <VendorId>NVNG</VendorId>
+    <VendorDescription>QSNormEngine formwork harness</VendorDescription>
+  </AddIn>
+</RevitAddIns>
+
