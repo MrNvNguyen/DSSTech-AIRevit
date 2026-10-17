@@ -180,36 +180,33 @@ internal static class ReadTools
         if (pageSize > 100)
             return McpResult.Fail("page_size_exceeded", "pageSize max is 100.");
 
-        long after = -1;
+        long? pageToken = null;
         if (args.ValueKind == JsonValueKind.Object &&
             args.TryGetProperty("pageToken", out var tokenEl) &&
             tokenEl.ValueKind == JsonValueKind.String &&
             long.TryParse(tokenEl.GetString(), out var parsed))
-            after = parsed;
+            pageToken = parsed;
 
-        var ids = new FilteredElementCollector(doc)
+        var sortedIds = new FilteredElementCollector(doc)
             .OfCategory(bic)
             .WhereElementIsNotElementType()
             .ToElementIds()
-            .Where(id => id.Value > after)
-            .OrderBy(id => id.Value)
-            .Take(pageSize + 1)
+            .Select(id => id.Value)
+            .OrderBy(id => id)
             .ToList();
 
-        var pageIds = ids.Take(pageSize).ToList();
-        // pageToken is the last id of this page. The next query uses id > token, so the
-        // token must not be the first id of the following page (that id would be skipped).
-        string? next = ids.Count > pageSize ? ids[pageSize - 1].Value.ToString() : null;
+        var slice = CategoryPage.Slice(sortedIds, pageToken, pageSize);
+        string? next = slice.NextPageToken?.ToString();
         var page = new List<object>();
-        foreach (var id in pageIds)
+        foreach (var idValue in slice.Ids)
         {
-            var element = doc.GetElement(id);
+            var element = doc.GetElement(new ElementId(idValue));
             if (element is null)
                 continue;
 
             page.Add(new
             {
-                id = id.Value.ToString(),
+                id = idValue.ToString(),
                 name = element.Name,
                 typeName = TypeName(element),
                 levelId = LevelId(element)

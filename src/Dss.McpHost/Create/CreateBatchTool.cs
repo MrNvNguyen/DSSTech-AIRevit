@@ -25,20 +25,14 @@ public static class CreateBatchTool
         if (!TryParseOperations(args, out var operations, out var error))
             return error!;
 
-        var explicitBatchDry = false;
-        var batchDrySet = false;
+        bool? batchDryRun = null;
         if (args.ValueKind == JsonValueKind.Object &&
             args.TryGetProperty("dryRun", out var dryEl) &&
             dryEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
-        {
-            explicitBatchDry = dryEl.GetBoolean();
-            batchDrySet = true;
-        }
+            batchDryRun = dryEl.GetBoolean();
 
-        // Charter: batch dryRun defaults to true when > 20 ops unless the batch
-        // flag is explicitly false. One operation's dryRun must not lift that cap.
-        var batchExplicitlyLive = batchDrySet && !explicitBatchDry;
-        var forceDry = explicitBatchDry || (operations.Count > 20 && !batchExplicitlyLive);
+        // Operation dryRun does not lift the cap. Only an explicit batch false does.
+        var forceDry = BatchDryRunPolicy.ForceDryRun(batchDryRun, operations.Count);
 
         if (forceDry)
         {
