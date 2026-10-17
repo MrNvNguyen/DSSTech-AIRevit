@@ -26,14 +26,9 @@ internal sealed class McpExternalEventHandler : IExternalEventHandler
         // observes an empty queue; Idling raises again if a request lands in the gap.
         while (!_queue.IsEmpty)
         {
+            // TryDequeue claims under the same lock as Abandon and does not return a timed-out item.
             if (!_queue.TryDequeue(out var item) || item is null)
                 break;
-
-            if (item.IsAbandoned)
-            {
-                item.ResponseTcs.TrySetResult(JsonRpcWriter.ErrorNullId("timeout", "MCP request timed out."));
-                continue;
-            }
 
             try
             {

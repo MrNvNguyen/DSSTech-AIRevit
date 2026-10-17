@@ -22,6 +22,7 @@ public sealed class McpHostService
     private UIControlledApplication? _application;
     private string _pipeName = "";
     private DateTime _startedUtc;
+    private int _revitThreadId;
 
     private McpHostService()
     {
@@ -40,6 +41,8 @@ public sealed class McpHostService
 
     public void Start(UIControlledApplication application)
     {
+        // OnStartup runs on the Revit API thread. DispatchSync must not Wait there.
+        _revitThreadId = Environment.CurrentManagedThreadId;
         lock (_gate)
         {
             if (_runtime.IsOn)
@@ -110,17 +113,21 @@ public sealed class McpHostService
 
     public string DispatchSync(string requestJson, int timeoutSeconds = 30)
     {
+        if (_revitThreadId != 0 && Environment.CurrentManagedThreadId == _revitThreadId)
+            return JsonRpcWriter.ErrorNullId("revit_thread", "DispatchSync cannot wait on the Revit API thread.");
+
         if (!_runtime.IsOn)
             return JsonRpcWriter.ErrorNullId("mcp_off", "MCP host is off.");
 
+        var timeout = TimeSpan.FromSeconds(timeoutSeconds);
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var item = new McpWorkItem(requestJson, tcs);
-        _queue.Enqueue(item);
+        _queue.Enqueue(item, timeout);
         RaiseExternalEvent();
-        if (!tcs.Task.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
+        if (!tcs.Task.Wait(timeout))
         {
-            // Do not run a create after the caller has already been told it timed out.
-            item.Abandon();
+            // Same lock as TryDequeue: a handler cannot claim this item after the flag is set.
+            _queue.Abandon(item);
             return JsonRpcWriter.ErrorNullId("timeout", "MCP request timed out.");
         }
         return tcs.Task.Result;
