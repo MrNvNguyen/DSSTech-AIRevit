@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Autodesk.Revit.UI;
+using Autodesk.Revit.UI.Events;
 using Dss.McpContracts;
 using Dss.McpHost.Http;
 
@@ -21,6 +22,7 @@ public sealed class McpHostService
     private UIControlledApplication? _application;
     private string _pipeName = "";
     private DateTime _startedUtc;
+    private int _revitThreadId;
 
     private McpHostService()
     {
@@ -39,6 +41,8 @@ public sealed class McpHostService
 
     public void Start(UIControlledApplication application)
     {
+        // OnStartup runs on the Revit API thread. DispatchSync must not Wait there.
+        _revitThreadId = Environment.CurrentManagedThreadId;
         lock (_gate)
         {
             if (_runtime.IsOn)
@@ -51,16 +55,27 @@ public sealed class McpHostService
             _startedUtc = DateTime.UtcNow;
             _pipeName = $"DSSTech.Mcp.{Environment.ProcessId}";
 
-            _handler = new McpExternalEventHandler(_queue, () => _runtime, _registry);
-            _externalEvent = ExternalEvent.Create(_handler);
-            _pipeServer = new McpNamedPipeServer(_pipeName, _queue, () => _runtime, RaiseExternalEvent);
-            _pipeServer.Start();
+            try
+            {
+                _handler = new McpExternalEventHandler(_queue, () => _runtime, _registry);
+                _externalEvent = ExternalEvent.Create(_handler);
+                // Raise() during Execute is ignored. Idling retries a non-empty queue.
+                application.Idling += OnIdling;
+                _pipeServer = new McpNamedPipeServer(_pipeName, _queue, () => _runtime, RaiseExternalEvent);
+                _pipeServer.Start();
 
-            _httpServer = new McpHttpServer(json => DispatchSync(json), () => _runtime.IsOn);
-            _httpServer.TryStart();
+                _httpServer = new McpHttpServer(json => DispatchSync(json), () => _runtime.IsOn);
+                _httpServer.TryStart();
 
-            WriteSessionFile();
-            McpLog.Write($"mcp start pid={Environment.ProcessId} pipe={_pipeName} year={_runtime.RevitYear}");
+                WriteSessionFile();
+                McpLog.Write($"mcp start pid={Environment.ProcessId} pipe={_pipeName} year={_runtime.RevitYear}");
+            }
+            catch (Exception ex)
+            {
+                McpLog.Write($"mcp start failed: {ex.Message}");
+                Stop();
+                throw;
+            }
         }
     }
 
@@ -72,6 +87,8 @@ public sealed class McpHostService
                 return;
 
             _runtime.IsOn = false;
+            if (_application is not null)
+                _application.Idling -= OnIdling;
             _queue.CompleteAllWithError("mcp_off", "MCP host is off.");
             _httpServer?.Stop();
             _httpServer = null;
@@ -96,15 +113,38 @@ public sealed class McpHostService
 
     public string DispatchSync(string requestJson, int timeoutSeconds = 30)
     {
+        if (_revitThreadId != 0 && Environment.CurrentManagedThreadId == _revitThreadId)
+            return JsonRpcWriter.ErrorNullId("revit_thread", "DispatchSync cannot wait on the Revit API thread.");
+
         if (!_runtime.IsOn)
             return JsonRpcWriter.ErrorNullId("mcp_off", "MCP host is off.");
 
+        var timeout = TimeSpan.FromSeconds(timeoutSeconds);
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _queue.Enqueue(new McpWorkItem(requestJson, tcs));
+        var item = new McpWorkItem(requestJson, tcs);
+        _queue.Enqueue(item, timeout);
         RaiseExternalEvent();
-        if (!tcs.Task.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
+        if (!tcs.Task.Wait(timeout))
+        {
+            // Same lock as TryDequeue: a handler cannot claim this item after the flag is set.
+            _queue.Abandon(item);
             return JsonRpcWriter.ErrorNullId("timeout", "MCP request timed out.");
+        }
         return tcs.Task.Result;
+    }
+
+    private void OnIdling(object? sender, IdlingEventArgs e)
+    {
+        if (!_runtime.IsOn || _queue.IsEmpty)
+            return;
+        try
+        {
+            _externalEvent?.Raise();
+        }
+        catch
+        {
+            // Stop may dispose the event between the empty check and Raise.
+        }
     }
 
     private void RaiseExternalEvent() => _externalEvent?.Raise();

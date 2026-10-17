@@ -318,8 +318,12 @@ internal static class BeamSideFormwork
     {
         if (beam.Location is LocationCurve lc)
         {
-            var dir = lc.Curve.ComputeDerivatives(0.5, true).BasisX.Normalize();
-            return Math.Abs(dir.X) >= Math.Abs(dir.Y);
+            var basis = lc.Curve.ComputeDerivatives(0.5, true).BasisX;
+            if (!basis.IsZeroLength())
+            {
+                var dir = basis.Normalize();
+                return Math.Abs(dir.X) >= Math.Abs(dir.Y);
+            }
         }
 
         return bb.Max.X - bb.Min.X >= bb.Max.Y - bb.Min.Y;

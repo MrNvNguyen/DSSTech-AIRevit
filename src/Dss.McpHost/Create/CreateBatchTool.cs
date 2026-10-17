@@ -25,20 +25,14 @@ public static class CreateBatchTool
         if (!TryParseOperations(args, out var operations, out var error))
             return error!;
 
-        var explicitBatchDry = false;
-        var batchDrySet = false;
+        bool? batchDryRun = null;
         if (args.ValueKind == JsonValueKind.Object &&
             args.TryGetProperty("dryRun", out var dryEl) &&
             dryEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
-        {
-            explicitBatchDry = dryEl.GetBoolean();
-            batchDrySet = true;
-        }
+            batchDryRun = dryEl.GetBoolean();
 
-        // Default dryRun true when > 20 ops unless dryRun explicitly false.
-        var forceDry = explicitBatchDry ||
-                       (operations.Count > 20 && !(batchDrySet && !explicitBatchDry) &&
-                        !operations.Any(o => o.DryRun == false));
+        // Operation dryRun does not lift the cap. Only an explicit batch false does.
+        var forceDry = BatchDryRunPolicy.ForceDryRun(batchDryRun, operations.Count);
 
         if (forceDry)
         {
@@ -50,12 +44,44 @@ public static class CreateBatchTool
         using (var tx = new Transaction(doc, "DSSTech MCP create"))
         {
             tx.Start();
-            foreach (var op in operations)
-                results.Add(CategoryDispatcher.Execute(doc, op, forceDryRun: op.DryRun == true));
-            tx.Commit();
+            try
+            {
+                foreach (var op in operations)
+                    results.Add(ExecuteInSubTransaction(doc, op));
+                tx.Commit();
+            }
+            catch
+            {
+                if (tx.GetStatus() == TransactionStatus.Started)
+                    tx.RollBack();
+                throw;
+            }
         }
 
         return Ok(new { dryRun = false, results });
+    }
+
+    private static CreateItemResult ExecuteInSubTransaction(Document doc, CreateOperation op)
+    {
+        using var sub = new SubTransaction(doc);
+        sub.Start();
+        var item = CategoryDispatcher.Execute(doc, op, forceDryRun: op.DryRun == true);
+        try
+        {
+            if (item.Status == "failed")
+                sub.RollBack();
+            else
+                sub.Commit();
+        }
+        catch (Exception ex)
+        {
+            if (sub.GetStatus() == TransactionStatus.Started)
+                sub.RollBack();
+            item.Status = "failed";
+            item.Reason = string.IsNullOrWhiteSpace(item.Reason) ? ex.Message : item.Reason;
+        }
+
+        return item;
     }
 
     public static McpResult ExecuteOne(UIApplication app, JsonElement args, McpPermission permission)

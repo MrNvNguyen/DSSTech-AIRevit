@@ -36,9 +36,9 @@ internal static class CatalogCreate
         {
             foreach (var floor in new FilteredElementCollector(doc).OfClass(typeof(Floor)).Cast<Floor>())
             {
-                if (floor.FloorType.Id != floorType.Id)
+                if (floor.FloorType.Id != floorType.Id || floor.LevelId != level.Id)
                     continue;
-                if (floor.LevelId == level.Id)
+                if (BoundaryNear(floor, loops))
                     return Skip(op, floor.Id.Value.ToString(), "skipIfExists");
             }
         }
@@ -104,8 +104,7 @@ internal static class CatalogCreate
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        if (!symbol.IsActive)
-            symbol.Activate();
+        EnsureSymbolActive(doc, symbol);
         var curve = Line.CreateBound(start, end);
         var created = doc.Create.NewFamilyInstance(curve, symbol, level, StructuralType.Beam);
         return Created(op, created.Id.Value.ToString());
@@ -153,11 +152,24 @@ internal static class CatalogCreate
                 return Fail(op, "missing_field", "fields.xyzMm required.");
         }
 
+        if (skip)
+        {
+            foreach (var fi in new FilteredElementCollector(doc)
+                         .OfCategory(bic)
+                         .WhereElementIsNotElementType()
+                         .OfType<FamilyInstance>())
+            {
+                if (fi.Symbol.Id != symbol.Id || fi.Host?.Id != host.Id)
+                    continue;
+                if (fi.Location is LocationPoint lp && PointNear(lp.Point, point))
+                    return Skip(op, fi.Id.Value.ToString(), "skipIfExists");
+            }
+        }
+
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        if (!symbol.IsActive)
-            symbol.Activate();
+        EnsureSymbolActive(doc, symbol);
         var created = doc.Create.NewFamilyInstance(point, symbol, host, level, StructuralType.NonStructural);
         return Created(op, created.Id.Value.ToString());
     }
@@ -174,6 +186,19 @@ internal static class CatalogCreate
 
         var name = ReqString(op.Fields, "name");
         var number = ReqString(op.Fields, "number");
+
+        if (skip)
+        {
+            foreach (var existing in new FilteredElementCollector(doc)
+                         .OfCategory(BuiltInCategory.OST_Rooms)
+                         .WhereElementIsNotElementType())
+            {
+                if (existing.LevelId != level.Id)
+                    continue;
+                if (existing.Location is LocationPoint lp && PlanPointNear(lp.Point, xyz))
+                    return Skip(op, existing.Id.Value.ToString(), "skipIfExists");
+            }
+        }
 
         if (dryRun)
             return Created(op, null, "dryRun");
@@ -314,11 +339,13 @@ internal static class CatalogCreate
         if (level is null)
             return Fail(op, "missing_level", "Level not found.");
 
+        if (skip && TryExistingAtPoint(doc, bic, symbol.Id, xyz) is { } existingFamily)
+            return Skip(op, existingFamily, "skipIfExists");
+
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        if (!symbol.IsActive)
-            symbol.Activate();
+        EnsureSymbolActive(doc, symbol);
         var created = doc.Create.NewFamilyInstance(xyz, symbol, level, StructuralType.NonStructural);
         var rot = ReqDouble(op.Fields, "rotationDeg");
         if (rot is not null)
@@ -347,11 +374,13 @@ internal static class CatalogCreate
         if (!TryXyz(op.Fields, "xyzMm", "xyz", units, out var xyz))
             return Fail(op, "missing_field", "fields.xyzMm required for isolated footing/pile.");
 
+        if (skip && TryExistingAtPoint(doc, BuiltInCategory.OST_StructuralFoundation, symbol.Id, xyz) is { } existingFooting)
+            return Skip(op, existingFooting, "skipIfExists");
+
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        if (!symbol.IsActive)
-            symbol.Activate();
+        EnsureSymbolActive(doc, symbol);
         var created = doc.Create.NewFamilyInstance(xyz, symbol, level, StructuralType.Footing);
         return Created(op, created.Id.Value.ToString());
     }
@@ -414,6 +443,14 @@ internal static class CatalogCreate
                 string.Equals($"{s.FamilyName} : {s.Name}", typeName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals($"{s.FamilyName}:{s.Name}", typeName, StringComparison.OrdinalIgnoreCase));
 
+    private static void EnsureSymbolActive(Document doc, FamilySymbol symbol)
+    {
+        if (symbol.IsActive)
+            return;
+        symbol.Activate();
+        doc.Regenerate();
+    }
+
     private static Level? FindLevel(Document doc, string? name)
     {
         var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
@@ -458,6 +495,140 @@ internal static class CatalogCreate
         if (fields.ValueKind != JsonValueKind.Object || !fields.TryGetProperty(key, out var el))
             return null;
         return el.ValueKind == JsonValueKind.Number ? el.GetDouble() : null;
+    }
+
+    private static string? TryExistingAtPoint(Document doc, BuiltInCategory bic, ElementId symbolId, XYZ xyz)
+    {
+        foreach (var fi in new FilteredElementCollector(doc)
+                     .OfCategory(bic)
+                     .WhereElementIsNotElementType()
+                     .OfType<FamilyInstance>())
+        {
+            if (fi.Symbol.Id != symbolId)
+                continue;
+            if (fi.Location is LocationPoint lp && PointNear(lp.Point, xyz))
+                return fi.Id.Value.ToString();
+        }
+
+        return null;
+    }
+
+    private static bool PointNear(XYZ a, XYZ b) =>
+        UnitConv.ToMm(a.DistanceTo(b)) <= GeomTolMm;
+
+    private static bool PlanPointNear(XYZ a, XYZ b)
+    {
+        var dx = a.X - b.X;
+        var dy = a.Y - b.Y;
+        return UnitConv.ToMm(Math.Sqrt((dx * dx) + (dy * dy))) <= GeomTolMm;
+    }
+
+    private static bool BoundaryNear(Floor floor, List<List<XYZ>> proposed)
+    {
+        if (!TrySketchRings(floor, out var existing))
+            return false;
+        return RingsNear(existing, proposed);
+    }
+
+    private static bool TrySketchRings(Floor floor, out List<List<XYZ>> rings)
+    {
+        rings = new List<List<XYZ>>();
+        try
+        {
+            var sketchId = floor.SketchId;
+            if (sketchId == ElementId.InvalidElementId)
+                return false;
+            if (floor.Document.GetElement(sketchId) is not Sketch sketch || sketch.Profile is null || sketch.Profile.Size == 0)
+                return false;
+
+            foreach (CurveArray curveArray in sketch.Profile)
+            {
+                var ring = new List<XYZ>();
+                foreach (Curve curve in curveArray)
+                    ring.Add(curve.GetEndPoint(0));
+                if (ring.Count >= 3)
+                    rings.Add(ring);
+            }
+        }
+        catch
+        {
+            rings.Clear();
+            return false;
+        }
+
+        return rings.Count > 0;
+    }
+
+    private static bool RingsNear(List<List<XYZ>> existing, List<List<XYZ>> proposed)
+    {
+        if (existing.Count == 0 || existing.Count != proposed.Count)
+            return false;
+
+        var used = new bool[existing.Count];
+        foreach (var ring in proposed)
+        {
+            var matched = false;
+            for (var i = 0; i < existing.Count; i++)
+            {
+                if (used[i] || !RingNear(existing[i], ring))
+                    continue;
+                used[i] = true;
+                matched = true;
+                break;
+            }
+
+            if (!matched)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool RingNear(List<XYZ> a, List<XYZ> b)
+    {
+        var left = OpenRing(a);
+        var right = OpenRing(b);
+        if (left.Count != right.Count || left.Count < 3)
+            return false;
+        if (RingNearDirected(left, right))
+            return true;
+
+        var flipped = new List<XYZ>(right);
+        flipped.Reverse();
+        return RingNearDirected(left, flipped);
+    }
+
+    private static List<XYZ> OpenRing(List<XYZ> ring)
+    {
+        if (ring.Count >= 2 && PlanPointNear(ring[0], ring[ring.Count - 1]))
+        {
+            var copy = new List<XYZ>(ring);
+            copy.RemoveAt(copy.Count - 1);
+            return copy;
+        }
+
+        return ring;
+    }
+
+    private static bool RingNearDirected(List<XYZ> a, List<XYZ> b)
+    {
+        var count = a.Count;
+        for (var shift = 0; shift < count; shift++)
+        {
+            var matches = true;
+            for (var i = 0; i < count; i++)
+            {
+                if (PlanPointNear(a[i], b[(i + shift) % count]))
+                    continue;
+                matches = false;
+                break;
+            }
+
+            if (matches)
+                return true;
+        }
+
+        return false;
     }
 
     private static bool LinesNear(Line existing, XYZ start, XYZ end)

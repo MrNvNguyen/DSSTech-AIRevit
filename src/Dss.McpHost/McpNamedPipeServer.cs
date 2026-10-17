@@ -101,11 +101,15 @@ internal sealed class McpNamedPipeServer : IDisposable
             return server.IsConnected;
         }
 
+        var timeout = TimeSpan.FromSeconds(30);
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _queue.Enqueue(new McpWorkItem(json, tcs));
+        var item = new McpWorkItem(json, tcs);
+        _queue.Enqueue(item, timeout);
         _raiseExternalEvent();
 
-        var completed = tcs.Task.Wait(TimeSpan.FromSeconds(30));
+        var completed = tcs.Task.Wait(timeout);
+        if (!completed)
+            _queue.Abandon(item);
         var responseJson = completed
             ? tcs.Task.Result
             : JsonRpcWriter.ErrorNullId("timeout", "MCP request timed out after 30s.");

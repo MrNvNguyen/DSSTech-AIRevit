@@ -92,11 +92,11 @@ internal static class McpStdioServer
         if (responseJson is null)
             return McpOffResponse(id);
 
-        if (TryGetHostError(responseJson, out var hostErr))
+        if (TryGetHostError(responseJson))
         {
             var pingJson = JsonSerializer.Serialize(new { jsonrpc = "2.0", id = 1, method = "dss.ping" }, JsonOptions);
             var pingResponse = client.SendRequest(pingJson);
-            if (pingResponse is null || TryGetHostError(pingResponse, out _))
+            if (pingResponse is null || TryGetHostError(pingResponse))
                 return SurfaceHostResponse(id, responseJson);
 
             var fallback = new
@@ -224,14 +224,15 @@ internal static class McpStdioServer
 
         if (root.TryGetProperty("error", out var errorEl))
         {
-            var message = errorEl.TryGetProperty("message", out var msgEl) ? msgEl.GetString() ?? "error" : "error";
-            var codeStr = errorEl.TryGetProperty("code", out var codeEl) ? codeEl.GetString() : null;
+            var message = errorEl.TryGetProperty("message", out var msgEl) ? ReadScalar(msgEl, "error") : "error";
+            var hasCode = errorEl.TryGetProperty("code", out var codeEl);
+            var codeStr = hasCode ? ReadScalar(codeEl, "") : null;
             if (string.Equals(codeStr, "mcp_off", StringComparison.OrdinalIgnoreCase) ||
                 string.Equals(message, "mcp_off", StringComparison.OrdinalIgnoreCase))
                 return McpOffResponse(requestId);
 
             var numeric = -32000;
-            if (codeEl.ValueKind == JsonValueKind.Number && codeEl.TryGetInt32(out var n))
+            if (hasCode && codeEl.ValueKind == JsonValueKind.Number && codeEl.TryGetInt32(out var n))
                 numeric = n;
 
             return ErrorResponse(requestId, numeric, message, message);
@@ -243,19 +244,26 @@ internal static class McpStdioServer
         return ErrorResponse(requestId, -32603, "Internal error", "Invalid host response.");
     }
 
-    private static bool TryGetHostError(string hostResponseJson, out JsonElement error)
+    private static bool TryGetHostError(string hostResponseJson)
     {
-        error = default;
         try
         {
             using var doc = JsonDocument.Parse(hostResponseJson);
-            return doc.RootElement.TryGetProperty("error", out error);
+            return doc.RootElement.TryGetProperty("error", out _);
         }
         catch
         {
             return false;
         }
     }
+
+    private static string ReadScalar(JsonElement element, string fallback) =>
+        element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString() ?? fallback,
+            JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False => element.GetRawText(),
+            _ => fallback
+        };
 
     private static string McpOffResponse(JsonElement id) =>
         ErrorResponse(id, -32000, "mcp_off", "Revit DSSTech MCP is Off or Revit is not running.");

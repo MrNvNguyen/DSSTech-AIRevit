@@ -37,10 +37,14 @@ internal static class NormWriteBack
             {
                 if (!TryGetElement(doc, result.ElementId, out var element)) continue;
 
-                if (!TrySetParam(element, "QS_NormCode", result.NormCode)) skippedBinding++;
-                if (!TrySetParam(element, "QS_NormStatus", result.Status.ToString())) skippedBinding++;
-                if (!TrySetParam(element, "QS_NormStamp", DateTime.UtcNow.ToString("O"))) skippedBinding++;
-                written++;
+                var any = false;
+                if (TrySetParam(element, "QS_NormCode", result.NormCode)) any = true;
+                else skippedBinding++;
+                if (TrySetParam(element, "QS_NormStatus", result.Status.ToString())) any = true;
+                else skippedBinding++;
+                if (TrySetParam(element, "QS_NormStamp", DateTime.UtcNow.ToString("O"))) any = true;
+                else skippedBinding++;
+                if (any) written++;
             }
 
             tx.Commit();

@@ -22,8 +22,14 @@ internal sealed class McpExternalEventHandler : IExternalEventHandler
 
     public void Execute(UIApplication app)
     {
-        while (_queue.TryDequeue(out var item))
+        // ExternalEvent.Raise during Execute is a no-op. Keep draining until a pass
+        // observes an empty queue; Idling raises again if a request lands in the gap.
+        while (!_queue.IsEmpty)
         {
+            // TryDequeue claims under the same lock as Abandon and does not return a timed-out item.
+            if (!_queue.TryDequeue(out var item) || item is null)
+                break;
+
             try
             {
                 if (!_state().IsOn)

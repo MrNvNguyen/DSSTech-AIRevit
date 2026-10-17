@@ -58,7 +58,11 @@ internal sealed class PipeClient : IDisposable
         }
     }
 
-    public string? SendRequest(string requestJson, int readTimeoutMs = 5000)
+    /// <param name="readTimeoutMs">
+    /// Must stay above the host wait (30s). A shorter read makes the sidecar report mcp_off
+    /// while Revit is still executing the tool.
+    /// </param>
+    public string? SendRequest(string requestJson, int readTimeoutMs = 35000)
     {
         if (_stream is null || !_stream.IsConnected)
             return null;
