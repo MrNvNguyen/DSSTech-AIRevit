@@ -204,8 +204,7 @@ internal static class CategoryDispatcher
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        if (!symbol.IsActive)
-            symbol.Activate();
+        EnsureSymbolActive(doc, symbol);
 
         var created = doc.Create.NewFamilyInstance(xyz, symbol, baseLevel, StructuralType.Column);
         if (topLevel is not null)
@@ -292,6 +291,14 @@ internal static class CategoryDispatcher
         return exact;
     }
 
+    private static void EnsureSymbolActive(Document doc, FamilySymbol symbol)
+    {
+        if (symbol.IsActive)
+            return;
+        symbol.Activate();
+        doc.Regenerate();
+    }
+
     private static Level? FindLevel(Document doc, string? name)
     {
         var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
@@ -308,10 +315,14 @@ internal static class CategoryDispatcher
         if (d1 > tolMm * 2)
             return false;
 
-        var v1 = (a1 - a0).Normalize();
-        var v2 = (end - start).Normalize();
-        if (v1.IsZeroLength() || v2.IsZeroLength())
+        // Normalize() throws on a zero-length vector. Degenerate grid/wall lines must not crash skipIfExists.
+        var dir1 = a1 - a0;
+        var dir2 = end - start;
+        if (dir1.IsZeroLength() || dir2.IsZeroLength())
             return d1 <= tolMm * 2;
+
+        var v1 = dir1.Normalize();
+        var v2 = dir2.Normalize();
 
         var angle = v1.AngleTo(v2) * 180.0 / Math.PI;
         if (angle > 90)

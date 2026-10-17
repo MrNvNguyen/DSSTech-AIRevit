@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Autodesk.Revit.UI;
+using Autodesk.Revit.UI.Events;
 using Dss.McpContracts;
 using Dss.McpHost.Http;
 
@@ -51,16 +52,27 @@ public sealed class McpHostService
             _startedUtc = DateTime.UtcNow;
             _pipeName = $"DSSTech.Mcp.{Environment.ProcessId}";
 
-            _handler = new McpExternalEventHandler(_queue, () => _runtime, _registry);
-            _externalEvent = ExternalEvent.Create(_handler);
-            _pipeServer = new McpNamedPipeServer(_pipeName, _queue, () => _runtime, RaiseExternalEvent);
-            _pipeServer.Start();
+            try
+            {
+                _handler = new McpExternalEventHandler(_queue, () => _runtime, _registry);
+                _externalEvent = ExternalEvent.Create(_handler);
+                // Raise() during Execute is ignored. Idling retries a non-empty queue.
+                application.Idling += OnIdling;
+                _pipeServer = new McpNamedPipeServer(_pipeName, _queue, () => _runtime, RaiseExternalEvent);
+                _pipeServer.Start();
 
-            _httpServer = new McpHttpServer(json => DispatchSync(json), () => _runtime.IsOn);
-            _httpServer.TryStart();
+                _httpServer = new McpHttpServer(json => DispatchSync(json), () => _runtime.IsOn);
+                _httpServer.TryStart();
 
-            WriteSessionFile();
-            McpLog.Write($"mcp start pid={Environment.ProcessId} pipe={_pipeName} year={_runtime.RevitYear}");
+                WriteSessionFile();
+                McpLog.Write($"mcp start pid={Environment.ProcessId} pipe={_pipeName} year={_runtime.RevitYear}");
+            }
+            catch (Exception ex)
+            {
+                McpLog.Write($"mcp start failed: {ex.Message}");
+                Stop();
+                throw;
+            }
         }
     }
 
@@ -72,6 +84,8 @@ public sealed class McpHostService
                 return;
 
             _runtime.IsOn = false;
+            if (_application is not null)
+                _application.Idling -= OnIdling;
             _queue.CompleteAllWithError("mcp_off", "MCP host is off.");
             _httpServer?.Stop();
             _httpServer = null;
@@ -100,11 +114,30 @@ public sealed class McpHostService
             return JsonRpcWriter.ErrorNullId("mcp_off", "MCP host is off.");
 
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _queue.Enqueue(new McpWorkItem(requestJson, tcs));
+        var item = new McpWorkItem(requestJson, tcs);
+        _queue.Enqueue(item);
         RaiseExternalEvent();
         if (!tcs.Task.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
+        {
+            // Do not run a create after the caller has already been told it timed out.
+            item.Abandon();
             return JsonRpcWriter.ErrorNullId("timeout", "MCP request timed out.");
+        }
         return tcs.Task.Result;
+    }
+
+    private void OnIdling(object? sender, IdlingEventArgs e)
+    {
+        if (!_runtime.IsOn || _queue.IsEmpty)
+            return;
+        try
+        {
+            _externalEvent?.Raise();
+        }
+        catch
+        {
+            // Stop may dispose the event between the empty check and Raise.
+        }
     }
 
     private void RaiseExternalEvent() => _externalEvent?.Raise();

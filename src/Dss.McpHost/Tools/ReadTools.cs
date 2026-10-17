@@ -197,7 +197,9 @@ internal static class ReadTools
             .ToList();
 
         var pageIds = ids.Take(pageSize).ToList();
-        string? next = ids.Count > pageSize ? ids[pageSize].Value.ToString() : null;
+        // pageToken is the last id of this page. The next query uses id > token, so the
+        // token must not be the first id of the following page (that id would be skipped).
+        string? next = ids.Count > pageSize ? ids[pageSize - 1].Value.ToString() : null;
         var page = new List<object>();
         foreach (var id in pageIds)
         {

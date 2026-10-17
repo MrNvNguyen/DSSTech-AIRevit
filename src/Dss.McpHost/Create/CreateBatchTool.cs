@@ -35,10 +35,10 @@ public static class CreateBatchTool
             batchDrySet = true;
         }
 
-        // Default dryRun true when > 20 ops unless dryRun explicitly false.
-        var forceDry = explicitBatchDry ||
-                       (operations.Count > 20 && !(batchDrySet && !explicitBatchDry) &&
-                        !operations.Any(o => o.DryRun == false));
+        // Charter: batch dryRun defaults to true when > 20 ops unless the batch
+        // flag is explicitly false. One operation's dryRun must not lift that cap.
+        var batchExplicitlyLive = batchDrySet && !explicitBatchDry;
+        var forceDry = explicitBatchDry || (operations.Count > 20 && !batchExplicitlyLive);
 
         if (forceDry)
         {
@@ -50,12 +50,44 @@ public static class CreateBatchTool
         using (var tx = new Transaction(doc, "DSSTech MCP create"))
         {
             tx.Start();
-            foreach (var op in operations)
-                results.Add(CategoryDispatcher.Execute(doc, op, forceDryRun: op.DryRun == true));
-            tx.Commit();
+            try
+            {
+                foreach (var op in operations)
+                    results.Add(ExecuteInSubTransaction(doc, op));
+                tx.Commit();
+            }
+            catch
+            {
+                if (tx.GetStatus() == TransactionStatus.Started)
+                    tx.RollBack();
+                throw;
+            }
         }
 
         return Ok(new { dryRun = false, results });
+    }
+
+    private static CreateItemResult ExecuteInSubTransaction(Document doc, CreateOperation op)
+    {
+        using var sub = new SubTransaction(doc);
+        sub.Start();
+        var item = CategoryDispatcher.Execute(doc, op, forceDryRun: op.DryRun == true);
+        try
+        {
+            if (item.Status == "failed")
+                sub.RollBack();
+            else
+                sub.Commit();
+        }
+        catch (Exception ex)
+        {
+            if (sub.GetStatus() == TransactionStatus.Started)
+                sub.RollBack();
+            item.Status = "failed";
+            item.Reason = string.IsNullOrWhiteSpace(item.Reason) ? ex.Message : item.Reason;
+        }
+
+        return item;
     }
 
     public static McpResult ExecuteOne(UIApplication app, JsonElement args, McpPermission permission)

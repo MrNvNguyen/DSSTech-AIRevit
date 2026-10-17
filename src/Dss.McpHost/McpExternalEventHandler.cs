@@ -22,8 +22,19 @@ internal sealed class McpExternalEventHandler : IExternalEventHandler
 
     public void Execute(UIApplication app)
     {
-        while (_queue.TryDequeue(out var item))
+        // ExternalEvent.Raise during Execute is a no-op. Keep draining until a pass
+        // observes an empty queue; Idling raises again if a request lands in the gap.
+        while (!_queue.IsEmpty)
         {
+            if (!_queue.TryDequeue(out var item) || item is null)
+                break;
+
+            if (item.IsAbandoned)
+            {
+                item.ResponseTcs.TrySetResult(JsonRpcWriter.ErrorNullId("timeout", "MCP request timed out."));
+                continue;
+            }
+
             try
             {
                 if (!_state().IsOn)

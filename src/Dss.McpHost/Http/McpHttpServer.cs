@@ -114,8 +114,7 @@ public sealed class McpHttpServer : IDisposable
             }
 
             var auth = ctx.Request.Headers["Authorization"] ?? "";
-            if (!auth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(auth.Substring(7).Trim(), BearerToken, StringComparison.Ordinal))
+            if (!BearerMatches(auth, BearerToken))
             {
                 Write(ctx, 401, "{\"error\":\"unauthorized\"}");
                 return;
@@ -141,8 +140,12 @@ public sealed class McpHttpServer : IDisposable
                 return;
             }
 
-            using var reader = new StreamReader(ctx.Request.InputStream, ctx.Request.ContentEncoding);
-            var body = reader.ReadToEnd();
+            if (!TryReadBody(ctx.Request, out var body))
+            {
+                Write(ctx, 413, JsonRpcWriter.ErrorNullId("payload_too_large", "HTTP body exceeds 1 MiB."));
+                return;
+            }
+
             var response = _dispatchJsonRpc(body);
             Write(ctx, 200, response);
         }
@@ -167,6 +170,42 @@ public sealed class McpHttpServer : IDisposable
         ctx.Response.ContentLength64 = bytes.Length;
         ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
         ctx.Response.OutputStream.Close();
+    }
+
+    private static bool TryReadBody(HttpListenerRequest request, out string body)
+    {
+        body = "";
+        if (request.ContentLength64 > McpFrame.MaxPayloadBytes)
+            return false;
+
+        var encoding = request.ContentEncoding ?? Encoding.UTF8;
+        using var reader = new StreamReader(request.InputStream, encoding);
+        var buffer = new char[8192];
+        var sb = new StringBuilder();
+        int read;
+        while ((read = reader.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            if (sb.Length + read > McpFrame.MaxPayloadBytes)
+                return false;
+            sb.Append(buffer, 0, read);
+        }
+
+        body = sb.ToString();
+        return true;
+    }
+
+    private static bool BearerMatches(string header, string? expected)
+    {
+        const string prefix = "Bearer ";
+        if (string.IsNullOrEmpty(expected) || header.Length < prefix.Length)
+            return false;
+        if (!header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var presented = header.Substring(prefix.Length).Trim();
+        var actual = Encoding.UTF8.GetBytes(presented);
+        var wanted = Encoding.UTF8.GetBytes(expected);
+        return actual.Length == wanted.Length && CryptographicOperations.FixedTimeEquals(actual, wanted);
     }
 
     private static string CreateToken()

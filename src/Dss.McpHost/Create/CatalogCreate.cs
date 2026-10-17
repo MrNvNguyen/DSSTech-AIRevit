@@ -104,8 +104,7 @@ internal static class CatalogCreate
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        if (!symbol.IsActive)
-            symbol.Activate();
+        EnsureSymbolActive(doc, symbol);
         var curve = Line.CreateBound(start, end);
         var created = doc.Create.NewFamilyInstance(curve, symbol, level, StructuralType.Beam);
         return Created(op, created.Id.Value.ToString());
@@ -156,8 +155,7 @@ internal static class CatalogCreate
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        if (!symbol.IsActive)
-            symbol.Activate();
+        EnsureSymbolActive(doc, symbol);
         var created = doc.Create.NewFamilyInstance(point, symbol, host, level, StructuralType.NonStructural);
         return Created(op, created.Id.Value.ToString());
     }
@@ -317,8 +315,7 @@ internal static class CatalogCreate
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        if (!symbol.IsActive)
-            symbol.Activate();
+        EnsureSymbolActive(doc, symbol);
         var created = doc.Create.NewFamilyInstance(xyz, symbol, level, StructuralType.NonStructural);
         var rot = ReqDouble(op.Fields, "rotationDeg");
         if (rot is not null)
@@ -350,8 +347,7 @@ internal static class CatalogCreate
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        if (!symbol.IsActive)
-            symbol.Activate();
+        EnsureSymbolActive(doc, symbol);
         var created = doc.Create.NewFamilyInstance(xyz, symbol, level, StructuralType.Footing);
         return Created(op, created.Id.Value.ToString());
     }
@@ -413,6 +409,14 @@ internal static class CatalogCreate
                 string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals($"{s.FamilyName} : {s.Name}", typeName, StringComparison.OrdinalIgnoreCase) ||
                 string.Equals($"{s.FamilyName}:{s.Name}", typeName, StringComparison.OrdinalIgnoreCase));
+
+    private static void EnsureSymbolActive(Document doc, FamilySymbol symbol)
+    {
+        if (symbol.IsActive)
+            return;
+        symbol.Activate();
+        doc.Regenerate();
+    }
 
     private static Level? FindLevel(Document doc, string? name)
     {
