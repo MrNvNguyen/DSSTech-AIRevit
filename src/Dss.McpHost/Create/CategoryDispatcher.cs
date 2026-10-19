@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Plumbing;
 using Autodesk.Revit.DB.Structure;
@@ -12,6 +13,9 @@ internal static class CategoryDispatcher
     private const double GridDistTolMm = 50.0;
     private const double GridAngleTolDeg = 2.0;
     private const double GeomTolMm = 10.0;
+
+    /// <summary>Half of the 50 mm station, plus a little, so a rounded column still finds the one it replaces.</summary>
+    private const double ColumnLocateMm = 10.0;
 
     public static CreateItemResult Execute(Document doc, CreateOperation op, bool forceDryRun)
     {
@@ -125,33 +129,74 @@ internal static class CategoryDispatcher
             !TryXyzMm(op.Fields, "endMm", "end", units, out var end))
             return Fail(op, "missing_field", "fields.startMm and endMm required.");
 
-        var typeName = ReqString(op.Fields, "wallType") ?? ReqString(op.Fields, "typeName");
+        var typeName = ReqString(op.Fields, "sourceType") ?? ReqString(op.Fields, "wallType") ?? ReqString(op.Fields, "typeName");
         if (typeName is null)
-            return Fail(op, "type_unresolved", "fields.wallType required — call list_types.");
+            return Fail(op, "type_unresolved", "Chọn type tường gốc — call list_types.");
 
-        var wallType = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
-            .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
-        if (wallType is null)
+        var sourceType = FindWallType(doc, typeName);
+        if (sourceType is null)
             return Fail(op, "type_unresolved", $"WallType '{typeName}' not found — call list_types.");
+
+        var thicknessMm = ReqInt(op.Fields, "thicknessMm");
+        WallType wallType;
+        try
+        {
+            wallType = ResolveWallType(doc, sourceType, thicknessMm, ReqString(op.Fields, "function"));
+        }
+        catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or InvalidOperationException)
+        {
+            return Fail(op, "type_unresolved", ex.Message);
+        }
 
         var levelName = ReqString(op.Fields, "level") ?? ReqString(op.Fields, "levelName");
         var level = FindLevel(doc, levelName);
         if (level is null)
             return Fail(op, "missing_level", $"Level '{levelName}' not found.");
 
-        var heightMm = ReqDouble(op.Fields, "heightMm") ?? 3000;
-        heightMm = UnitConv.ScaleToMm(heightMm, units);
+        // Curve Z follows the base level. CAD Z is not used.
+        start = new XYZ(start.X, start.Y, level.Elevation);
+        end = new XYZ(end.X, end.Y, level.Elevation);
+        if (start.DistanceTo(end) < 1e-6)
+            return Fail(op, "bad_curve", "Hai đầu tường trùng nhau.");
+
+        var topName = ReqString(op.Fields, "topLevel");
+        Level? topLevel = null;
+        if (!string.IsNullOrWhiteSpace(topName))
+        {
+            topLevel = FindLevel(doc, topName);
+            if (topLevel is null)
+                return Fail(op, "missing_level", $"topLevel '{topName}' not found.");
+            if (topLevel.Elevation <= level.Elevation + 1e-6)
+                return Fail(op, "bad_level", "Top level must be above the base level.");
+        }
+
+        var heightMm = ReqDouble(op.Fields, "heightMm");
+        var heightInternal = topLevel is not null
+            ? topLevel.Elevation - level.Elevation
+            : UnitConv.MmToInternal(UnitConv.ScaleToMm(heightMm ?? 3000, units));
         var structural = ReqBool(op.Fields, "structural") ?? false;
 
         if (skip)
         {
             foreach (var wall in new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>())
             {
-                if (wall.WallType.Id != wallType.Id)
+                if (wall.Location is not LocationCurve lc || lc.Curve is not Line line)
                     continue;
-                if (wall.Location is LocationCurve lc && lc.Curve is Line line &&
-                    LinesNear(line, start, end, GeomTolMm))
-                    return Skip(op, wall.Id.Value.ToString(), "skipIfExists");
+                if (!LinesNear(line, start, end, GeomTolMm))
+                    continue;
+                if (!dryRun && wall.WallType.Id != wallType.Id)
+                {
+                    try
+                    {
+                        wall.WallType = wallType;
+                    }
+                    catch (Autodesk.Revit.Exceptions.ApplicationException)
+                    {
+                        return Skip(op, wall.Id.Value.ToString(), "skipIfExists");
+                    }
+                }
+
+                return Skip(op, wall.Id.Value.ToString(), "skipIfExists");
             }
         }
 
@@ -159,7 +204,32 @@ internal static class CategoryDispatcher
             return Created(op, null, "dryRun");
 
         var curve = Line.CreateBound(start, end);
-        var wallNew = Wall.Create(doc, curve, wallType.Id, level.Id, UnitConv.MmToInternal(heightMm), 0, false, structural);
+        var wallNew = Wall.Create(doc, curve, wallType.Id, level.Id, heightInternal, 0, false, structural);
+        try
+        {
+            var baseParam = wallNew.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT);
+            if (baseParam is not null && !baseParam.IsReadOnly)
+                baseParam.Set(level.Id);
+            if (topLevel is not null)
+            {
+                var topParam = wallNew.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE);
+                if (topParam is null || topParam.IsReadOnly)
+                {
+                    doc.Delete(wallNew.Id);
+                    return Fail(op, "bad_level", "Không gán được Top Constraint của tường.");
+                }
+
+                topParam.Set(topLevel.Id);
+            }
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException ex)
+        {
+            try { doc.Delete(wallNew.Id); }
+            catch (Autodesk.Revit.Exceptions.ApplicationException) { }
+            return Fail(op, "bad_level", ex.Message);
+        }
+
+        PlacementApply.Apply(wallNew, op.Fields, units);
         return Created(op, wallNew.Id.Value.ToString());
     }
 
@@ -169,12 +239,33 @@ internal static class CategoryDispatcher
             return Fail(op, "missing_field", "fields.xyzMm required.");
 
         var typeName = ReqString(op.Fields, "familyType") ?? ReqString(op.Fields, "typeName");
-        if (typeName is null)
-            return Fail(op, "type_unresolved", "fields.familyType required — call list_types.");
+        var widthMm = ReqInt(op.Fields, "widthMm");
+        var depthMm = ReqInt(op.Fields, "depthMm");
+        var cadRotationDeg = ReqDouble(op.Fields, "rotationDeg") ?? 0;
 
-        var symbol = FindColumnSymbol(doc, typeName);
-        if (symbol is null)
-            return Fail(op, "type_unresolved", $"Column type '{typeName}' not found — call list_types.");
+        FamilySymbol? symbol;
+        var needsRotate90 = false;
+        var createdNewType = false;
+        var sourceFamily = ReqString(op.Fields, "sourceFamily");
+        if (widthMm is > 0 && depthMm is > 0)
+        {
+            symbol = ResolveColumnSymbol(
+                doc, widthMm.Value, depthMm.Value, sourceFamily, out needsRotate90, out createdNewType,
+                ReqString(op.Fields, "widthParam"), ReqString(op.Fields, "heightParam"));
+            if (symbol is null)
+                return Fail(op, "type_unresolved",
+                    "Không tạo được tiết diện " + $"{widthMm}x{depthMm} mm" +
+                    (string.IsNullOrWhiteSpace(sourceFamily) ? "" : $" trong family '{sourceFamily}'") +
+                    ". Family cần tham số b/h.");
+        }
+        else
+        {
+            if (typeName is null)
+                return Fail(op, "type_unresolved", "fields.familyType required — call list_types.");
+            symbol = FindColumnSymbol(doc, typeName);
+            if (symbol is null)
+                return Fail(op, "type_unresolved", $"Column type '{typeName}' not found — call list_types.");
+        }
 
         var baseName = ReqString(op.Fields, "baseLevel") ?? ReqString(op.Fields, "level");
         var baseLevel = FindLevel(doc, baseName);
@@ -188,32 +279,123 @@ internal static class CategoryDispatcher
 
         if (skip)
         {
+            FamilyInstance? sameSymbol = null;
+            var sameSymbolDist = double.MaxValue;
             foreach (var fi in new FilteredElementCollector(doc)
                          .OfCategory(BuiltInCategory.OST_StructuralColumns)
                          .WhereElementIsNotElementType()
-                         .OfType<FamilyInstance>())
+                         .OfType<FamilyInstance>()
+                         .ToList())
             {
-                if (fi.Symbol.Id != symbol.Id)
+                if (fi.LevelId != baseLevel.Id || fi.Location is not LocationPoint lp)
                     continue;
-                if (fi.Location is LocationPoint lp &&
-                    DistanceMm(lp.Point, xyz) <= GeomTolMm)
+
+                var distance = DistanceMm(lp.Point, xyz);
+
+                // A column created exactly on the internal origin often has no visible geometry.
+                if (IsExactInternalOrigin(lp.Point))
+                {
+                    if (dryRun)
+                        continue;
+                    try
+                    {
+                        doc.Delete(fi.Id);
+                    }
+                    catch (Autodesk.Revit.Exceptions.ApplicationException)
+                    {
+                        return Skip(op, fi.Id.Value.ToString(), "skipIfExists");
+                    }
+
+                    continue;
+                }
+
+                if (fi.Symbol.Id == symbol.Id)
+                {
+                    if (distance <= ColumnLocateMm && distance < sameSymbolDist)
+                    {
+                        sameSymbol = fi;
+                        sameSymbolDist = distance;
+                    }
+
+                    continue;
+                }
+
+                if (distance > ColumnLocateMm)
+                    continue;
+                var sameFamily = !string.IsNullOrWhiteSpace(sourceFamily) &&
+                                 string.Equals(fi.Symbol.FamilyName, sourceFamily, StringComparison.OrdinalIgnoreCase);
+                if (!sameFamily || dryRun)
+                    continue;
+                try
+                {
+                    doc.Delete(fi.Id);
+                }
+                catch (Autodesk.Revit.Exceptions.ApplicationException)
+                {
                     return Skip(op, fi.Id.Value.ToString(), "skipIfExists");
+                }
+            }
+
+            if (sameSymbol is not null)
+            {
+                var moved = false;
+                if (!dryRun && sameSymbol.Location is LocationPoint hit)
+                {
+                    var target = PlacementPoint(xyz);
+                    if (DistanceMm(hit.Point, target) > 0.5)
+                    {
+                        try
+                        {
+                            hit.Point = target;
+                            moved = true;
+                        }
+                        catch (Autodesk.Revit.Exceptions.ApplicationException)
+                        {
+                        }
+                    }
+                }
+
+                var filled = PlacementApply.TrySetMark(sameSymbol, ReqString(op.Fields, "mark"));
+                var skipReason = moved
+                    ? (filled ? "rounded,mark" : "rounded")
+                    : (filled ? "skipIfExists,mark" : "skipIfExists");
+                return Skip(op, sameSymbol.Id.Value.ToString(), skipReason);
             }
         }
 
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        EnsureSymbolActive(doc, symbol);
+        if (!symbol.IsActive)
+            symbol.Activate();
 
-        var created = doc.Create.NewFamilyInstance(xyz, symbol, baseLevel, StructuralType.Column);
+        var place = PlacementPoint(xyz);
+        var created = doc.Create.NewFamilyInstance(place, symbol, baseLevel, StructuralType.Column);
         if (topLevel is not null)
         {
             var topParam = created.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM);
             topParam?.Set(topLevel.Id);
         }
 
-        return Created(op, created.Id.Value.ToString());
+        var rotateReasons = new List<string>();
+        if (createdNewType)
+            rotateReasons.Add("newType");
+        if (!place.IsAlmostEqualTo(xyz))
+            rotateReasons.Add("originNudge");
+        var totalRotateDeg = cadRotationDeg + (needsRotate90 ? 90.0 : 0.0);
+        if (Math.Abs(totalRotateDeg) > 0.01)
+        {
+            var axis = Line.CreateBound(place, place + XYZ.BasisZ);
+            ElementTransformUtils.RotateElement(doc, created.Id, axis, totalRotateDeg * Math.PI / 180.0);
+            if (needsRotate90)
+                rotateReasons.Add("rotated90");
+            else if (Math.Abs(cadRotationDeg) > 0.01)
+                rotateReasons.Add("rotatedCad");
+        }
+
+        PlacementApply.Apply(created, op.Fields, units);
+        var reason = rotateReasons.Count == 0 ? null : string.Join(",", rotateReasons);
+        return Created(op, created.Id.Value.ToString(), reason);
     }
 
     private static CreateItemResult CreatePipe(Document doc, CreateOperation op, bool skip, bool dryRun, string? units)
@@ -273,8 +455,293 @@ internal static class CategoryDispatcher
             diam?.Set(UnitConv.MmToInternal(UnitConv.ScaleToMm(diameterMm.Value, units)));
         }
 
+        PlacementApply.Apply(created, op.Fields, units);
         return Created(op, created.Id.Value.ToString());
     }
+
+    private static int? ReqInt(JsonElement fields, string key)
+    {
+        if (fields.ValueKind != JsonValueKind.Object || !fields.TryGetProperty(key, out var el))
+            return null;
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var i))
+            return i;
+        return null;
+    }
+
+    public static IReadOnlyList<string> ListRectangularColumnFamilies(Document doc) =>
+        ColumnSymbols(doc)
+            .Where(s => TryGetColumnSectionMm(s, out _, out _))
+            .Select(s => s.FamilyName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private static bool IsExactInternalOrigin(XYZ point) =>
+        Math.Abs(point.X) < 1e-8 && Math.Abs(point.Y) < 1e-8;
+
+    /// <summary>
+    /// Revit often draws no solid for a column inserted exactly at the internal origin.
+    /// Keep the same Y and shift X by 1 mm, which is inside the 10 mm skip tolerance.
+    /// </summary>
+    private static XYZ PlacementPoint(XYZ xyz) =>
+        IsExactInternalOrigin(xyz)
+            ? new XYZ(xyz.X + UnitConv.MmToInternal(1), xyz.Y, xyz.Z)
+            : xyz;
+
+    private static FamilySymbol? ResolveColumnSymbol(
+        Document doc,
+        int widthMm,
+        int depthMm,
+        string? sourceFamily,
+        out bool needsRotate90,
+        out bool createdNewType,
+        string? widthParam = null,
+        string? heightParam = null)
+    {
+        needsRotate90 = false;
+        createdNewType = false;
+        var symbols = ColumnSymbols(doc);
+        if (!string.IsNullOrWhiteSpace(sourceFamily))
+        {
+            symbols = symbols
+                .Where(s => string.Equals(s.FamilyName, sourceFamily, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+        FamilySymbol? direct = null;
+        FamilySymbol? swapped = null;
+        foreach (var symbol in symbols)
+        {
+            if (!TryGetColumnSectionMm(symbol, out var b, out var h, widthParam, heightParam))
+                continue;
+            if (b == widthMm && h == depthMm)
+            {
+                direct = symbol;
+                break;
+            }
+
+            if (b == depthMm && h == widthMm)
+                swapped ??= symbol;
+        }
+
+        if (direct is not null)
+            return direct;
+        if (swapped is not null)
+        {
+            needsRotate90 = true;
+            return swapped;
+        }
+
+        var template = PickColumnTemplate(symbols);
+        if (template is null || !TryGetColumnSectionMm(template, out _, out _, widthParam, heightParam))
+            return null;
+
+        var typeName = $"{widthMm}x{depthMm}";
+        var existing = symbols.FirstOrDefault(s =>
+            string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null && TryGetColumnSectionMm(existing, out var eb, out var eh, widthParam, heightParam) &&
+            ((eb == widthMm && eh == depthMm) || (eb == depthMm && eh == widthMm)))
+        {
+            if (eb == depthMm && eh == widthMm)
+                needsRotate90 = true;
+            return existing;
+        }
+
+        FamilySymbol? duplicate;
+        try
+        {
+            duplicate = template.Duplicate(typeName) as FamilySymbol;
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (duplicate is null || !TrySetColumnSectionMm(duplicate, widthMm, depthMm, widthParam, heightParam))
+            return null;
+
+        createdNewType = true;
+        return duplicate;
+    }
+
+    private static List<FamilySymbol> ColumnSymbols(Document doc) =>
+        new FilteredElementCollector(doc)
+            .OfClass(typeof(FamilySymbol))
+            .OfCategory(BuiltInCategory.OST_StructuralColumns)
+            .Cast<FamilySymbol>()
+            .ToList();
+
+    private static FamilySymbol? PickColumnTemplate(IReadOnlyList<FamilySymbol> symbols)
+    {
+        var preferred = symbols.FirstOrDefault(s =>
+            s.FamilyName.Contains("COLU", StringComparison.OrdinalIgnoreCase) &&
+            s.FamilyName.Contains("Rec", StringComparison.OrdinalIgnoreCase));
+        if (preferred is not null && TryGetColumnSectionMm(preferred, out _, out _))
+            return preferred;
+
+        foreach (var symbol in symbols)
+        {
+            if (TryGetColumnSectionMm(symbol, out _, out _))
+                return symbol;
+        }
+
+        return null;
+    }
+
+    private static readonly string[] WidthParamNames = { "b", "B", "Width", "width", "W", "Rộng", "Chiều rộng" };
+    private static readonly string[] DepthParamNames = { "h", "H", "Depth", "depth", "D", "Cao", "Chiều cao" };
+
+    private static bool TryGetColumnSectionMm(FamilySymbol symbol, out int bMm, out int hMm, string? widthParam = null, string? heightParam = null)
+    {
+        bMm = hMm = 0;
+        if (!TryGetSectionParams(symbol, out var w, out var d, widthParam, heightParam) || !w.HasValue || !d.HasValue)
+            return false;
+        bMm = (int)Math.Round(UnitConv.ToMm(w.AsDouble()));
+        hMm = (int)Math.Round(UnitConv.ToMm(d.AsDouble()));
+        return bMm > 0 && hMm > 0;
+    }
+
+    private static bool TrySetColumnSectionMm(FamilySymbol symbol, int bMm, int hMm, string? widthParam = null, string? heightParam = null)
+    {
+        if (!TryGetSectionParams(symbol, out var w, out var d, widthParam, heightParam) || w.IsReadOnly || d.IsReadOnly)
+            return false;
+        w.Set(UnitConv.MmToInternal(bMm));
+        d.Set(UnitConv.MmToInternal(hMm));
+        return true;
+    }
+
+    private static bool TryGetSectionParams(FamilySymbol symbol, out Parameter width, out Parameter depth, string? widthParam = null, string? heightParam = null)
+    {
+        width = depth = null!;
+        if (!string.IsNullOrWhiteSpace(widthParam) && !string.IsNullOrWhiteSpace(heightParam))
+        {
+            var namedWidth = symbol.LookupParameter(widthParam);
+            var namedHeight = symbol.LookupParameter(heightParam);
+            if (IsLength(namedWidth) && IsLength(namedHeight))
+            {
+                width = namedWidth!;
+                depth = namedHeight!;
+                return true;
+            }
+        }
+
+        var w = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
+        var d = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_HEIGHT);
+        if (IsLength(w) && IsLength(d))
+        {
+            width = w!;
+            depth = d!;
+            return true;
+        }
+
+        w = LookupLength(symbol, WidthParamNames);
+        d = LookupLength(symbol, DepthParamNames);
+        if (w is null || d is null)
+            return false;
+        width = w;
+        depth = d;
+        return true;
+    }
+
+    private static Parameter? LookupLength(FamilySymbol symbol, string[] names)
+    {
+        foreach (var name in names)
+        {
+            var p = symbol.LookupParameter(name);
+            if (IsLength(p))
+                return p;
+        }
+
+        return null;
+    }
+
+    private static bool IsLength(Parameter? p) =>
+        p is not null && p.StorageType == StorageType.Double;
+
+    private static WallType ResolveWallType(Document doc, WallType source, int? thicknessMm, string? function)
+    {
+        var thick = thicknessMm is > 0 ? thicknessMm.Value : (int)Math.Round(WallWidthMm(source));
+        var name = WallTypeName(source.Name, thick, function, source);
+        var existing = FindWallType(doc, name);
+        var target = existing;
+        if (target is null && string.Equals(source.Name, name, StringComparison.OrdinalIgnoreCase))
+            target = source;
+        if (target is null)
+            target = source.Duplicate(name) as WallType ?? source;
+
+        if (Math.Abs(WallWidthMm(target) - thick) > 5)
+            SetWallThickness(target, thick);
+        SetWallFunction(target, function);
+        return target;
+    }
+
+    private static string WallTypeName(string sourceName, int thicknessMm, string? function, WallType source)
+    {
+        var match = Regex.Match(sourceName, @"^(.*?)(\d+)(\D*)$");
+        var stem = match.Success
+            ? match.Groups[1].Value + thicknessMm + match.Groups[3].Value
+            : sourceName + "-" + thicknessMm;
+        if (string.IsNullOrWhiteSpace(function) || !TryWallFunction(function, out var wanted))
+            return stem;
+        var current = source.get_Parameter(BuiltInParameter.FUNCTION_PARAM);
+        if (current is not null && current.StorageType == StorageType.Integer && current.AsInteger() == (int)wanted)
+            return stem;
+        return stem + "-" + function;
+    }
+
+    private static void SetWallThickness(WallType type, int thicknessMm)
+    {
+        var structure = type.GetCompoundStructure();
+        if (structure is null || structure.LayerCount == 0)
+            throw new InvalidOperationException(
+                $"Type '{type.Name}' không phải tường basic, không đổi được bề dày.");
+
+        var widths = new double[structure.LayerCount];
+        var sum = 0.0;
+        for (var i = 0; i < structure.LayerCount; i++)
+        {
+            widths[i] = structure.GetLayerWidth(i);
+            sum += widths[i];
+        }
+
+        if (sum < 1e-9)
+            throw new InvalidOperationException(
+                $"Type '{type.Name}' không có lớp để đặt bề dày.");
+
+        var target = UnitConv.MmToInternal(thicknessMm);
+        var scale = target / sum;
+        for (var i = 0; i < structure.LayerCount; i++)
+        {
+            if (widths[i] <= 1e-9)
+                continue;
+            structure.SetLayerWidth(i, widths[i] * scale);
+        }
+
+        type.SetCompoundStructure(structure);
+    }
+
+    private static void SetWallFunction(WallType type, string? function)
+    {
+        if (!TryWallFunction(function, out var value))
+            return;
+        var parameter = type.get_Parameter(BuiltInParameter.FUNCTION_PARAM);
+        if (parameter is null || parameter.IsReadOnly || parameter.StorageType != StorageType.Integer)
+            return;
+        parameter.Set((int)value);
+    }
+
+    private static bool TryWallFunction(string? function, out WallFunction value)
+    {
+        value = WallFunction.Interior;
+        return !string.IsNullOrWhiteSpace(function) &&
+               Enum.TryParse(function, ignoreCase: true, out value);
+    }
+
+    private static double WallWidthMm(WallType type) =>
+        UnitConv.ToMm(type.Width);
+
+    private static WallType? FindWallType(Document doc, string typeName) =>
+        new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
+            .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
 
     private static FamilySymbol? FindColumnSymbol(Document doc, string typeName)
     {
@@ -288,15 +755,40 @@ internal static class CategoryDispatcher
             string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase) ||
             string.Equals($"{s.FamilyName} : {s.Name}", typeName, StringComparison.OrdinalIgnoreCase) ||
             string.Equals($"{s.FamilyName}:{s.Name}", typeName, StringComparison.OrdinalIgnoreCase));
-        return exact;
+        if (exact != null)
+            return exact;
+
+        var want = SectionNumbers(typeName);
+        if (want.Count != 2)
+            return null;
+
+        FamilySymbol? swapped = null;
+        foreach (var symbol in symbols)
+        {
+            var have = SectionNumbers(symbol.Name);
+            if (have.Count < 2 || !have.Contains(want[0]) || !have.Contains(want[1]))
+                continue;
+            if (have[0] == want[0] && have[1] == want[1])
+                return symbol;
+            swapped ??= symbol;
+        }
+
+        return swapped;
     }
 
-    private static void EnsureSymbolActive(Document doc, FamilySymbol symbol)
+    private static List<int> SectionNumbers(string name)
     {
-        if (symbol.IsActive)
-            return;
-        symbol.Activate();
-        doc.Regenerate();
+        var numbers = new List<int>();
+        foreach (Match match in Regex.Matches(name, @"\d+"))
+        {
+            if (!int.TryParse(match.Value, out var value))
+                continue;
+            if (value < 50 || value > 3000)
+                continue;
+            numbers.Add(value);
+        }
+
+        return numbers;
     }
 
     private static Level? FindLevel(Document doc, string? name)
@@ -315,14 +807,10 @@ internal static class CategoryDispatcher
         if (d1 > tolMm * 2)
             return false;
 
-        // Normalize() throws on a zero-length vector. Degenerate grid/wall lines must not crash skipIfExists.
-        var dir1 = a1 - a0;
-        var dir2 = end - start;
-        if (dir1.IsZeroLength() || dir2.IsZeroLength())
+        var v1 = (a1 - a0).Normalize();
+        var v2 = (end - start).Normalize();
+        if (v1.IsZeroLength() || v2.IsZeroLength())
             return d1 <= tolMm * 2;
-
-        var v1 = dir1.Normalize();
-        var v2 = dir2.Normalize();
 
         var angle = v1.AngleTo(v2) * 180.0 / Math.PI;
         if (angle > 90)
