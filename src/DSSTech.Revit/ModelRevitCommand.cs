@@ -145,7 +145,7 @@ public sealed class ModelRevitCommand : IExternalCommand
                 var hint = part switch
                 {
                     ModelRevitPartKind.Column =>
-                        "Không thấy cụm nét cột (khoảng 80–2500 mm) trên layer này. Pick nét boundary/hatch của cột, không pick layer dim.",
+                        "Không thấy cụm nét cột (khoảng 80–2500 mm) trên layer này. Pick một nét trên layer cột, không pick layer dim.",
                     ModelRevitPartKind.StructuralWall =>
                         "Không thấy cặp nét song song của tường (bề dày khoảng 80–1200 mm). Pick nét biên tường, không pick layer dim.",
                     _ => "Kiểm tra nét/block trên layer."

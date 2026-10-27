@@ -133,6 +133,26 @@ public sealed class McpHostService
         return tcs.Task.Result;
     }
 
+    /// <summary>Call a registered host tool on the Revit API thread. Do not use from a thread that is waiting on ExternalEvent.</summary>
+    public McpResult InvokeLocal(UIApplication app, string toolName, JsonElement args)
+    {
+        if (!_runtime.IsOn)
+            return McpResult.Fail("mcp_off", "MCP host is off.");
+        if (!_registry.TryGet(toolName, out var provider))
+            return McpResult.Fail("method_not_found", $"Unknown tool '{toolName}'.");
+
+        var doc = app.ActiveUIDocument?.Document;
+        var ctx = new McpCallContext
+        {
+            DocumentTitle = doc?.Title,
+            DocumentPath = doc?.PathName,
+            Permission = _runtime.Permission,
+            RevitYear = _runtime.RevitYear,
+            HostScope = new RevitCallScope { App = app, Runtime = _runtime }
+        };
+        return provider.Invoke(toolName, args, ctx);
+    }
+
     private void OnIdling(object? sender, IdlingEventArgs e)
     {
         if (!_runtime.IsOn || _queue.IsEmpty)

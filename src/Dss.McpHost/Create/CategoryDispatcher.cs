@@ -371,10 +371,14 @@ internal static class CategoryDispatcher
 
         var place = PlacementPoint(xyz);
         var created = doc.Create.NewFamilyInstance(place, symbol, baseLevel, StructuralType.Column);
+        // Top level is ignored until the new column has geometry. Without this regen only the
+        // rotated columns (and the origin nudge) get a story height; the rest stay 0 and vanish in plan.
+        doc.Regenerate();
         if (topLevel is not null)
         {
             var topParam = created.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM);
-            topParam?.Set(topLevel.Id);
+            if (topParam is not null && !topParam.IsReadOnly)
+                topParam.Set(topLevel.Id);
         }
 
         var rotateReasons = new List<string>();
@@ -559,6 +563,7 @@ internal static class CategoryDispatcher
         if (duplicate is null || !TrySetColumnSectionMm(duplicate, widthMm, depthMm, widthParam, heightParam))
             return null;
 
+        doc.Regenerate();
         createdNewType = true;
         return duplicate;
     }
@@ -589,6 +594,8 @@ internal static class CategoryDispatcher
 
     private static readonly string[] WidthParamNames = { "b", "B", "Width", "width", "W", "Rộng", "Chiều rộng" };
     private static readonly string[] DepthParamNames = { "h", "H", "Depth", "depth", "D", "Cao", "Chiều cao" };
+    private static readonly string[] SectionWidthNames = { "b", "B", "Width", "width", "W", "Rộng" };
+    private static readonly string[] SectionDepthNames = { "h", "Depth", "depth", "D" };
 
     private static bool TryGetColumnSectionMm(FamilySymbol symbol, out int bMm, out int hMm, string? widthParam = null, string? heightParam = null)
     {
@@ -600,12 +607,31 @@ internal static class CategoryDispatcher
         return bMm > 0 && hMm > 0;
     }
 
-    private static bool TrySetColumnSectionMm(FamilySymbol symbol, int bMm, int hMm, string? widthParam = null, string? heightParam = null)
+    private static bool TrySetColumnSectionMm(Element element, int bMm, int hMm, string? widthParam = null, string? heightParam = null)
     {
-        if (!TryGetSectionParams(symbol, out var w, out var d, widthParam, heightParam) || w.IsReadOnly || d.IsReadOnly)
+        var wrote = false;
+        wrote |= SetLength(element, element.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH), bMm);
+        wrote |= SetLength(element, element.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_HEIGHT), hMm);
+        if (!string.IsNullOrWhiteSpace(widthParam))
+            wrote |= SetLength(element, element.LookupParameter(widthParam), bMm);
+        if (!string.IsNullOrWhiteSpace(heightParam))
+            wrote |= SetLength(element, element.LookupParameter(heightParam), hMm);
+        foreach (var name in SectionWidthNames)
+            wrote |= SetLength(element, element.LookupParameter(name), bMm);
+        foreach (var name in SectionDepthNames)
+            wrote |= SetLength(element, element.LookupParameter(name), hMm);
+        return wrote;
+    }
+
+    private static bool SetLength(Element element, Parameter? parameter, int mm)
+    {
+        if (parameter is null || parameter.IsReadOnly || parameter.StorageType != StorageType.Double)
             return false;
-        w.Set(UnitConv.MmToInternal(bMm));
-        d.Set(UnitConv.MmToInternal(hMm));
+        // b/h on S-COLU-RFC-Rec are type parameters. Writing them through each instance
+        // edits the FamilySymbol during regen and Revit drops the solid for the rest of the batch.
+        if (element is FamilyInstance && parameter.Element.Id != element.Id)
+            return false;
+        parameter.Set(UnitConv.MmToInternal(mm));
         return true;
     }
 

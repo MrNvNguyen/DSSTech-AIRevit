@@ -39,7 +39,7 @@ It is **not** OneX, Forma, Electron, APS copy, or an IFC viewer. Ignore any inhe
 
 ## Hard limits (do not violate)
 
-- No model write-back (`QS_WorkItemId` / `QS_NormCode` / `QS_NormStatus`) without a signed Phase 3 box.
+- Write-back of `QS_WorkItemId` / `QS_NormCode` / `QS_NormStatus` only after the user confirms (Ghi vào cấu kiện). Do not auto-write when the command opens, and do not remove that confirm path.
 - Do not treat `SelectedQc1` as official-ready in UI, export semantics, or Success claims.
 - Do not edit `Database_DinhMuc_QS_BIM_FINAL_v2_original.sqlite`; engine patches go through `scripts/migrate-engine-v1.py`.
 - Do not add SQLite native deps to the Revit add-in (runtime JSON only).

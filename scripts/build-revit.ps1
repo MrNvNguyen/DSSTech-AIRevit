@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "revit-host.ps1")
 $root = Split-Path -Parent $PSScriptRoot
-$proj = Join-Path $root "src\QSNormEngine.Revit\QSNormEngine.Revit.csproj"
+$proj = Join-Path $root "src\DSSTech.Revit\DSSTech.Revit.csproj"
 
 $targets = @()
 if ($RevitApiPath) {
@@ -59,7 +59,7 @@ foreach ($t in $targets) {
     /p:RevitHostYear="$($t.Year)"
   if ($LASTEXITCODE -ne 0) { throw "Build failed for host $($t.Year) ($tfm)." }
 
-  $hostOut = Join-Path $root "src\QSNormEngine.Revit\bin\$Configuration\$($t.Year)"
+  $hostOut = Join-Path $root "src\DSSTech.Revit\bin\$Configuration\$($t.Year)"
   New-Item -ItemType Directory -Path $hostOut -Force | Out-Null
   foreach ($f in $sidecarFiles) {
     $from = Join-Path $sidecarDist $f

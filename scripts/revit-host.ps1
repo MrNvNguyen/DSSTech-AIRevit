@@ -3,6 +3,27 @@
 
 $script:QsRevitYearMin = 2024
 $script:QsRevitYearMax = 2027
+$script:DssTechAddInId = '7B52A0F1-7C61-4C8B-A6A4-0AC7398341A2'
+
+# One .addin / one GUID — remove the old QSNormEngine.addin before install.
+function Remove-DssTechLegacyAddInRegistration {
+  param([Parameter(Mandatory)][string]$AddinRoot)
+  if (!(Test-Path $AddinRoot)) { return }
+  $guid = $script:DssTechAddInId
+  foreach ($name in @('QSNormEngine.addin', 'DSS.QSEngine.addin')) {
+    $p = Join-Path $AddinRoot $name
+    if (Test-Path $p) { Remove-Item $p -Force -ErrorAction SilentlyContinue }
+  }
+  foreach ($f in Get-ChildItem $AddinRoot -Filter '*.addin' -File -ErrorAction SilentlyContinue) {
+    if ($f.Name -ieq 'DSSTech.addin') { continue }
+    $raw = Get-Content $f.FullName -Raw -ErrorAction SilentlyContinue
+    if ($raw -and ($raw -match [regex]::Escape($guid))) {
+      Remove-Item $f.FullName -Force -ErrorAction SilentlyContinue
+    }
+  }
+  $legacyDir = Join-Path $AddinRoot 'QSNormEngine'
+  if (Test-Path $legacyDir) { Remove-Item $legacyDir -Recurse -Force -ErrorAction SilentlyContinue }
+}
 
 function Get-QsRevitYearFromPath([string]$ApiPath) {
   if ([string]::IsNullOrWhiteSpace($ApiPath)) { return $null }

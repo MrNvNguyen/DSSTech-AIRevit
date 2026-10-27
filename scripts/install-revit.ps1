@@ -5,7 +5,7 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "revit-host.ps1")
 $root = Split-Path -Parent $PSScriptRoot
-$outRoot = Join-Path $root "src\QSNormEngine.Revit\bin\$Configuration"
+$outRoot = Join-Path $root "src\DSSTech.Revit\bin\$Configuration"
 
 $years = @()
 if ($Year) {
@@ -22,7 +22,8 @@ foreach ($y in $years) {
   $source = Join-Path $outRoot "$y"
   if (!(Test-Path $source)) { throw "Chưa có build output: $source. Hãy chạy scripts\build-revit.ps1 -Year $y trước." }
   $addinRoot = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$y"
-  $pluginDir = Join-Path $addinRoot "QSNormEngine"
+  Remove-DssTechLegacyAddInRegistration -AddinRoot $addinRoot
+  $pluginDir = Join-Path $addinRoot "DSSTech"
   New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
   Copy-Item (Join-Path $source "*") $pluginDir -Force -Recurse
   $sidecarFiles = @(
@@ -40,11 +41,12 @@ foreach ($y in $years) {
     }
   }
   Remove-Item (Join-Path $pluginDir "QSNormEngine.Revit2026.dll") -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $pluginDir "QSNormEngine.Revit.dll") -ErrorAction SilentlyContinue
   $assetCount = @(Get-ChildItem (Join-Path $pluginDir "Assets\*.png") -ErrorAction SilentlyContinue).Count
   if ($assetCount -lt 6) {
     Write-Warning "Host $y`: thiếu ribbon icons trong Assets (tim thay $assetCount PNG). Chay lai build-revit.ps1."
   }
-  $assembly = Join-Path $pluginDir "QSNormEngine.Revit.dll"
+  $assembly = Join-Path $pluginDir "DSSTech.dll"
   $manifest = @"
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <RevitAddIns>
@@ -52,13 +54,13 @@ foreach ($y in $years) {
     <Name>DSSTech</Name>
     <Assembly>$assembly</Assembly>
     <AddInId>7B52A0F1-7C61-4C8B-A6A4-0AC7398341A2</AddInId>
-    <FullClassName>QSNormEngine.Revit.App</FullClassName>
+    <FullClassName>DSSTech.Revit.App</FullClassName>
     <VendorId>NVNG</VendorId>
     <VendorDescription>DSSTech</VendorDescription>
   </AddIn>
 </RevitAddIns>
 "@
-  $manifestPath = Join-Path $addinRoot "QSNormEngine.addin"
+  $manifestPath = Join-Path $addinRoot "DSSTech.addin"
   Set-Content -Path $manifestPath -Value $manifest -Encoding UTF8
   Write-Host "Installed to: $pluginDir"
   Write-Host "Manifest: $manifestPath"

@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "revit-host.ps1")
 $root = Split-Path -Parent $PSScriptRoot
-$binRoot = Join-Path $root "src\QSNormEngine.Revit\bin\$Configuration"
+$binRoot = Join-Path $root "src\DSSTech.Revit\bin\$Configuration"
 $version = (Get-Content (Join-Path $root "VERSION") -ErrorAction SilentlyContinue | Select-Object -First 1).Trim()
 if ([string]::IsNullOrWhiteSpace($version)) { $version = "0.0.0" }
 $stamp = Get-Date -Format "yyyyMMdd-HHmm"
@@ -22,8 +22,10 @@ $years = @(Get-ChildItem $binRoot -Directory -ErrorAction SilentlyContinue |
   ForEach-Object { [int]$_.Name } |
   Where-Object { $_ -ge $script:QsRevitYearMin -and $_ -le $script:QsRevitYearMax } |
   Sort-Object)
+# Gói PO: liệt kê 2025+ (build script vẫn có thể build 2024 dev).
+$years = @($years | Where-Object { $_ -ge 2025 })
 if ($years.Count -eq 0) {
-  throw "Không có build output dưới $binRoot. Chạy build-revit.ps1 trước."
+  throw "Không có build output 2025+ dưới $binRoot. Chạy build-revit.ps1 -Year 2025 trước."
 }
 
 if (-not $OutDir) {
@@ -47,28 +49,32 @@ Hosts: $($years -join ', ')
 2. Chạy ``Install-All.cmd`` (hoặc ``Install-YYYY.cmd`` cho một host).
 3. Mở lại Revit → ribbon **DSSTech**.
 
-Thủ công: copy thư mục ``Addins\<year>\QSNormEngine\`` và file ``QSNormEngine.addin``
-vào ``%APPDATA%\Autodesk\Revit\Addins\<year>\``.
+Chạy ``Install-Select.cmd`` để chọn một hoặc nhiều năm Revit (2025+).
+
+Thủ công: copy ``Addins\<year>\DSSTech\`` và ``DSSTech.addin`` vào ``%APPDATA%\Autodesk\Revit\Addins\<year>\``.
 
 ## Gỡ
 
-Xóa ``%APPDATA%\Autodesk\Revit\Addins\<year>\QSNormEngine\`` và ``QSNormEngine.addin``.
+Xóa ``%APPDATA%\Autodesk\Revit\Addins\<year>\DSSTech\`` và ``DSSTech.addin`` (và ``QSNormEngine.addin`` cũ nếu còn).
+
+Cài mới tự gỡ manifest ``QSNormEngine.addin`` trùng AddInId (tránh lỗi Duplicated AddInId).
 "@
 Set-Content -Path (Join-Path $stage "README.txt") -Value $readme -Encoding UTF8
 
 foreach ($y in $years) {
   $src = Join-Path $binRoot "$y"
   $yearDir = Join-Path $stage "Addins\$y"
-  $pluginDir = Join-Path $yearDir "QSNormEngine"
+  $pluginDir = Join-Path $yearDir "DSSTech"
   New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
   Copy-Item (Join-Path $src "*") $pluginDir -Force -Recurse
   Remove-Item (Join-Path $pluginDir "QSNormEngine.Revit2026.dll") -ErrorAction SilentlyContinue
+  Remove-Item (Join-Path $pluginDir "QSNormEngine.Revit.dll") -ErrorAction SilentlyContinue
   # Drop PDBs from distributable (smaller; keep DLLs + Config/Data/Assets).
   Get-ChildItem $pluginDir -Filter "*.pdb" -Recurse | Remove-Item -Force
 
   # Template only — Install-Host.ps1 rewrites Assembly to an absolute path on install.
   # Revit does not expand %APPDATA% in .addin files.
-  $assembly = "QSNormEngine\QSNormEngine.Revit.dll"
+  $assembly = "DSSTech\DSSTech.dll"
   $manifest = @"
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <RevitAddIns>
@@ -76,13 +82,13 @@ foreach ($y in $years) {
     <Name>DSSTech</Name>
     <Assembly>$assembly</Assembly>
     <AddInId>$addinId</AddInId>
-    <FullClassName>QSNormEngine.Revit.App</FullClassName>
+    <FullClassName>DSSTech.Revit.App</FullClassName>
     <VendorId>NVNG</VendorId>
     <VendorDescription>DSSTech</VendorDescription>
   </AddIn>
 </RevitAddIns>
 "@
-  Set-Content -Path (Join-Path $yearDir "QSNormEngine.addin") -Value $manifest -Encoding UTF8
+  Set-Content -Path (Join-Path $yearDir "DSSTech.addin") -Value $manifest -Encoding UTF8
 
   $yearCmd = @"
 @echo off
@@ -102,10 +108,22 @@ $root = $PSScriptRoot
 $srcYear = Join-Path $root "Addins\$Year"
 if (!(Test-Path $srcYear)) { throw "Thiếu Addins\$Year trong gói." }
 $addinRoot = Join-Path $env:APPDATA "Autodesk\Revit\Addins\$Year"
-$pluginDir = Join-Path $addinRoot "QSNormEngine"
-$assembly = Join-Path $pluginDir "QSNormEngine.Revit.dll"
+$guid = '7B52A0F1-7C61-4C8B-A6A4-0AC7398341A2'
+foreach ($legacyName in @('QSNormEngine.addin', 'DSS.QSEngine.addin')) {
+  $legacyPath = Join-Path $addinRoot $legacyName
+  if (Test-Path $legacyPath) { Remove-Item $legacyPath -Force }
+}
+foreach ($f in Get-ChildItem $addinRoot -Filter '*.addin' -File -ErrorAction SilentlyContinue) {
+  if ($f.Name -ieq 'DSSTech.addin') { continue }
+  $raw = Get-Content $f.FullName -Raw -ErrorAction SilentlyContinue
+  if ($raw -and ($raw -match [regex]::Escape($guid))) { Remove-Item $f.FullName -Force }
+}
+$legacyDir = Join-Path $addinRoot 'QSNormEngine'
+if (Test-Path $legacyDir) { Remove-Item $legacyDir -Recurse -Force }
+$pluginDir = Join-Path $addinRoot "DSSTech"
+$assembly = Join-Path $pluginDir "DSSTech.dll"
 New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
-Copy-Item (Join-Path $srcYear "QSNormEngine\*") $pluginDir -Force -Recurse
+Copy-Item (Join-Path $srcYear "DSSTech\*") $pluginDir -Force -Recurse
 if (!(Test-Path $assembly)) { throw "Thiếu DLL sau copy: $assembly" }
 $manifest = @"
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
@@ -114,13 +132,13 @@ $manifest = @"
     <Name>DSSTech</Name>
     <Assembly>$assembly</Assembly>
     <AddInId>7B52A0F1-7C61-4C8B-A6A4-0AC7398341A2</AddInId>
-    <FullClassName>QSNormEngine.Revit.App</FullClassName>
+    <FullClassName>DSSTech.Revit.App</FullClassName>
     <VendorId>NVNG</VendorId>
     <VendorDescription>DSSTech</VendorDescription>
   </AddIn>
 </RevitAddIns>
 "@
-$manifestPath = Join-Path $addinRoot "QSNormEngine.addin"
+$manifestPath = Join-Path $addinRoot "DSSTech.addin"
 Set-Content -Path $manifestPath -Value $manifest -Encoding UTF8
 Write-Host "Installed: $pluginDir"
 Write-Host "Manifest: $manifestPath"
@@ -143,11 +161,21 @@ pause
 "@
 Set-Content -Path (Join-Path $stage "Install-All.cmd") -Value $installAll -Encoding ASCII
 
+Copy-Item (Join-Path $PSScriptRoot "Install-SelectYears.ps1") (Join-Path $stage "Install-SelectYears.ps1") -Force
+$selectCmd = @"
+@echo off
+cd /d "%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-SelectYears.ps1" -PackageRoot "%~dp0"
+if errorlevel 1 ( echo FAILED & pause & exit /b 1 )
+pause
+"@
+Set-Content -Path (Join-Path $stage "Install-Select.cmd") -Value $selectCmd -Encoding ASCII
+
 $zipPath = Join-Path $OutDir "$pkgName.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path $stage -DestinationPath $zipPath -CompressionLevel Optimal
 
-$dll = Get-Item (Join-Path $binRoot "$($years[0])\QSNormEngine.Revit.dll")
+$dll = Get-Item (Join-Path $binRoot "$($years[0])\DSSTech.dll")
 $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash
 $info = @"
 package=$pkgName

@@ -57,7 +57,7 @@ Or open `QSNormEngine.sln` and set `RevitApiPath` (and optionally `RevitTargetFr
 4. Review WorkItem, NormCode, status, missing parameters and warnings.
 5. Export result/resource CSV or JSON.
 
-The current command is intentionally **read-only**: it does not modify the model.
+Analysis does not modify the model. `QS_*` parameters are written only after the user confirms (**Ghi vào cấu kiện**).
 
 ## Critical behavior
 

@@ -84,6 +84,9 @@ public static class CreateBatchTool
         return item;
     }
 
+    public static IReadOnlyList<string> ListRectangularColumnFamilies(Document doc) =>
+        CategoryDispatcher.ListRectangularColumnFamilies(doc);
+
     public static McpResult ExecuteOne(UIApplication app, JsonElement args, McpPermission permission)
     {
         // create_element = batch of 1
