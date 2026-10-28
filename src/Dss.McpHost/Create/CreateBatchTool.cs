@@ -48,6 +48,7 @@ public static class CreateBatchTool
             {
                 foreach (var op in operations)
                     results.Add(ExecuteInSubTransaction(doc, op));
+                CategoryDispatcher.ApplyWallLocationLines(doc, operations, results);
                 tx.Commit();
             }
             catch
@@ -86,6 +87,9 @@ public static class CreateBatchTool
 
     public static IReadOnlyList<string> ListRectangularColumnFamilies(Document doc) =>
         CategoryDispatcher.ListRectangularColumnFamilies(doc);
+
+    public static IReadOnlyList<string> ListRectangularBeamFamilies(Document doc) =>
+        CategoryDispatcher.ListRectangularBeamFamilies(doc);
 
     public static McpResult ExecuteOne(UIApplication app, JsonElement args, McpPermission permission)
     {

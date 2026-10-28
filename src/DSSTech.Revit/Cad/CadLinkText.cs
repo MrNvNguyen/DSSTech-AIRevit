@@ -58,11 +58,15 @@ internal static class CadLinkText
                 if (string.IsNullOrWhiteSpace(item.Value))
                     continue;
                 var point = ToModel(item.Xmm, item.Ymm, transform);
+                var center = ToModel(item.Cxmm, item.Cymm, transform);
                 geom.Entities.Add(new CadText
                 {
                     Value = item.Value.Trim(),
                     X = point.X,
-                    Y = point.Y
+                    Y = point.Y,
+                    RotationDeg = ToModelRotationDeg(item.RotationDeg, transform),
+                    CenterX = center.X,
+                    CenterY = center.Y
                 });
             }
         }
@@ -112,14 +116,21 @@ internal static class CadLinkText
 
     private sealed class DwgContent
     {
-        public DwgContent(List<(string Value, double Xmm, double Ymm)> labels, List<CadEntity> curves)
+        public DwgContent(List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm)> labels, List<CadEntity> curves)
         {
             Labels = labels;
             Curves = curves;
         }
 
-        public List<(string Value, double Xmm, double Ymm)> Labels { get; }
+        public List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm)> Labels { get; }
         public List<CadEntity> Curves { get; }
+    }
+
+    private static double ToModelRotationDeg(double cadDeg, Transform transform)
+    {
+        var rad = cadDeg * Math.PI / 180.0;
+        var dir = transform.OfVector(new XYZ(Math.Cos(rad), Math.Sin(rad), 0));
+        return Math.Atan2(dir.Y, dir.X) * 180.0 / Math.PI;
     }
 
     private static bool FileExists(string? path) =>
@@ -154,13 +165,16 @@ internal static class CadLinkText
 
             foreach (var item in FromDwg(dwg).Labels)
             {
-                if (!CadMark.IsLabel(item.Value))
+                if (!CadMark.IsAnnotation(item.Value))
                     continue;
                 geom.Entities.Add(new CadText
                 {
                     Value = item.Value,
                     X = item.Xmm,
-                    Y = item.Ymm
+                    Y = item.Ymm,
+                    RotationDeg = item.RotationDeg,
+                    CenterX = item.Cxmm,
+                    CenterY = item.Cymm
                 });
             }
         }
@@ -212,16 +226,18 @@ internal static class CadLinkText
         }
     }
 
-    private static List<(string Value, double Xmm, double Ymm)> FromDxf(string path)
+    private static List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm)> FromDxf(string path)
     {
         var parsed = DxfParser.Parse(path);
-        var list = new List<(string, double, double)>();
+        var list = new List<(string, double, double, double, double, double)>();
         foreach (var text in parsed.Entities.OfType<CadText>())
         {
             var value = Clean(text.Value);
-            if (!CadMark.IsLabel(value))
+            if (!CadMark.IsAnnotation(value))
                 continue;
-            list.Add((value, ToMm(text.X, parsed.InsUnits), ToMm(text.Y, parsed.InsUnits)));
+            var x = ToMm(text.X, parsed.InsUnits);
+            var y = ToMm(text.Y, parsed.InsUnits);
+            list.Add((value, x, y, text.RotationDeg, x, y));
         }
 
         return list;
@@ -243,10 +259,10 @@ internal static class CadLinkText
             using (var reader = new DwgReader(temp))
                 doc = reader.Read();
             if (doc is null)
-                return new DwgContent(new List<(string, double, double)>(), new List<CadEntity>());
+                return new DwgContent(new List<(string, double, double, double, double, double)>(), new List<CadEntity>());
 
             var units = doc.Header.InsUnits;
-            var labels = new List<(string, double, double)>();
+            var labels = new List<(string, double, double, double, double, double)>();
             var curves = new List<CadEntity>();
             foreach (var entity in doc.Entities)
                 Collect(entity, units, labels, curves, Transform2.Identity, 0, null);
@@ -311,7 +327,7 @@ internal static class CadLinkText
     private static void Collect(
         Entity entity,
         UnitsType units,
-        List<(string Value, double Xmm, double Ymm)> labels,
+        List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm)> labels,
         List<CadEntity> curves,
         Transform2 transform,
         int depth,
@@ -322,10 +338,12 @@ internal static class CadLinkText
         switch (entity)
         {
             case MText mtext:
-                Add(mtext.Value, transform.Apply(mtext.InsertPoint), units, labels);
+                Add(mtext.Value, transform.Apply(mtext.InsertPoint), units, labels, WorldRotationDeg(transform, mtext.Rotation),
+                    transform.Apply(MTextCenter(mtext)));
                 break;
             case TextEntity text:
-                Add(text.Value, transform.Apply(text.InsertPoint), units, labels);
+                Add(text.Value, transform.Apply(text.InsertPoint), units, labels, WorldRotationDeg(transform, text.Rotation),
+                    transform.Apply(TextCenter(text)));
                 break;
             case ACadSharp.Entities.Line line:
                 AddLine(layer, transform.Apply(line.StartPoint), transform.Apply(line.EndPoint), units, curves);
@@ -349,12 +367,22 @@ internal static class CadLinkText
                 break;
             case Insert insert when depth < 8 && insert.Block is not null:
                 foreach (var attribute in insert.Attributes)
-                    Add(attribute.Value, transform.Apply(attribute.InsertPoint), units, labels);
+                    Add(attribute.Value, transform.Apply(attribute.InsertPoint), units, labels, WorldRotationDeg(transform.Then(insert), attribute.Rotation),
+                        transform.Apply(TextCenter(attribute)));
                 var next = transform.Then(insert);
                 foreach (var child in insert.Block.Entities)
                     Collect(child, units, labels, curves, next, depth + 1, layer);
                 break;
         }
+    }
+
+    private static double WorldRotationDeg(Transform2 transform, double localRad)
+    {
+        var cos = Math.Cos(localRad);
+        var sin = Math.Sin(localRad);
+        var wx = transform.M11 * cos + transform.M12 * sin;
+        var wy = transform.M21 * cos + transform.M22 * sin;
+        return Math.Atan2(wy, wx) * 180.0 / Math.PI;
     }
 
     private static string ResolveLayer(string? own, string? inherited)
@@ -397,12 +425,74 @@ internal static class CadLinkText
             curves.Add(placed);
     }
 
-    private static void Add(string? value, CadPoint point, UnitsType units, List<(string Value, double Xmm, double Ymm)> list)
+    private static void Add(
+        string? value,
+        CadPoint point,
+        UnitsType units,
+        List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm)> list,
+        double rotationDeg,
+        CadPoint center)
     {
         var clean = Clean(value);
-        if (!CadMark.IsLabel(clean))
+        if (!CadMark.IsAnnotation(clean))
             return;
-        list.Add((clean, ToMm(point.X, units), ToMm(point.Y, units)));
+        list.Add((clean, ToMm(point.X, units), ToMm(point.Y, units), rotationDeg, ToMm(center.X, units), ToMm(center.Y, units)));
+    }
+
+    /// <summary>Average glyph advance as a fraction of text height (digits / capitals in common CAD fonts).</summary>
+    private const double GlyphWidthRatio = 0.7;
+
+    /// <summary>
+    /// Middle of a TEXT box in its own frame. Left-aligned text is anchored at the baseline start; other
+    /// justifications at the alignment point; Aligned/Fit span insertion → alignment point.
+    /// </summary>
+    private static CadPoint TextCenter(TextEntity text)
+    {
+        var height = text.Height;
+        var width = Clean(text.Value).Length * height * (text.WidthFactor > 0 ? text.WidthFactor : 1) * GlyphWidthRatio;
+        var horizontal = (int)text.HorizontalAlignment;
+        var aligned = text.AlignmentPoint;
+        var hasAlignment = Math.Abs(aligned.X) > 1e-9 || Math.Abs(aligned.Y) > 1e-9;
+        var anchor = text.InsertPoint;
+        var startFraction = 0.0;
+        if (hasAlignment && horizontal is 3 or 5)
+        {
+            var dx = aligned.X - anchor.X;
+            var dy = aligned.Y - anchor.Y;
+            width = Math.Sqrt(dx * dx + dy * dy);
+        }
+        else if (hasAlignment && horizontal is 1 or 2 or 4)
+        {
+            anchor = aligned;
+            startFraction = horizontal == 2 ? 1.0 : 0.5;
+        }
+
+        var baseFraction = horizontal == 4 ? 0.5 : (int)text.VerticalAlignment switch
+        {
+            2 => 0.5,
+            3 => 1.0,
+            _ => 0.0
+        };
+        return Offset(anchor, text.Rotation, width * (0.5 - startFraction), height * (0.5 - baseFraction));
+    }
+
+    /// <summary>Middle of an MTEXT box from its attachment point (1 top-left … 9 bottom-right).</summary>
+    private static CadPoint MTextCenter(MText mtext)
+    {
+        var height = mtext.Height;
+        var estimate = Clean(mtext.Value).Length * height * GlyphWidthRatio;
+        var width = mtext.RectangleWidth > 0 ? Math.Min(mtext.RectangleWidth, estimate) : estimate;
+        var attach = Math.Max(1, Math.Min(9, (int)mtext.AttachmentPoint)) - 1;
+        var column = attach % 3;
+        var row = attach / 3;
+        return Offset(mtext.InsertPoint, mtext.Rotation, width * (0.5 - 0.5 * column), height * (0.5 * row - 0.5));
+    }
+
+    private static CadPoint Offset(CadPoint origin, double rotationRad, double along, double across)
+    {
+        var cos = Math.Cos(rotationRad);
+        var sin = Math.Sin(rotationRad);
+        return new CadPoint(origin.X + cos * along - sin * across, origin.Y + sin * along + cos * across, origin.Z);
     }
 
     private static string Clean(string? raw)

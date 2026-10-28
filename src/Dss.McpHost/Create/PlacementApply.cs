@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Structure;
 
 namespace Dss.McpHost.Create;
 
@@ -7,21 +8,32 @@ internal static class PlacementApply
 {
     public static void Apply(Element element, JsonElement fields, string? units)
     {
-        SetMm(element, BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM, Num(fields, "baseOffsetMm"), units);
-        SetMm(element, BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM, Num(fields, "topOffsetMm"), units);
-        SetMm(element, BuiltInParameter.WALL_BASE_OFFSET, Num(fields, "baseOffsetMm"), units);
-        SetMm(element, BuiltInParameter.WALL_TOP_OFFSET, Num(fields, "topOffsetMm"), units);
-        SetMm(element, BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM, Num(fields, "baseOffsetMm"), units);
-        SetMm(element, BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM, Num(fields, "topOffsetMm") ?? Num(fields, "offsetMm"), units);
-        SetMm(element, BuiltInParameter.STRUCTURAL_BEAM_END0_ELEVATION, Num(fields, "topOffsetMm"), units);
-        SetMm(element, BuiltInParameter.STRUCTURAL_BEAM_END1_ELEVATION, Num(fields, "topOffsetMm"), units);
+        var topOff = Num(fields, "topOffsetMm");
+        var freeOff = Num(fields, "offsetMm");
+        var beamEnd = element.get_Parameter(BuiltInParameter.STRUCTURAL_BEAM_END0_ELEVATION);
+        if (beamEnd is not null && !beamEnd.IsReadOnly)
+        {
+            // Beams: Start/End Level Offset from UI only. Clear sticky NewFamilyInstance /
+            // last-draw defaults (Y Right, z Offset ≠ 0) that fight centerline plan layout.
+            SetMm(element, BuiltInParameter.STRUCTURAL_BEAM_END0_ELEVATION, topOff ?? freeOff, units);
+            SetMm(element, BuiltInParameter.STRUCTURAL_BEAM_END1_ELEVATION, topOff ?? freeOff, units);
+            ApplyBeamJustificationDefaults(element);
+        }
+        else
+        {
+            SetMm(element, BuiltInParameter.FAMILY_BASE_LEVEL_OFFSET_PARAM, Num(fields, "baseOffsetMm"), units);
+            SetMm(element, BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM, topOff, units);
+            SetMm(element, BuiltInParameter.WALL_BASE_OFFSET, Num(fields, "baseOffsetMm"), units);
+            SetMm(element, BuiltInParameter.WALL_TOP_OFFSET, topOff, units);
+            SetMm(element, BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM, Num(fields, "baseOffsetMm"), units);
+            SetMm(element, BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM, topOff ?? freeOff, units);
+        }
         SetMm(element, BuiltInParameter.CEILING_HEIGHTABOVELEVEL_PARAM, Num(fields, "offsetMm"), units);
         SetMm(element, BuiltInParameter.RBS_OFFSET_PARAM, Num(fields, "offsetMm"), units);
         SetNamed(element, Str(fields, "widthParam"), Num(fields, "widthMm"), units);
         SetNamed(element, Str(fields, "heightParam"), Num(fields, "heightMm") ?? Num(fields, "depthMm"), units);
 
         TrySetMark(element, Str(fields, "mark"));
-
         var materialName = Str(fields, "material");
         if (string.IsNullOrWhiteSpace(materialName))
             return;
@@ -61,6 +73,35 @@ internal static class PlacementApply
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Force plan-centerline justification after create (or skipIfExists rematch).
+    /// NewFamilyInstance inherits Revit's last Beam draw settings / family defaults
+    /// (often Y Justification=Right, z Offset Value≠0).
+    /// </summary>
+    public static void ApplyBeamJustificationDefaults(Element element)
+    {
+        SetInt(element, BuiltInParameter.Y_JUSTIFICATION, (int)YJustification.Center);
+        SetMm(element, BuiltInParameter.Y_OFFSET_VALUE, 0, units: null);
+        // Keep Z Justification Top (under-slab); elevation comes from Start/End Level Offset only.
+        SetMm(element, BuiltInParameter.Z_OFFSET_VALUE, 0, units: null);
+    }
+
+    private static void SetInt(Element element, BuiltInParameter builtIn, int value)
+    {
+        try
+        {
+            var parameter = element.get_Parameter(builtIn);
+            if (parameter is null || parameter.IsReadOnly || parameter.StorageType != StorageType.Integer)
+                return;
+            if (parameter.AsInteger() != value)
+                parameter.Set(value);
+        }
+        catch (Exception)
+        {
+            // Justification params are instance-only on framing; skip if locked/missing.
+        }
     }
 
     private static void SetNamed(Element element, string? name, double? mm, string? units)

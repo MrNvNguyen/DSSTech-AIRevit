@@ -37,6 +37,7 @@ internal sealed class ModelRevitFormCatalog
     public string TopLevel { get; init; } = "";
     public IReadOnlyList<string> Layers { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> ColumnFamilies { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> BeamFamilies { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> DoorFamilies { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> WindowFamilies { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> EquipmentFamilies { get; init; } = Array.Empty<string>();
@@ -67,6 +68,7 @@ internal sealed class ModelRevitFormCatalog
             TopLevel = topLevel.Name,
             Layers = LayersOf(import),
             ColumnFamilies = Dss.McpHost.Create.CreateBatchTool.ListRectangularColumnFamilies(doc),
+            BeamFamilies = Dss.McpHost.Create.CreateBatchTool.ListRectangularBeamFamilies(doc),
             DoorFamilies = SymbolNames(doc, BuiltInCategory.OST_Doors),
             WindowFamilies = SymbolNames(doc, BuiltInCategory.OST_Windows),
             EquipmentFamilies = SymbolNames(doc, BuiltInCategory.OST_MechanicalEquipment),
@@ -213,9 +215,11 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         _heightParam = DssTheme.Combo();
         _material = DssTheme.Combo(WithBlank(catalog.Materials));
         _type = DssTheme.Combo();
+        // Structural walls default to CoreShaft (Lõi). Exterior/Interior are for architectural walls;
+        // kept in the list only as an explicit override.
         _function = DssTheme.Combo(
-            new[] { "Nội thất", "Ngoại thất", "Móng", "Tường chắn", "Mặt dưới", "Lõi" },
-            "Nội thất");
+            new[] { "Lõi", "Nội thất", "Ngoại thất", "Móng", "Tường chắn", "Mặt dưới" },
+            "Lõi");
         _system = DssTheme.Combo();
         _thickness = DssTheme.Input("");
         _mark = DssTheme.Option("Gán Mark từ text lân cận");
@@ -250,7 +254,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         var kindHost = new StackPanel();
         kindHost.Children.Add(new TextBlock
         {
-            Text = "Form chỉ chọn tham số family nhận chiều rộng / chiều cao. Không ghi Assembly Code.",
+            Text = "Cột/dầm: chọn family có tham số b/h. Dầm đọc Mark/kích thước từ CadText DWG (D1Y19-40x60 → 400×600; 30x140 → 300×1400; một cạnh <3 chữ số → cả hai cm×10). Không ghi Assembly Code.",
             TextWrapping = TextWrapping.Wrap,
             Foreground = DssTheme.Muted,
             Margin = new Thickness(0, 0, 0, 8)
@@ -269,7 +273,12 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             DssTheme.Pair(_baseOffsetRow, _topOffsetRow));
 
         _part.SelectionChanged += (_, _) => ApplyKind();
-        _family.SelectionChanged += (_, _) => FillLengthParams();
+        _family.SelectionChanged += (_, _) =>
+        {
+            FillLengthParams();
+            if (SelectedKind() == ModelRevitPartKind.Beam)
+                FillBeamTypes();
+        };
         PrimaryButton.Click += (_, _) => Accept();
         ApplyKind();
     }
@@ -289,20 +298,29 @@ internal sealed class ModelRevitSetupWindow : DssDialog
     {
         var kind = SelectedKind();
         PrimaryButton.Content = Verb(kind);
-        var families = FamiliesFor(kind);
-        Show(_familyRow, families is not null);
-        if (families is not null)
-            DssTheme.FillCombo(_family, families, null);
+        // Structural wall on a shared column layer can also place short footprints as columns.
+        var families = kind == ModelRevitPartKind.StructuralWall
+            ? _catalog.ColumnFamilies
+            : FamiliesFor(kind);
+        Show(_familyRow, families is not null && families.Count > 0);
+        if (families is not null && families.Count > 0)
+        {
+            if (kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam)
+                DssTheme.FillCombo(_family, WithBlank(families), "");
+            else
+                DssTheme.FillCombo(_family, families, null);
+        }
         Show(_shapeRow, kind == ModelRevitPartKind.Column);
-        Show(_paramRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.Door or ModelRevitPartKind.Window);
-        Show(_markRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.Door or ModelRevitPartKind.Window);
+        Show(_paramRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.Beam
+            or ModelRevitPartKind.Door or ModelRevitPartKind.Window);
+        Show(_markRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.Beam
+            or ModelRevitPartKind.Door or ModelRevitPartKind.Window);
         Show(_materialRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall
-            or ModelRevitPartKind.Floor or ModelRevitPartKind.IsolatedFoundation
+            or ModelRevitPartKind.Beam or ModelRevitPartKind.Floor or ModelRevitPartKind.IsolatedFoundation
             or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation);
         Show(_functionRow, kind == ModelRevitPartKind.StructuralWall);
         Show(_thickRow, kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Floor
-            or ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation
-            or ModelRevitPartKind.Beam);
+            or ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation);
         Show(_typeRow, kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam or ModelRevitPartKind.Floor
             or ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation
             or ModelRevitPartKind.Ceiling or ModelRevitPartKind.Pipe or ModelRevitPartKind.Duct
@@ -316,6 +334,18 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         Show(_baseOffsetRow, kind != ModelRevitPartKind.Beam && kind != ModelRevitPartKind.Room);
         Show(_topOffsetRow, bothLevels || topOnly);
         _baseOffsetLabel.Text = kind == ModelRevitPartKind.Ceiling ? "Cao độ bù (mm)" : "Offset đáy (mm)";
+        // Beams: one reference level (= view floor by default) + one offset. Catalog.TopLevel is the
+        // floor above (for columns/walls); do not default beams onto that.
+        if (_topRow.Children[0] is TextBlock topLevelLabel)
+            topLevelLabel.Text = topOnly ? "Level" : "Level đỉnh";
+        if (_topOffsetRow.Children[0] is TextBlock topOffsetLabel)
+            topOffsetLabel.Text = topOnly ? "Offset (mm)" : "Offset đỉnh (mm)";
+        if (topOnly)
+        {
+            DssTheme.FillCombo(_topLevel, _catalog.Levels, _catalog.BaseLevel);
+            if (ParseMm(_topOffset.Text) == 0 && ParseMm(_baseOffset.Text) != 0)
+                _topOffset.Text = _baseOffset.Text;
+        }
         _typeLabel.Text = kind switch
         {
             ModelRevitPartKind.Pipe => "Loại ống",
@@ -331,19 +361,26 @@ internal sealed class ModelRevitSetupWindow : DssDialog
 
     private void FillTypes(ModelRevitPartKind kind)
     {
-        IReadOnlyList<string> types = kind switch
+        if (kind == ModelRevitPartKind.Beam)
         {
-            ModelRevitPartKind.StructuralWall => _catalog.WallTypes,
-            ModelRevitPartKind.Beam => _catalog.BeamTypes,
-            ModelRevitPartKind.Floor => _catalog.FloorTypes,
-            ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation => _catalog.FoundationTypes,
-            ModelRevitPartKind.Ceiling => _catalog.CeilingTypes,
-            ModelRevitPartKind.Pipe => _catalog.PipeTypes,
-            ModelRevitPartKind.Duct => _catalog.DuctTypes,
-            ModelRevitPartKind.CableTray => _catalog.CableTrayTypes,
-            _ => Array.Empty<string>()
-        };
-        DssTheme.FillCombo(_type, WithBlank(types), "");
+            FillBeamTypes();
+        }
+        else
+        {
+            IReadOnlyList<string> types = kind switch
+            {
+                ModelRevitPartKind.StructuralWall => _catalog.WallTypes,
+                ModelRevitPartKind.Floor => _catalog.FloorTypes,
+                ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation => _catalog.FoundationTypes,
+                ModelRevitPartKind.Ceiling => _catalog.CeilingTypes,
+                ModelRevitPartKind.Pipe => _catalog.PipeTypes,
+                ModelRevitPartKind.Duct => _catalog.DuctTypes,
+                ModelRevitPartKind.CableTray => _catalog.CableTrayTypes,
+                _ => Array.Empty<string>()
+            };
+            DssTheme.FillCombo(_type, WithBlank(types), "");
+        }
+
         IReadOnlyList<string> systems = kind switch
         {
             ModelRevitPartKind.Pipe => _catalog.PipeSystems,
@@ -351,6 +388,29 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             _ => Array.Empty<string>()
         };
         DssTheme.FillCombo(_system, WithBlank(systems), "");
+    }
+
+    /// <summary>
+    /// Beam "Family / type" lists only symbols of the selected Family (e.g. S-FRM-RFC-Rec).
+    /// Blank Family keeps the full framing catalog so a type-only pick still works.
+    /// </summary>
+    private void FillBeamTypes()
+    {
+        var family = DssTheme.ComboValue(_family);
+        IReadOnlyList<string> types;
+        if (string.IsNullOrWhiteSpace(family))
+        {
+            types = _catalog.BeamTypes;
+        }
+        else
+        {
+            var prefix = family + " : ";
+            types = _catalog.BeamTypes
+                .Where(t => t.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        DssTheme.FillCombo(_type, WithBlank(types), "");
     }
 
     private void FillLengthParams()
@@ -373,11 +433,31 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             return;
         }
 
+        if (kind == ModelRevitPartKind.Beam &&
+            _catalog.BeamFamilies.Count == 0 &&
+            string.IsNullOrWhiteSpace(BlankToEmpty(DssTheme.ComboValue(_type))))
+        {
+            MessageBox.Show(this,
+                "Không có family dầm chữ nhật có tham số b/h, và chưa chọn type. Load family hoặc chọn type trước khi dựng.",
+                "DSSTech", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
         if ((kind is ModelRevitPartKind.Column or ModelRevitPartKind.Door or ModelRevitPartKind.Window or ModelRevitPartKind.Equipment)
             && FamiliesFor(kind) is { Count: > 0 }
             && string.IsNullOrWhiteSpace(DssTheme.ComboValue(_family)))
         {
             MessageBox.Show(this, "Chọn family trước khi dựng.", "DSSTech", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        if (kind == ModelRevitPartKind.Beam &&
+            string.IsNullOrWhiteSpace(DssTheme.ComboValue(_family)) &&
+            string.IsNullOrWhiteSpace(BlankToEmpty(DssTheme.ComboValue(_type))))
+        {
+            MessageBox.Show(this,
+                "Chọn family dầm (để nhân type theo 40x60 từ CadText) hoặc type có sẵn.",
+                "DSSTech", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -396,14 +476,30 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         if (double.TryParse((_thickness.Text ?? "").Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out var thick) && thick > 0)
             thickness = thick;
 
+        var baseOff = ParseMm(_baseOffset.Text);
+        var topOff = ParseMm(_topOffset.Text);
+        var baseLevel = DssTheme.ComboValue(_baseLevel);
+        var topLevel = DssTheme.ComboValue(_topLevel);
+        if (kind == ModelRevitPartKind.Beam)
+        {
+            // Beam UI exposes one level + one offset (top fields). Carry đáy→đỉnh if user typed
+            // offset before switching part; keep Base* in sync so summary matches create.
+            if (topOff == 0 && baseOff != 0)
+                topOff = baseOff;
+            if (string.IsNullOrWhiteSpace(topLevel))
+                topLevel = baseLevel;
+            baseLevel = topLevel;
+            baseOff = topOff;
+        }
+
         Choice = new ModelRevitFormChoice
         {
             Part = kind,
             Layer = layer,
-            BaseLevel = DssTheme.ComboValue(_baseLevel),
-            TopLevel = DssTheme.ComboValue(_topLevel),
-            BaseOffsetMm = ParseMm(_baseOffset.Text),
-            TopOffsetMm = ParseMm(_topOffset.Text),
+            BaseLevel = baseLevel,
+            TopLevel = topLevel,
+            BaseOffsetMm = baseOff,
+            TopOffsetMm = topOff,
             Family = DssTheme.ComboValue(_family),
             TypeName = BlankToEmpty(DssTheme.ComboValue(_type)),
             SectionShape = DssTheme.ComboValue(_shape) == "Tròn" ? "Circle" : "Rectangle",
@@ -413,12 +509,14 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             AssignMark = _mark.IsChecked == true,
             Function = DssTheme.ComboValue(_function) switch
             {
+                "Nội thất" => "Interior",
                 "Ngoại thất" => "Exterior",
                 "Móng" => "Foundation",
                 "Tường chắn" => "Retaining",
                 "Mặt dưới" => "Soffit",
                 "Lõi" => "CoreShaft",
-                _ => "Interior"
+                // StructuralWall UI defaults to Lõi; blank / unknown → CoreShaft.
+                _ => kind == ModelRevitPartKind.StructuralWall ? "CoreShaft" : "Interior"
             },
             SystemName = BlankToEmpty(DssTheme.ComboValue(_system)),
             ThicknessMm = thickness
@@ -442,6 +540,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
     private IReadOnlyList<string>? FamiliesFor(ModelRevitPartKind kind) => kind switch
     {
         ModelRevitPartKind.Column => _catalog.ColumnFamilies,
+        ModelRevitPartKind.Beam => _catalog.BeamFamilies,
         ModelRevitPartKind.Door => _catalog.DoorFamilies,
         ModelRevitPartKind.Window => _catalog.WindowFamilies,
         ModelRevitPartKind.Equipment => _catalog.EquipmentFamilies,

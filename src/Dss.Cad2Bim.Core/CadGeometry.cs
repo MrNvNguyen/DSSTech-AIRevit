@@ -48,6 +48,11 @@ public sealed class CadText : CadEntity
     public string Value { get; set; } = "";
     public double X { get; set; }
     public double Y { get; set; }
+    /// <summary>Text direction in degrees (0 = +X). Missing / unknown stays 0.</summary>
+    public double RotationDeg { get; set; }
+    /// <summary>Estimated middle of the text box; null when only the insertion point is known.</summary>
+    public double? CenterX { get; set; }
+    public double? CenterY { get; set; }
 }
 
 public readonly struct CadPoint2

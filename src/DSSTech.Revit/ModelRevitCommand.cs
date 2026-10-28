@@ -84,9 +84,10 @@ public sealed class ModelRevitCommand : IExternalCommand
 
             var geom = ImportInstanceGeometryReader.Read(import, view);
             AnnotationSize size;
-            if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall)
+            if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam)
             {
-                // Linked CAD text is strokes only. Column section and wall thickness come from the outline.
+                // Linked CAD text is strokes in the Revit view; Cad2Bim reads CadText from the DWG.
+                // Columns/walls size from outline; beams parse Mark/size from CadText on/near the layer.
                 size = new AnnotationSize(null, null, null, "");
             }
             else
@@ -105,10 +106,12 @@ public sealed class ModelRevitCommand : IExternalCommand
             if (choice.ThicknessMm is double thick && thick > 0)
                 size = new AnnotationSize(thick, size.HeightMm ?? thick, size.DiameterMm, size.Raw);
 
-            IReadOnlyList<CadPoint2>? grids = part == ModelRevitPartKind.Column
+            IReadOnlyList<CadPoint2>? grids = part is ModelRevitPartKind.Column
+                or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam
                 ? ModelRevitGrids.Intersections(doc, view)
                 : null;
-            IReadOnlyList<double>? gridAngles = part == ModelRevitPartKind.Column
+            IReadOnlyList<double>? gridAngles = part is ModelRevitPartKind.Column
+                or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam
                 ? ModelRevitGrids.Angles(doc, view)
                 : null;
             var placement = new ModelRevitPlacement
@@ -127,6 +130,17 @@ public sealed class ModelRevitCommand : IExternalCommand
                 SectionShape = choice.SectionShape,
                 Function = choice.Function
             };
+            var supportColumns = 0;
+            var supportWalls = 0;
+            if (part == ModelRevitPartKind.Beam)
+            {
+                var beamLevel = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                    .FirstOrDefault(l => string.Equals(l.Name, placement.TopLevelName, StringComparison.Ordinal)) ?? topLevel;
+                placement.Supports = ModelRevitSupports.Collect(doc, beamLevel, placement.TopOffsetMm, out supportColumns, out supportWalls);
+                placement.Log = DssTechLog.Write;
+                DssTechLog.Write($"beam supports level={beamLevel.Name} columns={supportColumns} walls={supportWalls}");
+            }
+
             var ops = ModelRevitPlanner.Plan(
                 geom,
                 layerName,
@@ -145,9 +159,11 @@ public sealed class ModelRevitCommand : IExternalCommand
                 var hint = part switch
                 {
                     ModelRevitPartKind.Column =>
-                        "Không thấy cụm nét cột (khoảng 80–2500 mm) trên layer này. Pick một nét trên layer cột, không pick layer dim.",
+                        "Không thấy cụm nét cột (L/b ≤ 4, cạnh 80–2500 mm) trên layer này. Bao dài hơn (L/b > 4) là vách — chọn phần Tường kết cấu.",
                     ModelRevitPartKind.StructuralWall =>
-                        "Không thấy cặp nét song song của tường (bề dày khoảng 80–1200 mm). Pick nét biên tường, không pick layer dim.",
+                        "Không thấy cặp nét song song của vách (bề dày 80–1200 mm, L/b > 4). Bao ngắn (L/b ≤ 4) là cột — chọn phần Cột.",
+                    ModelRevitPartKind.Beam =>
+                        "Không thấy cặp nét song song của dầm (hoặc nét tim) trên layer. Chữ Mark/kích thước đọc từ CadText DWG (vd. D1Y19-40x60, 30x60).",
                     _ => "Kiểm tra nét/block trên layer."
                 };
                 TaskDialog.Show("DSSTech",
@@ -180,14 +196,42 @@ public sealed class ModelRevitCommand : IExternalCommand
             else if (part == ModelRevitPartKind.StructuralWall)
             {
                 summary.AppendLine($"Type gốc: {choice.TypeName}");
-                summary.AppendLine("Bề dày đo từ hai nét song song, làm tròn 10 mm, nhân type tường theo bề dày và chức năng.");
+                summary.AppendLine("Bề dày đo từ hai nét song song, làm tròn 10 mm, nhân type tường theo bề dày và chức năng (mặc định CoreShaft / Lõi).");
+                summary.AppendLine("Layer chung cột/vách: vách khi L/b > 4; cột khi L/b ≤ 4 (nếu đã chọn family cột).");
+                summary.AppendLine("Tường kết cấu: Function = CoreShaft, Location Line = Wall Centerline (tim CAD). Exterior/Interior chỉ dùng cho tường kiến trúc.");
+                summary.AppendLine("Đầu tường kéo tới tim tường vuông góc để góc L/T join khít.");
             }
-            summary.AppendLine($"Level đáy: {placement.BaseLevelName} (offset {placement.BaseOffsetMm:0} mm) → đỉnh: {placement.TopLevelName} (offset {placement.TopOffsetMm:0} mm)");
+            else if (part == ModelRevitPartKind.Beam)
+            {
+                summary.AppendLine($"Family gốc: {FirstNonEmpty(choice.Family, choice.TypeName)}");
+                summary.AppendLine("Tim dầm từ cặp nét song song (hoặc nét tim); hướng trái→phải / dưới→trên.");
+                summary.AppendLine(supportColumns + supportWalls > 0
+                    ? $"Gối đỡ lấy từ model: {supportColumns} cột, {supportWalls} vách kết cấu tại level dầm."
+                    : "Model chưa có cột/vách kết cấu tại level dầm → gối đỡ lấy từ CAD (outline cột mọi layer, cặp nét vách layer khác).");
+                summary.AppendLine("Dầm chính: mặt gối → mặt gối (cột/vách), liên tục qua dầm phụ. Dầm phụ: cắt tại mặt dầm chính.");
+                summary.AppendLine("Mark/kích thước từ CadText DWG: D1Y19-40x60 → Mark D1Y19, 400×600 mm; 30x140 → 300×1400; 300x600 → mm.");
+                summary.AppendLine("Chữ nằm trên/cạnh đoạn dầm (≤ max(b, 600) mm, song song ±10°) thắng; đoạn không có chữ → đoạn có chữ gần nhất cùng trục.");
+                summary.AppendLine(DescribeBeamMarks(ops));
+            }
+            if (part == ModelRevitPartKind.Beam)
+                summary.AppendLine($"Level: {placement.TopLevelName} (offset {placement.TopOffsetMm:0} mm)");
+            else
+                summary.AppendLine($"Level đáy: {placement.BaseLevelName} (offset {placement.BaseOffsetMm:0} mm) → đỉnh: {placement.TopLevelName} (offset {placement.TopOffsetMm:0} mm)");
             summary.AppendLine($"Tạo {ops.Count} cấu kiện (Undo một lần hoàn tác batch).");
             if (part == ModelRevitPartKind.Column)
                 AppendColumnBatchSummary(summary, result.Data);
-            else
+            else if (part is not (ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam))
                 summary.AppendLine(result.Data.GetRawText());
+
+            if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam)
+            {
+                var dimCount = ModelRevitAxisDimensions.CreateFromBatch(doc, view, result.Data);
+                summary.AppendLine(
+                    dimCount > 0
+                        ? $"Dimension tới trục: {dimCount} (offset làm tròn mm nguyên, dạng xxxx.000)."
+                        : "Dimension tới trục: 0 (không có grid song song trong tầm hoặc view không phải plan).");
+            }
+
             TaskDialog.Show("DSSTech — ModelRevit", summary.ToString());
             return Result.Succeeded;
         }
@@ -228,6 +272,37 @@ public sealed class ModelRevitCommand : IExternalCommand
         return texts == 0
             ? "Mark: không đọc được chữ C1/C5 trên CAD."
             : "Mark: có chữ nhưng không chữ nào nằm cạnh outline cột.";
+    }
+
+    private static string DescribeBeamMarks(IReadOnlyList<CreateOperation> ops)
+    {
+        var marked = 0;
+        var sized = 0;
+        foreach (var op in ops)
+        {
+            if (op.Fields.ValueKind != JsonValueKind.Object)
+                continue;
+            if (op.Fields.TryGetProperty("mark", out var mark) &&
+                mark.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(mark.GetString()))
+                marked++;
+            if (op.Fields.TryGetProperty("widthMm", out var w) && w.ValueKind == JsonValueKind.Number && w.GetInt32() > 0 &&
+                op.Fields.TryGetProperty("depthMm", out var d) && d.ValueKind == JsonValueKind.Number && d.GetInt32() > 0)
+                sized++;
+        }
+
+        return $"Mark từ CadText: {marked}/{ops.Count}; tiết diện WxH: {sized}/{ops.Count}.";
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+                return value!;
+        }
+
+        return "(chưa chọn)";
     }
 
     private static string DescribeSize(AnnotationSize size)
