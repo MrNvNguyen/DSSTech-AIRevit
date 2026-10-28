@@ -21,7 +21,7 @@ internal static class McpStartupNotice
             var dialog = new TaskDialog("DSSTech")
             {
                 MainInstruction = "MCP đang bật",
-                MainContent = "AI có thể kết nối. Bấm MCP Off trên ribbon nếu không muốn.",
+                MainContent = "AI có thể kết nối. Bấm nút \"AI: Đang bật\" (panel Trợ lý AI) trên ribbon để tắt.",
                 CommonButtons = TaskDialogCommonButtons.Ok,
                 VerificationText = "Không hiện lại",
                 Id = "DSSTech.McpOnToast"

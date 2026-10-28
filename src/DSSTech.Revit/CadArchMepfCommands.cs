@@ -27,8 +27,8 @@ public sealed class CadLinkHelpCommand : IExternalCommand
         TaskDialog.Show("DSSTech — Link mặt bằng",
             "1. Insert → Link CAD vào Level tầng cần dựng.\n" +
             "2. Move / Rotate link cho khớp tọa độ và góc model (add-in không tự chỉnh link).\n" +
-            "3. Mở mặt bằng tầng đó → ModelRevit (pick layer + Text/Dimension).\n\n" +
-            "Wizard CAD cũ (Preflight → Kết cấu/Kiến trúc/MEPF) vẫn dùng được khi cần preview batch.");
+            "3. Mở mặt bằng tầng đó → Dựng mô hình (pick layer + Text/Dimension).\n\n" +
+            "Cần dựng hàng loạt có xem trước: dùng nút Dựng theo lô (Kiểm tra CAD → Kết cấu / Kiến trúc / MEPF).");
         return Result.Succeeded;
     }
 }

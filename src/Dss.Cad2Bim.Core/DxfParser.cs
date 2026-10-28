@@ -188,6 +188,7 @@ public static class DxfParser
                 case 1: e.Value = pairs[i].Value; break;
                 case 10: e.X = D(pairs[i].Value); break;
                 case 20: e.Y = D(pairs[i].Value); break;
+                case 50: e.RotationDeg = D(pairs[i].Value); break;
             }
             i++;
         }

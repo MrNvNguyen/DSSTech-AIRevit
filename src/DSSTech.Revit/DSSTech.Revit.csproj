@@ -45,5 +45,6 @@
     <Content Include="..\..\Config\cad-layer-map.arch.json" Link="Config\cad-layer-map.arch.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\Config\cad-layer-map.mepf.json" Link="Config\cad-layer-map.mepf.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\*.png" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\%(Filename)%(Extension)" />
+    <Content Include="Help\*.html" CopyToOutputDirectory="PreserveNewest" TargetPath="Help\%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

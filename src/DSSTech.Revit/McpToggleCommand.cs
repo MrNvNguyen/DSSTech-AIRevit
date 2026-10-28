@@ -12,6 +12,7 @@ public sealed class McpToggleCommand : IExternalCommand
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
     {
         McpHostService.Instance.Toggle();
+        RibbonState.RefreshAi();
         if (McpHostService.Instance.IsOn)
         {
             var url = McpHostService.Instance.HttpUrl ?? "(http chưa mở)";

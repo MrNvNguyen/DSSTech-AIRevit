@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSSTech – Hướng dẫn sử dụng</title>
+<style>
+  :root { --navy: #1B3A5C; --amber: #E9A23B; --ink: #1E2329; --muted: #5A636E; --line: #D5DCE4; --bg: #F5F6F7; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; color: var(--ink); background: var(--bg); line-height: 1.55; }
+  header { background: var(--navy); color: #fff; padding: 28px 40px; border-bottom: 4px solid var(--amber); }
+  header h1 { margin: 0; font-size: 26px; }
+  header p { margin: 6px 0 0; color: #C9D6E5; }
+  main { max-width: 920px; margin: 0 auto; padding: 24px 40px 60px; }
+  nav { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 14px 20px; margin-bottom: 28px; }
+  nav a { color: var(--navy); margin-right: 16px; white-space: nowrap; }
+  h2 { color: var(--navy); border-bottom: 2px solid var(--amber); padding-bottom: 4px; margin-top: 40px; }
+  section.cmd { background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 16px 20px; margin: 14px 0; scroll-margin-top: 16px; }
+  section.cmd h3 { margin: 0 0 6px; font-size: 17px; }
+  .en { color: var(--muted); font-style: italic; }
+  .step { display: inline-block; min-width: 22px; height: 22px; border-radius: 11px; background: var(--navy); color: #fff; text-align: center; font-size: 13px; font-weight: 700; margin-right: 6px; }
+  ol li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>DSSTech – Hướng dẫn sử dụng</h1>
+  <p>DSSTech user guide · Mẹo: rê chuột lên một nút trên ribbon rồi nhấn F1 để mở đúng mục.</p>
+</header>
+<main>
+  <nav>
+    <a href="#thiet-lap">Thiết lập</a>
+    <a href="#cad-bim">CAD → BIM</a>
+    <a href="#khoi-luong">Khối lượng</a>
+    <a href="#tro-ly-ai">Trợ lý AI</a>
+  </nav>
+
+  <h2 id="thiet-lap">Thiết lập · Setup</h2>
+  <section class="cmd" id="control-center">
+    <h3>Bảng điều khiển · Control Center</h3>
+    <p>Mở khung Control Center ghim bên phải màn hình: tham số, kiểm tra mô hình (QC), xuất Excel, CAD và AI ở một chỗ.</p>
+    <p class="en">Opens the docked Control Center: parameters, QC, Excel, CAD and AI in one place.</p>
+  </section>
+  <section class="cmd" id="tham-so">
+    <h3>Tham số QS · QS Parameters</h3>
+    <p>Gắn bộ Shared Parameters QS_* (từ file Config/QS_SharedParameters.txt) vào dự án. Nên chạy một lần cho mỗi dự án trước khi dùng các nút Khối lượng.</p>
+    <p class="en">Binds the QS_* shared parameters to the project. Run once per project before using the Quantity tools.</p>
+  </section>
+  <section class="cmd" id="tai-khoan">
+    <h3>Tài khoản · Account</h3>
+    <p>Xem phiên bản, mã máy (HWID) và kích hoạt key bản quyền trên máy này.</p>
+    <p class="en">Shows version, machine ID (HWID) and license activation.</p>
+  </section>
+
+  <h2 id="cad-bim">CAD → BIM</h2>
+  <p>Làm theo thứ tự số trên icon: <span class="step">1</span> Link mặt bằng → <span class="step">2</span> Trục &amp; tầng → <span class="step">3</span> Dựng mô hình.</p>
+  <section class="cmd" id="link-mat-bang">
+    <h3><span class="step">1</span>Link mặt bằng · Link CAD plan</h3>
+    <ol>
+      <li>Insert → Link CAD vào đúng Level của tầng cần dựng.</li>
+      <li>Move / Rotate link cho khớp tọa độ và góc của model (add-in không tự chỉnh link).</li>
+      <li>Mở mặt bằng tầng đó rồi sang bước tiếp theo.</li>
+    </ol>
+    <p class="en">Link the DWG/DXF to the right level and align it to the model yourself.</p>
+  </section>
+  <section class="cmd" id="truc-tang">
+    <h3><span class="step">2</span>Trục &amp; tầng · Grids &amp; Levels</h3>
+    <p>Dựng lưới trục từ layer G-GRID của bản CAD. Trục đã có trong model sẽ được bỏ qua.</p>
+    <p class="en">Creates grids from layer G-GRID; existing grids are skipped.</p>
+  </section>
+  <section class="cmd" id="dung-mo-hinh">
+    <h3><span class="step">3</span>Dựng mô hình · Model Revit</h3>
+    <p>Chọn layer, loại cấu kiện, family, level và offset rồi dựng cấu kiện từ CAD link đang mở.</p>
+    <p class="en">Pick layers, types, families, level and offset, then build elements from the CAD link.</p>
+  </section>
+  <section class="cmd" id="dung-theo-lo">
+    <h3>Dựng theo lô · Batch Wizard ▾</h3>
+    <p>Dựng hàng loạt theo bộ môn, luôn có bước xem trước và xác nhận trước khi tạo:</p>
+    <ul>
+      <li><b>Kiểm tra CAD · Preflight</b> – kiểm tra CAD link đã chọn có đúng quy định đầu vào (CAD_INPUT_SPEC) không. Chỉ báo lỗi, không tạo gì.</li>
+      <li><b>Kết cấu · Structure</b>, <b>Kiến trúc · Architecture</b>, <b>Cơ điện · MEPF</b> – đọc CAD theo bộ môn → xem trước → xác nhận → tạo.</li>
+    </ul>
+    <p class="en">Batch build by discipline: check → preview → confirm → create.</p>
+  </section>
+
+  <h2 id="khoi-luong">Khối lượng · Quantity</h2>
+  <section class="cmd" id="dinh-muc">
+    <h3>Chọn định mức · Norm Selector</h3>
+    <p>Chọn cấu kiện trong model rồi bấm: hệ thống xác định công việc → mã định mức → hao phí vật liệu / nhân công / máy.</p>
+    <p class="en">Select elements: work item → norm code → material / labour / machine.</p>
+  </section>
+  <section class="cmd" id="van-khuon">
+    <h3>Ván khuôn · Formwork</h3>
+    <p>Đo diện tích ván khuôn cho cột, vách, dầm, sàn đang chọn. Kết quả hiện trong bảng; chỉ ghi vào tham số QS_Formwork* sau khi anh/chị xác nhận.</p>
+    <p class="en">Measures formwork of the selected elements; writes QS_Formwork* only after you confirm.</p>
+  </section>
+  <section class="cmd" id="xuat-boq">
+    <h3>Xuất BOQ · BOQ Export</h3>
+    <p>Trích bảng khối lượng (BOQ) từ cấu kiện đang chọn, gom theo mã và xuất file kiểm tra / G8.</p>
+    <p class="en">Extracts the BOQ from the selection, grouped by code, and exports audit / G8 files.</p>
+  </section>
+  <section class="cmd" id="bang-khoi-luong">
+    <h3>Bảng khối lượng · Qty Schedule</h3>
+    <p>Tạo hoặc cập nhật bảng thống kê "QS-BIM Khối lượng cấu kiện" trong Revit. Chạy lại nhiều lần không sinh bảng trùng.</p>
+    <p class="en">Creates / updates the "QS-BIM element quantities" schedule; safe to re-run.</p>
+  </section>
+
+  <h2 id="tro-ly-ai">Trợ lý AI · AI</h2>
+  <section class="cmd" id="ai">
+    <h3>AI: Đang bật / Đã tắt · AI: On / Off</h3>
+    <p>Bật hoặc tắt cổng kết nối AI (MCP) của Revit trên máy này. Icon có chấm xanh = đang bật, icon xám = đã tắt. Cổng chỉ mở trong máy (127.0.0.1), không ra ngoài mạng.</p>
+    <p><b>Kết nối AI · AI Clients</b> – hiện địa chỉ và mã token cho ChatGPT, đường dẫn cấu hình cho Cursor / Claude.</p>
+    <p class="en">Turns the local AI gateway (MCP) on or off. Green dot = on, grey = off. "AI Clients" shows connection details.</p>
+  </section>
+</main>
+</body>
+</html>

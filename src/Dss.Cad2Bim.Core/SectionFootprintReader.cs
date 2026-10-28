@@ -669,13 +669,18 @@ public static class SectionFootprintReader
 		return degrees;
 	}
 
+	/// <summary>
+	/// Column section from outline. L/b &gt; 4 is a wall (vách) on shared CAD layers — see WallCenterlineReader.
+	/// </summary>
+	internal const double MaxColumnAspect = 4.0;
+
 	private static bool Accept(double width, double depth)
 	{
 		double num = Math.Min(width, depth);
 		double num2 = Math.Max(width, depth);
 		if (num >= 80.0 && num2 <= 2500.0)
 		{
-			return num2 / Math.Max(num, 1.0) <= 8.0;
+			return num2 / Math.Max(num, 1.0) <= MaxColumnAspect;
 		}
 		return false;
 	}
@@ -696,6 +701,10 @@ public static class SectionFootprintReader
 
 	private static double Round10(double value)
 	{
-		return Math.Round(value / 10.0) * 10.0;
+		// Prefer 50 mm stations when CAD noise is within 8 mm (912 → 900, not 910).
+		var r50 = Math.Round(value / 50.0, MidpointRounding.AwayFromZero) * 50.0;
+		if (Math.Abs(value - r50) <= 8.0)
+			return r50;
+		return Math.Round(value / 10.0, MidpointRounding.AwayFromZero) * 10.0;
 	}
 }

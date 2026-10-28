@@ -75,16 +75,46 @@ internal static class CatalogCreate
             return Fail(op, "missing_field", "fields.startMm/endMm required.");
 
         var typeName = ReqString(op.Fields, "familyType") ?? ReqString(op.Fields, "typeName");
-        if (typeName is null)
-            return Fail(op, "type_unresolved", "fields.familyType required — call list_types.");
+        var widthMm = ReqInt(op.Fields, "widthMm");
+        var depthMm = ReqInt(op.Fields, "depthMm") ?? ReqInt(op.Fields, "heightMm");
+        var sourceFamily = ReqString(op.Fields, "sourceFamily");
 
-        var symbol = FindSymbol(doc, BuiltInCategory.OST_StructuralFraming, typeName);
-        if (symbol is null)
-            return Fail(op, "type_unresolved", $"Beam type '{typeName}' not found.");
+        FamilySymbol? symbol;
+        var createdNewType = false;
+        if (widthMm is > 0 && depthMm is > 0)
+        {
+            symbol = CategoryDispatcher.ResolveBeamSymbol(
+                doc, widthMm.Value, depthMm.Value, sourceFamily, out createdNewType,
+                ReqString(op.Fields, "widthParam"), ReqString(op.Fields, "heightParam"));
+            if (symbol is null)
+                return Fail(op, "type_unresolved",
+                    "Không tạo được tiết diện dầm " + $"{widthMm}x{depthMm} mm" +
+                    (string.IsNullOrWhiteSpace(sourceFamily) ? "" : $" trong family '{sourceFamily}'") +
+                    ". Family cần tham số b/h.");
+        }
+        else
+        {
+            if (typeName is null)
+                return Fail(op, "type_unresolved", "fields.familyType required — call list_types.");
+            symbol = FindSymbol(doc, BuiltInCategory.OST_StructuralFraming, typeName);
+            if (symbol is null)
+                return Fail(op, "type_unresolved", $"Beam type '{typeName}' not found.");
+        }
 
-        var level = FindLevel(doc, ReqString(op.Fields, "level"));
+        var levelName = ReqString(op.Fields, "level");
+        var level = FindLevel(doc, levelName);
         if (level is null)
-            return Fail(op, "missing_level", "Level not found.");
+            return Fail(op, "missing_level",
+                string.IsNullOrWhiteSpace(levelName)
+                    ? "Level not found."
+                    : $"Level '{levelName}' not found.");
+
+        // Curve Z must match the reference level before skip/create. CAD Z is unused; offsets go
+        // on Start/End Level Offset. Z≈0 would match/re-host onto the lowest level (often HẦM).
+        start = new XYZ(start.X, start.Y, level.Elevation);
+        end = new XYZ(end.X, end.Y, level.Elevation);
+        if (start.DistanceTo(end) < 1e-6)
+            return Fail(op, "bad_curve", "Hai đầu dầm trùng nhau.");
 
         if (skip)
         {
@@ -93,11 +123,20 @@ internal static class CatalogCreate
                          .WhereElementIsNotElementType()
                          .OfType<FamilyInstance>())
             {
-                if (fi.Symbol.Id != symbol.Id)
+                if (!SameBeamReferenceLevel(fi, level))
                     continue;
-                if (fi.Location is LocationCurve lc && lc.Curve is Line line &&
-                    LinesNear(line, start, end))
+                if (fi.Location is not LocationCurve lc || lc.Curve is not Line line ||
+                    !LinesNear(line, start, end))
+                    continue;
+                if (fi.Symbol.Id == symbol.Id ||
+                    (!string.IsNullOrWhiteSpace(sourceFamily) &&
+                     string.Equals(fi.Symbol.FamilyName, sourceFamily, StringComparison.OrdinalIgnoreCase)))
+                {
+                    // Rematch: correct sticky Y/Z + level offsets left by prior creates.
+                    PlacementApply.Apply(fi, op.Fields, units);
+                    EnsureBeamReferenceLevel(fi, level);
                     return Skip(op, fi.Id.Value.ToString(), "skipIfExists");
+                }
             }
         }
 
@@ -107,7 +146,48 @@ internal static class CatalogCreate
         EnsureSymbolActive(doc, symbol);
         var curve = Line.CreateBound(start, end);
         var created = doc.Create.NewFamilyInstance(curve, symbol, level, StructuralType.Beam);
-        return Created(op, created.Id.Value.ToString());
+        EnsureBeamReferenceLevel(created, level);
+        PlacementApply.Apply(created, op.Fields, units);
+        EnsureBeamReferenceLevel(created, level);
+        // Last: wipe sticky Y Right / z Offset after level/offset writes.
+        PlacementApply.ApplyBeamJustificationDefaults(created);
+        var reason = createdNewType ? "newType" : null;
+        return Created(op, created.Id.Value.ToString(), reason);
+    }
+
+    private static bool SameBeamReferenceLevel(FamilyInstance fi, Level level)
+    {
+        var refId = fi.get_Parameter(BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM)?.AsElementId();
+        if (refId is not null && refId != ElementId.InvalidElementId)
+            return refId == level.Id;
+        return fi.LevelId == level.Id;
+    }
+
+    private static void EnsureBeamReferenceLevel(FamilyInstance beam, Level level)
+    {
+        try
+        {
+            var parameter = beam.get_Parameter(BuiltInParameter.INSTANCE_REFERENCE_LEVEL_PARAM);
+            if (parameter is null || parameter.IsReadOnly)
+                return;
+            if (parameter.AsElementId() != level.Id)
+                parameter.Set(level.Id);
+        }
+        catch (Exception)
+        {
+            // Reference Level stays whatever NewFamilyInstance assigned.
+        }
+    }
+
+    private static int? ReqInt(JsonElement fields, string key)
+    {
+        if (fields.ValueKind != JsonValueKind.Object || !fields.TryGetProperty(key, out var el))
+            return null;
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var i))
+            return i;
+        if (el.ValueKind == JsonValueKind.Number && el.TryGetDouble(out var d))
+            return (int)Math.Round(d);
+        return null;
     }
 
     public static CreateItemResult CreateDoorOrWindow(Document doc, CreateOperation op, bool skip, bool dryRun, string? units, bool isDoor)
@@ -456,7 +536,13 @@ internal static class CatalogCreate
         var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
         if (string.IsNullOrWhiteSpace(name))
             return levels.OrderBy(l => l.Elevation).FirstOrDefault();
-        return levels.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+        name = name.Trim();
+        var exact = levels.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+            return exact;
+        // Some projects pad level names; still refuse silent fallback to the lowest level.
+        return levels.FirstOrDefault(l =>
+            string.Equals(l.Name.Trim(), name, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool TryXyz(JsonElement fields, string mmKey, string altKey, string? units, out XYZ xyz)

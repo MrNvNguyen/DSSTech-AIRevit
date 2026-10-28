@@ -178,25 +178,46 @@ internal static class CategoryDispatcher
 
         if (skip)
         {
+            // Earlier runs may have left the body up to one thickness off CAD and ends short of corners.
+            var thickForMatch = thicknessMm is > 0 ? thicknessMm.Value : WallWidthMm(wallType);
+            var matchTol = Math.Max(GeomTolMm, thickForMatch * 1.5 + 50);
+            Wall? match = null;
+            var bestMm = double.MaxValue;
             foreach (var wall in new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>())
             {
-                if (wall.Location is not LocationCurve lc || lc.Curve is not Line line)
+                if (wall.Location is not LocationCurve { Curve: Line line })
                     continue;
-                if (!LinesNear(line, start, end, GeomTolMm))
+                var center = BodyCenterline(wall, line);
+                if (!LinesNear(center, start, end, matchTol))
                     continue;
-                if (!dryRun && wall.WallType.Id != wallType.Id)
+                var d = EndsDistanceMm(center, start, end);
+                if (d >= bestMm)
+                    continue;
+                bestMm = d;
+                match = wall;
+            }
+
+            if (match is not null)
+            {
+                if (!dryRun)
                 {
                     try
                     {
-                        wall.WallType = wallType;
+                        if (match.WallType.Id != wallType.Id)
+                            match.WallType = wallType;
+                        SetLocationLine(match, (int)WallLocationLine.WallCenterline);
+                        ((LocationCurve)match.Location).Curve = Line.CreateBound(start, end);
+                        WallUtils.AllowWallJoinAtEnd(match, 0);
+                        WallUtils.AllowWallJoinAtEnd(match, 1);
+                        FaceOutward(match, op.Fields);
                     }
                     catch (Autodesk.Revit.Exceptions.ApplicationException)
                     {
-                        return Skip(op, wall.Id.Value.ToString(), "skipIfExists");
+                        // Keep the existing wall when it is pinned/locked.
                     }
                 }
 
-                return Skip(op, wall.Id.Value.ToString(), "skipIfExists");
+                return Skip(op, match.Id.Value.ToString(), "skipIfExists");
             }
         }
 
@@ -205,6 +226,10 @@ internal static class CategoryDispatcher
 
         var curve = Line.CreateBound(start, end);
         var wallNew = Wall.Create(doc, curve, wallType.Id, level.Id, heightInternal, 0, false, structural);
+        if (SetLocationLine(wallNew, (int)WallLocationLine.WallCenterline))
+            ((LocationCurve)wallNew.Location).Curve = curve;
+        WallUtils.AllowWallJoinAtEnd(wallNew, 0);
+        WallUtils.AllowWallJoinAtEnd(wallNew, 1);
         try
         {
             var baseParam = wallNew.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT);
@@ -229,8 +254,127 @@ internal static class CategoryDispatcher
             return Fail(op, "bad_level", ex.Message);
         }
 
+        FaceOutward(wallNew, op.Fields);
         PlacementApply.Apply(wallNew, op.Fields, units);
         return Created(op, wallNew.Id.Value.ToString());
+    }
+
+    /// <summary>
+    /// Run after every wall of the batch exists on its centerline (joins formed). Changing Location Line
+    /// moves only the location curve onto the finish face; the wall body stays on the CAD outline.
+    /// </summary>
+    internal static void ApplyWallLocationLines(Document doc, IReadOnlyList<CreateOperation> operations, IReadOnlyList<CreateItemResult> results)
+    {
+        var pending = new List<(Wall Wall, int Value)>();
+        for (var i = 0; i < operations.Count && i < results.Count; i++)
+        {
+            var op = operations[i];
+            if ((op.Category ?? "").Trim().ToLowerInvariant() is not ("walls" or "wall" or "ost_walls"))
+                continue;
+            if (results[i].Status is not ("created" or "skipped") || !long.TryParse(results[i].Id, out var id))
+                continue;
+            if (doc.GetElement(new ElementId(id)) is not Wall wall)
+                continue;
+            // Structural / CoreShaft walls stay on Wall Centerline — do not map envelope Exterior/Interior to Finish Face.
+            var structural = ReqBool(op.Fields, "structural") ?? false;
+            var rawLine = (ReqString(op.Fields, "locationLine") ?? "").Trim().ToLowerInvariant();
+            if (structural && rawLine is "exterior" or "finishfaceexterior" or "interior" or "finishfaceinterior")
+                rawLine = "wallcenterline";
+            var value = rawLine switch
+            {
+                "exterior" or "finishfaceexterior" => (int)WallLocationLine.FinishFaceExterior,
+                "interior" or "finishfaceinterior" => (int)WallLocationLine.FinishFaceInterior,
+                "center" or "centerline" or "wallcenterline" => (int)WallLocationLine.WallCenterline,
+                _ => -1
+            };
+            if (value >= 0)
+                pending.Add((wall, value));
+        }
+
+        if (pending.Count == 0)
+            return;
+        doc.Regenerate();
+        foreach (var (wall, value) in pending)
+        {
+            try
+            {
+                SetLocationLine(wall, value);
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException)
+            {
+                // Keep centerline if the parameter is locked.
+            }
+        }
+    }
+
+    private static bool SetLocationLine(Wall wall, int value)
+    {
+        var key = wall.get_Parameter(BuiltInParameter.WALL_KEY_REF_PARAM);
+        if (key is null || key.IsReadOnly || key.StorageType != StorageType.Integer || key.AsInteger() == value)
+            return false;
+        return key.Set(value);
+    }
+
+    /// <summary>Flip while the location line is the centerline so the body does not move. Architectural only.</summary>
+    private static void FaceOutward(Wall wall, JsonElement fields)
+    {
+        // Structural walls use CoreShaft + centerline; do not flip from envelope outward.
+        if (ReqBool(fields, "structural") == true)
+            return;
+        if (!TryOutward(fields, out var outward))
+            return;
+        try
+        {
+            // Orientation points to the exterior side of the wall.
+            if (wall.Orientation.DotProduct(outward) < 0)
+                wall.Flip();
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            // Keep wall if flip is locked.
+        }
+    }
+
+    /// <summary>Body centerline from the location curve; exterior face is on the Orientation side.</summary>
+    private static Line BodyCenterline(Wall wall, Line location)
+    {
+        var key = wall.get_Parameter(BuiltInParameter.WALL_KEY_REF_PARAM)?.AsInteger() ?? 0;
+        var half = wall.Width / 2;
+        var shift = key switch
+        {
+            (int)WallLocationLine.FinishFaceExterior or (int)WallLocationLine.CoreExterior => -half,
+            (int)WallLocationLine.FinishFaceInterior or (int)WallLocationLine.CoreInterior => half,
+            _ => 0
+        };
+        if (Math.Abs(shift) < 1e-9)
+            return location;
+        var v = wall.Orientation * shift;
+        return Line.CreateBound(location.GetEndPoint(0) + v, location.GetEndPoint(1) + v);
+    }
+
+    private static double EndsDistanceMm(Line existing, XYZ start, XYZ end)
+    {
+        var a0 = existing.GetEndPoint(0);
+        var a1 = existing.GetEndPoint(1);
+        return Math.Min(DistanceMm(a0, start) + DistanceMm(a1, end), DistanceMm(a0, end) + DistanceMm(a1, start));
+    }
+
+    private static bool TryOutward(JsonElement fields, out XYZ outward)
+    {
+        outward = XYZ.Zero;
+        if (fields.ValueKind != JsonValueKind.Object)
+            return false;
+        if (!fields.TryGetProperty("outwardMm", out var arr) && !fields.TryGetProperty("outward", out arr))
+            return false;
+        if (arr.ValueKind != JsonValueKind.Array || arr.GetArrayLength() < 2)
+            return false;
+        var x = arr[0].ValueKind == JsonValueKind.Number ? arr[0].GetDouble() : 0;
+        var y = arr[1].ValueKind == JsonValueKind.Number ? arr[1].GetDouble() : 0;
+        var len = Math.Sqrt(x * x + y * y);
+        if (len < 1e-9)
+            return false;
+        outward = new XYZ(x / len, y / len, 0);
+        return true;
     }
 
     private static CreateItemResult CreateColumn(Document doc, CreateOperation op, bool skip, bool dryRun, string? units)
@@ -480,6 +624,109 @@ internal static class CategoryDispatcher
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+    public static IReadOnlyList<string> ListRectangularBeamFamilies(Document doc) =>
+        BeamSymbols(doc)
+            .Where(s => TryGetColumnSectionMm(s, out _, out _))
+            .Select(s => s.FamilyName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    /// <summary>Find or duplicate a Structural Framing type with the requested b×h (mm).</summary>
+    public static FamilySymbol? ResolveBeamSymbol(
+        Document doc,
+        int widthMm,
+        int depthMm,
+        string? sourceFamily,
+        out bool createdNewType,
+        string? widthParam = null,
+        string? heightParam = null)
+    {
+        createdNewType = false;
+        var symbols = BeamSymbols(doc);
+        if (!string.IsNullOrWhiteSpace(sourceFamily))
+        {
+            symbols = symbols
+                .Where(s => string.Equals(s.FamilyName, sourceFamily, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        foreach (var symbol in symbols)
+        {
+            if (!TryGetColumnSectionMm(symbol, out var b, out var h, widthParam, heightParam))
+                continue;
+            if (b == widthMm && h == depthMm)
+                return symbol;
+        }
+
+        var template = PickBeamTemplate(symbols);
+        if (template is null || !TryGetColumnSectionMm(template, out _, out _, widthParam, heightParam))
+            return null;
+
+        var typeName = $"{widthMm}x{depthMm}";
+        var existing = symbols.FirstOrDefault(s =>
+            string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            if (TryGetColumnSectionMm(existing, out var eb, out var eh, widthParam, heightParam) &&
+                eb == widthMm && eh == depthMm)
+                return existing;
+            if (TrySetColumnSectionMm(existing, widthMm, depthMm, widthParam, heightParam))
+            {
+                doc.Regenerate();
+                return existing;
+            }
+        }
+
+        FamilySymbol? duplicate;
+        try
+        {
+            duplicate = template.Duplicate(typeName) as FamilySymbol;
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (duplicate is null || !TrySetColumnSectionMm(duplicate, widthMm, depthMm, widthParam, heightParam))
+            return null;
+
+        doc.Regenerate();
+        if (!TryGetColumnSectionMm(duplicate, out var wb, out var wh, widthParam, heightParam) ||
+            wb != widthMm || wh != depthMm)
+            return null;
+
+        createdNewType = true;
+        return duplicate;
+    }
+
+    private static List<FamilySymbol> BeamSymbols(Document doc) =>
+        new FilteredElementCollector(doc)
+            .OfClass(typeof(FamilySymbol))
+            .OfCategory(BuiltInCategory.OST_StructuralFraming)
+            .Cast<FamilySymbol>()
+            .ToList();
+
+    private static FamilySymbol? PickBeamTemplate(IReadOnlyList<FamilySymbol> symbols)
+    {
+        foreach (var symbol in symbols)
+        {
+            if (TryGetColumnSectionMm(symbol, out _, out _) &&
+                (symbol.FamilyName.Contains("BEAM", StringComparison.OrdinalIgnoreCase) ||
+                 symbol.FamilyName.Contains("DAM", StringComparison.OrdinalIgnoreCase) ||
+                 symbol.FamilyName.Contains("FRAM", StringComparison.OrdinalIgnoreCase)))
+                return symbol;
+        }
+
+        foreach (var symbol in symbols)
+        {
+            if (TryGetColumnSectionMm(symbol, out _, out _))
+                return symbol;
+        }
+
+        return null;
+    }
+
     private static bool IsExactInternalOrigin(XYZ point) =>
         Math.Abs(point.X) < 1e-8 && Math.Abs(point.Y) < 1e-8;
 
@@ -542,12 +789,22 @@ internal static class CategoryDispatcher
         var typeName = $"{widthMm}x{depthMm}";
         var existing = symbols.FirstOrDefault(s =>
             string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase));
-        if (existing is not null && TryGetColumnSectionMm(existing, out var eb, out var eh, widthParam, heightParam) &&
-            ((eb == widthMm && eh == depthMm) || (eb == depthMm && eh == widthMm)))
+        if (existing is not null)
         {
-            if (eb == depthMm && eh == widthMm)
-                needsRotate90 = true;
-            return existing;
+            if (TryGetColumnSectionMm(existing, out var eb, out var eh, widthParam, heightParam) &&
+                ((eb == widthMm && eh == depthMm) || (eb == depthMm && eh == widthMm)))
+            {
+                if (eb == depthMm && eh == widthMm)
+                    needsRotate90 = true;
+                return existing;
+            }
+
+            // Type name matches but b/h drifted — rewrite section instead of failing Duplicate.
+            if (TrySetColumnSectionMm(existing, widthMm, depthMm, widthParam, heightParam))
+            {
+                doc.Regenerate();
+                return existing;
+            }
         }
 
         FamilySymbol? duplicate;
@@ -564,6 +821,10 @@ internal static class CategoryDispatcher
             return null;
 
         doc.Regenerate();
+        if (!TryGetColumnSectionMm(duplicate, out var wb, out var wh, widthParam, heightParam) ||
+            !((wb == widthMm && wh == depthMm) || (wb == depthMm && wh == widthMm)))
+            return null;
+
         createdNewType = true;
         return duplicate;
     }
@@ -857,7 +1118,10 @@ internal static class CategoryDispatcher
         var scaled = arr.Select(v => UnitConv.ScaleToMm(v, units)).ToArray();
         if (scaled.Length == 2)
             scaled = new[] { scaled[0], scaled[1], 0 };
-        xyz = UnitConv.XyzFromMm(scaled);
+        // Rotated walls/columns are whole mm along their own axes; world rounding would break that.
+        xyz = ReqBool(fields, "rotatedFrame") == true
+            ? new XYZ(UnitConv.MmToInternal(scaled[0]), UnitConv.MmToInternal(scaled[1]), UnitConv.MmToInternal(scaled[2]))
+            : UnitConv.XyzFromMm(scaled);
         return true;
     }
 
