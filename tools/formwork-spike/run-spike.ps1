@@ -16,7 +16,7 @@ if ($hostInfo.Count -eq 0) {
   throw "Revit $Year not found. Install Revit or pass -Year for an installed host ($($script:QsRevitYearMin)-$($script:QsRevitYearMax))."
 }
 
-$tfm = if ($Framework) { $Framework } else { Get-QsRevitTargetFramework $Year }
+$tfm = if ($Framework) { $Framework } else { Get-QsRevitTargetFramework $Year $hostInfo[0].ApiPath }
 if (-not $NoBuild) {
   Write-Host "Building FormworkSpike for Revit $Year (TFM=$tfm)"
   dotnet build $proj -c $Configuration `

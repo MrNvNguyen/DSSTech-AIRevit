@@ -1,6 +1,6 @@
 # BOQ export schema (DSS.QSEngine)
 
-Audit export uses **28 columns** defined in `BoqExporter.ExportColumnOrder` (`src/QSNormEngine.Core/BoqExporter.cs`).
+Audit export uses **29 columns** defined in `BoqExporter.ExportColumnOrder` (`src/DSSTech.Core/BoqExporter.cs`).
 
 | # | Column | Source |
 |---|--------|--------|
@@ -21,35 +21,36 @@ Audit export uses **28 columns** defined in `BoqExporter.ExportColumnOrder` (`sr
 | 15 | Zone | Zone |
 | 16 | Type cấu kiện | Element type |
 | 17 | ĐVT | Unit |
-| 18 | Khối lượng BIM | Raw BIM quantity |
-| 19 | Hệ số QS | QS factor (default 1) |
-| 20 | Khối lượng BOQ | BIM × QS factor |
-| 21 | Số cấu kiện | Element count in group |
-| 22 | Trạng thái | Mapping status (Vietnamese) |
-| 23 | Thông số thiếu | Missing selector params |
-| 24 | Ứng viên mã | Candidate norm codes |
-| 25 | Description | Element description |
-| 26 | Nguồn Category | Revit category |
-| 27 | Element ID | Revit element ids |
-| 28 | External ID | UniqueId list |
+| 18 | Khối lượng BIM | Raw BIM quantity, in the BIM unit |
+| 19 | Đơn vị BIM | Model unit of the BIM quantity (kg, m2, m3, count…) |
+| 20 | Hệ số QS | BIM unit → norm unit (kg→t 0.001, m2→100m2 0.01; 1 when equal) |
+| 21 | Khối lượng BOQ | BIM × QS factor |
+| 22 | Số cấu kiện | Element count in group |
+| 23 | Trạng thái | Mapping status (Vietnamese) |
+| 24 | Thông số thiếu | Missing selector params |
+| 25 | Ứng viên mã | Candidate norm codes |
+| 26 | Description | Element description |
+| 27 | Nguồn Category | Revit category |
+| 28 | Element ID | Revit element ids |
+| 29 | External ID | UniqueId list |
 
 ## Grouping modes
 
 | Mode | Key fields |
 |------|------------|
 | Detail | One row per element |
-| Code | Norm code + work item + unit + geometry bands |
+| Code | Norm code + work item + unit + BIM unit + geometry bands |
 | LevelType | Code key + level + type |
 | Level | Code key + level |
 | Type | Code key + type |
 
 ## Official issue rule
 
-Rows with `CanIssueOfficially=false` (e.g. `SelectedQc1`, missing params) are included in audit export but **excluded** from G8 “Công trình” CSV unless explicitly overridden in a future signed box.
+Rows with `CanIssueOfficially=false` (e.g. `SelectedQc1`, missing params, no valid unit conversion) are included in audit export but **excluded** from G8 “Công trình” CSV unless explicitly overridden in a future signed box.
 
 ## Regenerate
 
 ```powershell
-dotnet build src\QSNormEngine.Cli\QSNormEngine.Cli.csproj -c Release
-dotnet exec src\QSNormEngine.Cli\bin\Release\net8.0\QSNormEngine.Cli.dll --boq out\boq-smoke.csv
+dotnet build src\DSSTech.Cli\DSSTech.Cli.csproj -c Release
+dotnet exec src\DSSTech.Cli\bin\Release\net8.0\DSSTech.Cli.dll --boq out\boq-smoke.csv
 ```

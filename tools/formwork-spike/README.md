@@ -2,12 +2,12 @@
 
 Isolated Revit add-in for **N0-FORMWORK-SPIKE** — measures `get_Geometry(Fine)` timing, `BooleanOperationsUtils.Difference` fail rate, and a probe-epsilon contact estimate on a joined beam–column pair.
 
-Does **not** touch `src/QSNormEngine.Revit`, runtime JSON, or DSS.QSEngine ribbon.
+Does **not** touch `src/DSSTech.Revit`, runtime JSON, or DSS.QSEngine ribbon.
 
 ## Prerequisites
 
-- Revit 2024–2027 (default build target: **2025** / `net8.0-windows`)
-- .NET SDK matching the host TFM (`net48` for 2024, `net8.0-windows` for 2025–2026, `net10.0-windows` for 2027)
+- Revit 2025–2027 (default build target: **2025**)
+- .NET SDK matching the host TFM (read from the host's `RevitAPI.runtimeconfig.json`; fallback `net8.0-windows` for 2025–2026, `net10.0-windows` for 2027)
 - Pilot structural model locally (see `docs/evidence/formwork-spike/pilot-model-pointer.md`) — **never commit `.rvt`**
 
 ## Build
