@@ -31,11 +31,22 @@ function Get-QsRevitYearFromPath([string]$ApiPath) {
   return $null
 }
 
-function Get-QsRevitTargetFramework([int]$Year) {
+function Get-QsRevitTargetFramework([int]$Year, [string]$ApiPath) {
+  # Updates move hosts across runtimes (2025.5 / 2026.5 ship .NET 10), so trust the
+  # installed RevitAPI.runtimeconfig.json over the year table when it exists.
+  if ($ApiPath) {
+    $cfg = Join-Path $ApiPath "RevitAPI.runtimeconfig.json"
+    if (Test-Path $cfg) {
+      try {
+        $tfm = (Get-Content $cfg -Raw | ConvertFrom-Json).runtimeOptions.tfm
+        if ($tfm -match '^net\d+\.\d+$') { return "$tfm-windows" }
+      } catch { }
+    }
+  }
   switch ($Year) {
     2024 { "net48" }
     2025 { "net8.0-windows" }
-    2026 { "net8.0-windows" }  # 2026.5+ (.NET 10): pass -Framework net10.0-windows
+    2026 { "net8.0-windows" }
     2027 { "net10.0-windows" }
     default { throw "Host year $Year is outside supported range $($script:QsRevitYearMin)-$($script:QsRevitYearMax)." }
   }
