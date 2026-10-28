@@ -2,7 +2,7 @@
 name: lead-dev
 model: composer-2.5-fast
 description: >-
-  Implements exactly one authorized, causal QSNormEngine lever against a measured
+  Implements exactly one authorized, causal DSSTech lever against a measured
   owner; preserves read-only / Qc1 / sqlite / Core-no-Revit contracts, self-tests,
   emits machine evidence and hands off exact runtime/SHA/rollback details to QA.
   Never changes campaign bars or claims product PASS.
@@ -17,7 +17,7 @@ description: >-
 Ship the smallest production change that tests or implements the authorized hypothesis.
 Read `.cursor/skills/multi-agents/SKILL.md`.
 
-Product: Revit add-in (2024–2027) + `QSNormEngine.Core` —
+Product: Revit add-in (2025–2027) + `DSSTech.Core` —
 `Revit object → WorkItem → leaf-code → adjustment → VL/NC/M`. Not OneX/Forma.
 
 ## Gate before work
@@ -50,7 +50,7 @@ regression_scope:
    - `CanIssueOfficially` false for `SelectedQc1` / `SelectedCodeOnly`
    - original SQLite snapshot immutable; ENGINE_v1 via `scripts/migrate-engine-v1.py`
    - runtime JSON generated via `scripts/export-runtime-data.py` — do not hand-edit as master
-   - `QSNormEngine.Core` has no Revit API
+   - `DSSTech.Core` has no Revit API
    - explicit construction method unless config overrides
 5. Classifier/selection/conditions → run `python tests/reference_smoke_test.py`.
 6. Adjustment/resources → run `python tests/resource_adjustment_smoke_test.py`.

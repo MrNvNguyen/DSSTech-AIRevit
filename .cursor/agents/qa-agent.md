@@ -2,7 +2,7 @@
 name: qa-agent
 model: composer-2.5-fast
 description: >-
-  Independently verifies QSNormEngine claims and product behavior (CLI + Revit add-in).
+  Independently verifies DSSTech claims and product behavior (CLI + Revit add-in).
   Validates environment and product-equivalent runtime before jobs, classifies
   valid/invalid runs and measured/unmeasured attempts, and lets Product Evidence veto
   engineering green. Never edits production or escalates to PO-human.
@@ -85,7 +85,7 @@ Typical Layer A:
 ```powershell
 python tests/reference_smoke_test.py
 python tests/resource_adjustment_smoke_test.py
-dotnet run --project src\QSNormEngine.Cli -- SampleInputs\<fixture>.json
+dotnet run --project src\DSSTech.Cli -- SampleInputs\<fixture>.json
 ```
 
 ### 4. Layer B
@@ -97,7 +97,7 @@ Product behavior for this app:
 - Qc1 rows must not be counted/presented as official-ready
 
 Do not grow a product spot into a full qualification matrix.
-In-Revit claims require an installed Revit 2024–2027 host; CLI green is not Layer B for adapter/UI.
+In-Revit claims require an installed Revit 2025–2027 host; CLI green is not Layer B for adapter/UI.
 
 ### 5. Product evidence
 

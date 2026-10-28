@@ -3,7 +3,7 @@
 Repo-wide. Read with `SKILL.md` for strategy dispatch, PO-proxy adjudication, PO packets,
 closure, or model fallback.
 
-Product: **QSNormEngine** (Revit 2024–2027 norm selection). Not OneX/Forma.
+Product: **DSSTech** (Revit 2025–2027 norm selection). Not OneX/Forma.
 
 ## 1. Strategy as adversarial PO-proxy
 

@@ -1,11 +1,11 @@
 ---
-description: QSNormEngine (Revit add-in) product context — North Star, repo map, hard contracts, evidence-first.
+description: DSSTech (Revit add-in, QS-BIM norm engine) product context — North Star, repo map, hard contracts, evidence-first.
 alwaysApply: true
 ---
 
 # QS-BIM Norm Engine (Revit)
 
-This repo is **QSNormEngine** — a Revit add-in (hosts 2025–2027) + Revit-independent engine:
+This repo is **DSSTech** (formerly QSNormEngine) — a Revit add-in (hosts 2025–2027) + Revit-independent engine:
 
 `Revit object → WorkItem → norm leaf-code → adjustment → VL/NC/M`
 
@@ -13,7 +13,7 @@ It is **not** OneX, Forma, Electron, APS copy, or an IFC viewer. Ignore any inhe
 
 ## North Star
 
-- Ribbon **DSS.QSEngine → Cost & Norm → Norm Selector** on selected elements; results grid + CSV/JSON.
+- Ribbon **DSSTech → Khối lượng → Norm Selector** on selected elements; results grid + CSV/JSON.
 - Norm Selector command uses `TransactionMode.Manual` so user-confirmed fill/write-back can run; it does **not** auto-write on open.
 - SQLite is the governed master; `Data/norm-engine-runtime.json` is a generated cache (do not hand-edit as source of truth).
 - `SelectedQc1` / `SelectedCodeOnly` / `CanIssueOfficially=false` are **not** official issue.
@@ -25,9 +25,13 @@ It is **not** OneX, Forma, Electron, APS copy, or an IFC viewer. Ignore any inhe
 
 | Path | Role |
 |---|---|
-| `src/QSNormEngine.Core` | Selection / rules / resources (no Revit API) |
-| `src/QSNormEngine.Cli` | Console harness |
-| `src/QSNormEngine.Revit` | Add-in (facts adapter, UI, export) |
+| `DSSTech.sln` | **The** solution — open this one |
+| `src/DSSTech.Core` | Selection / rules / resources / BOQ (no Revit API) |
+| `src/DSSTech.Cli` | Console harness (`--smoke`, `--boq`) |
+| `src/DSSTech.Revit` | Add-in (ribbon, facts adapter, UI, export, CAD2BIM commands) |
+| `src/Dss.McpContracts` · `src/Dss.McpHost` · `src/Dss.RevitMcp` | MCP contracts, in-Revit host, stdio sidecar for Cursor |
+| `src/Dss.Cad2Bim.Core` | DXF parse / preflight / intent (no Revit API) |
+| `src/QSNormEngine.*` · `QSNormEngine.sln` | **Legacy, frozen** — do not edit or build; fixes go to `DSSTech.*` |
 | `Database/` | Original SQLite + ENGINE_v1 snapshot |
 | `Data/` | Generated runtime JSON |
 | `Config/` | Engine / project defaults |
@@ -39,6 +43,7 @@ It is **not** OneX, Forma, Electron, APS copy, or an IFC viewer. Ignore any inhe
 
 ## Hard limits (do not violate)
 
+- Edit `src/DSSTech.*` / `src/Dss.*` only. Never change `src/QSNormEngine.*`; it is not built or shipped.
 - Write-back of `QS_WorkItemId` / `QS_NormCode` / `QS_NormStatus` only after the user confirms (Ghi vào cấu kiện). Do not auto-write when the command opens, and do not remove that confirm path.
 - Do not treat `SelectedQc1` as official-ready in UI, export semantics, or Success claims.
 - Do not edit `Database_DinhMuc_QS_BIM_FINAL_v2_original.sqlite`; engine patches go through `scripts/migrate-engine-v1.py`.
