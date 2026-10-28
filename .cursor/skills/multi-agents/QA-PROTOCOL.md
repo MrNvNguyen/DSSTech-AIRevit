@@ -2,7 +2,7 @@
 
 Read with `SKILL.md` when a wave has QA work.
 
-Product: QSNormEngine Revit add-in (2024–2027) + CLI. Not Electron/APS.
+Product: DSSTech Revit add-in (2025–2027) + CLI. Not Electron/APS.
 
 ## 1. Tier and batching
 
@@ -40,7 +40,7 @@ Rules:
 CLI harness (when SDK present):
 
 ```powershell
-dotnet run --project src\QSNormEngine.Cli -- SampleInputs\<fixture>.json
+dotnet run --project src\DSSTech.Cli -- SampleInputs\<fixture>.json
 python tests/reference_smoke_test.py
 python tests/resource_adjustment_smoke_test.py
 ```
@@ -66,7 +66,7 @@ Layer A never overrides a Layer B failure.
 
 Q2 must not grow into a full qualification matrix. Q3 owns full qualification.
 
-CLI-only claims may complete Layer B without Revit. **In-Revit claims** (facts adapter, ribbon, results window, install) require a Revit 2024–2027 Layer B session — CLI green is not enough.
+CLI-only claims may complete Layer B without Revit. **In-Revit claims** (facts adapter, ribbon, results window, install) require a Revit 2025–2027 Layer B session — CLI green is not enough.
 
 ## 4. Product runtime policy
 
@@ -75,7 +75,7 @@ For Revit / CLI product claims:
 1. Use documented SampleInputs or a dedicated fixture model when live Revit is required.
 2. Prefer CLI expected-code evidence before a live Revit session when the owner is Core.
 3. Do not commit `.rvt` or large binaries into evidence; record size + SHA + path.
-4. Record Revit build, TFM (`net48` / `net8.0-windows` / `net10.0-windows`), runtime JSON source, config flags.
+4. Record Revit build, TFM (`net8.0-windows` / `net10.0-windows`), runtime JSON source, config flags.
 5. One product session per QA run unless DoD requires otherwise.
 
 Do not treat Cursor browser MCP as a substitute for Revit add-in verification.
@@ -90,7 +90,7 @@ RUN_ENVIRONMENT_FINGERPRINT:
   app_version:          # VERSION file
   OS:
   revit_build:          # host year.build or null if CLI-only
-  tfm:                  # net48 | net8.0-windows | net10.0-windows | net8.0 (CLI)
+  tfm:                  # net8.0-windows | net10.0-windows | net8.0 (CLI)
   runtime_json_source:
   runtime_json_sha:
   config_path:
@@ -144,7 +144,7 @@ qa_tag: INVALID_ENVIRONMENT
 attempt_outcome: NOT_MEASURED
 ```
 
-Triggers: no Revit 2024–2027 host when Layer B requires it; missing .NET SDK for CLI; wrong
+Triggers: no Revit 2025–2027 host when Layer B requires it; missing .NET SDK for CLI; wrong
 TFM vs installed Revit.
 
 Secondary metrics from a crash session are contaminated.

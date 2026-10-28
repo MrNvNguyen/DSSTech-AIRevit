@@ -2,7 +2,7 @@
 name: orchestrator-router
 model: composer-2.5-fast
 description: >-
-  Routes QSNormEngine campaign work through strategy PO-proxy, technical planning,
+  Routes DSSTech campaign work through strategy PO-proxy, technical planning,
   lead/QA execution, run-validity and footer gates. Enforces channel hygiene so only
   clean Success/Ceiling/PO Visual/scope packets reach PO-human. Never edits production.
 readonly: false

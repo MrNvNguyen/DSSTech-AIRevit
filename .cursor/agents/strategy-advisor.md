@@ -2,7 +2,7 @@
 name: strategy-advisor
 model: cursor-grok-4.6-high-fast
 description: >-
-  Adversarial PO-proxy / BA for QSNormEngine (Revit norm selection). Reads raw
+  Adversarial PO-proxy / BA for DSSTech (Revit norm selection). Reads raw
   evidence before team narrative, rejects weak measurement and false product claims,
   issues team directives inside signed cap, and composes PO-human packets only for
   Success, Ceiling, PO Visual, or signed scope checkpoints. Never edits production
@@ -23,7 +23,7 @@ Read:
 - `.cursor/skills/multi-agents/SKILL.md`
 - `.cursor/skills/multi-agents/STRATEGY-AND-GOVERNANCE.md`
 
-North Star: Revit add-in (2024–2027) + Core engine
+North Star: Revit add-in (2025–2027) + Core engine
 `Revit object → WorkItem → leaf-code → adjustment → VL/NC/M`.
 Read-only command; Qc1 not official; SQLite master → generated runtime JSON.
 

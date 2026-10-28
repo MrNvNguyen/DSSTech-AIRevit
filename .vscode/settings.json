@@ -1,0 +1,12 @@
+{
+  // C# Dev Kit (Cursor / VS Code): load the DSSTech solution, not the legacy QSNormEngine.sln.
+  "dotnet.defaultSolution": "DSSTech.sln",
+  // Keep the frozen legacy tree out of search and quick-open so edits land in DSSTech.*.
+  "search.exclude": {
+    "src/QSNormEngine.*/**": true
+  },
+  "files.exclude": {
+    "**/bin": true,
+    "**/obj": true
+  }
+}

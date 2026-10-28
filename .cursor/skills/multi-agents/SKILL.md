@@ -1,7 +1,7 @@
 ---
 name: multi-agents
 description: >-
-  Orchestrates QSNormEngine (Revit norm-selection) campaigns with strategy as
+  Orchestrates DSSTech (Revit norm-selection) campaigns with strategy as
   adversarial PO-proxy, technical as execution planner, and lead/QA as measured
   doers. Use for any signed campaign cycle, evidence adjudication, Success/Ceiling,
   measurement repair, anti-grind routing, or when work must reach PO-human with
@@ -9,12 +9,12 @@ description: >-
 disable-model-invocation: true
 ---
 
-# Multi-Agent Orchestration — QSNormEngine
+# Multi-Agent Orchestration — DSSTech
 
 Repo-wide contract for every signed campaign. One bounded arc → **SUCCESS** or
 **CEILING**. Optimize for **PO-visible truth**, not activity.
 
-Product: Revit add-in (2024–2027) + Core engine
+Product: Revit add-in (2025–2027) + Core engine
 `Revit object → WorkItem → leaf-code → adjustment → VL/NC/M`
 Not OneX / Forma / Electron / APS copy.
 
