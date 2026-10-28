@@ -1,0 +1,7 @@
+{
+  "rebar-column-20mm-height18.json": { "quantity": 1, "unit": "t" },
+  "formwork-slab-height20.json": { "quantity": 5, "unit": "100m2" },
+  "concrete-column-pump.json": { "quantity": 12.5, "unit": "m3" },
+  "interior-plaster.json": { "quantity": 100, "unit": "m2" },
+  "floor-tile.json": { "quantity": 48, "unit": "m2" }
+}

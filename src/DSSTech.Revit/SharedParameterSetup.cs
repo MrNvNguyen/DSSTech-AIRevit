@@ -184,20 +184,12 @@ internal static class SharedParameterSetup
 
     private static bool Insert(Document doc, Definition definition, Binding binding)
     {
-#if REVIT2024
-        return doc.ParameterBindings.Insert(definition, binding, BuiltInParameterGroup.PG_GENERAL);
-#else
         return doc.ParameterBindings.Insert(definition, binding, GroupTypeId.General);
-#endif
     }
 
     private static bool ReInsert(Document doc, Definition definition, Binding binding)
     {
-#if REVIT2024
-        return doc.ParameterBindings.ReInsert(definition, binding, BuiltInParameterGroup.PG_GENERAL);
-#else
         return doc.ParameterBindings.ReInsert(definition, binding, GroupTypeId.General);
-#endif
     }
 
     private static CategorySet BuildCategorySet(

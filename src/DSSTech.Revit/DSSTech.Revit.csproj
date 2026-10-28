@@ -16,7 +16,6 @@
     <OutputPath Condition="'$(RevitHostLabel)'!=''">bin\$(Configuration)\$(RevitHostLabel)\</OutputPath>
     <IntermediateOutputPath Condition="'$(RevitHostLabel)'!=''">obj\$(RevitHostLabel)\$(Configuration)\</IntermediateOutputPath>
     <MSBuildWarningsAsMessages>$(MSBuildWarningsAsMessages);MSB3277</MSBuildWarningsAsMessages>
-    <DefineConstants Condition="'$(RevitHostYear)'=='2024'">$(DefineConstants);REVIT2024</DefineConstants>
   </PropertyGroup>
   <Target Name="EnsureRevitApi" BeforeTargets="ResolveAssemblyReferences">
     <Error Condition="'$(RevitApiPath)' == '' OR !Exists('$(RevitApiPath)\RevitAPI.dll')" Text="Set RevitApiPath to a Revit install that contains RevitAPI.dll, or run scripts/build-revit.ps1." />

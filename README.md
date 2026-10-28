@@ -4,13 +4,13 @@ MVP source package that consumes the **Database Định mức QS-BIM FINAL v2** 
 
 `Revit Object -> WorkItem -> Norm leaf-code -> Adjustment -> VL/NC/M resources`
 
-The add-in source (`QSNormEngine.Revit`) is host-agnostic. Supported Revit hosts: **2024–2027**.
+The add-in source (`DSSTech.Revit`) is host-agnostic. Supported Revit hosts: **2025–2027** (Revit 2024 / .NET Framework 4.8 is no longer supported).
 
 ## Projects
 
-- `QSNormEngine.Core`: Revit-independent selection/rule/resource engine.
-- `QSNormEngine.Cli`: console harness for testing an `ElementFacts` JSON outside Revit.
-- `QSNormEngine.Revit`: Revit add-in (ribbon command + results grid + CSV/JSON export).
+- `DSSTech.Core`: Revit-independent selection/rule/resource engine.
+- `DSSTech.Cli`: console harness for testing an `ElementFacts` JSON outside Revit.
+- `DSSTech.Revit`: Revit add-in (ribbon command + results grid + CSV/JSON export).
 
 ## Data
 
@@ -22,7 +22,7 @@ The add-in source (`QSNormEngine.Revit`) is host-agnostic. Supported Revit hosts
 ## Build and install
 
 Prerequisites:
-1. One or more Revit 2024–2027 installs (API assemblies next to `Revit.exe`).
+1. One or more Revit 2025–2027 installs (API assemblies next to `Revit.exe`).
 2. Visual Studio 2022+ or a `dotnet` SDK matching the host runtime (.NET Framework 4.8, .NET 8, or .NET 10 — see `docs/BUILD_NOTES.md`).
 
 PowerShell discovers every installed host in range and builds/installs each:
@@ -47,7 +47,7 @@ Revit 2026.5+ runs on .NET 10; the default 2026 compile is still `net8.0-windows
 .\scripts\install-revit.ps1 -Year 2026
 ```
 
-Or open `QSNormEngine.sln` and set `RevitApiPath` (and optionally `RevitTargetFramework` / `RevitHostLabel`) on `QSNormEngine.Revit`. Prefer the scripts so the output lands in `bin\<Configuration>\<year>\` for install.
+Or open `DSSTech.sln` and set `RevitApiPath` (and optionally `RevitTargetFramework` / `RevitHostLabel`) on `DSSTech.Revit`. Prefer the scripts so the output lands in `bin\<Configuration>\<year>\` for install.
 
 ## Use in Revit
 
@@ -75,9 +75,9 @@ python scripts/export-runtime-data.py Database/Database_DinhMuc_QS_BIM_ENGINE_v1
 When .NET 8 SDK is installed:
 
 ```powershell
-dotnet run --project src\QSNormEngine.Cli -- SampleInputs\concrete-column-pump.json
-dotnet run --project src\QSNormEngine.Cli -- SampleInputs\brick-wall.json
-dotnet run --project src\QSNormEngine.Cli -- SampleInputs\interior-plaster.json
+dotnet run --project src\DSSTech.Cli -- SampleInputs\concrete-column-pump.json
+dotnet run --project src\DSSTech.Cli -- SampleInputs\brick-wall.json
+dotnet run --project src\DSSTech.Cli -- SampleInputs\interior-plaster.json
 ```
 
 Expected leaf codes are documented in `tests/expected.json`.

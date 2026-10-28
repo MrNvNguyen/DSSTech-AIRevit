@@ -20,7 +20,7 @@ Applies when editing `docs/**` or `0 Documents/**`.
 - Screenshot Revit / CSV export: đường dẫn trong index — **không** nhúng base64 lớn vào markdown.
 - Không commit file `.rvt` lớn, dump SQLite phụ, hay binary >50 MiB vào evidence.
 - Phân biệt rõ: measured · inferred · hypothesis.
-- Ghi Revit build (host year + build number), .NET TFM (`net48` / `net8.0-windows` / `net10.0-windows`), runtime JSON source, config flags.
+- Ghi Revit build (host year + build number), .NET TFM (`net8.0-windows` / `net10.0-windows`), runtime JSON source, config flags.
 
 ## Writing
 

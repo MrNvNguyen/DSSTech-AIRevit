@@ -287,33 +287,58 @@ internal sealed class RevitElementFactsFactory
     {
         foreach (var kv in ParameterAliases.Map)
         {
-            if (TryAlias(instance, kv.Value, out var value) || (type is not null && TryAlias(type, kv.Value, out value)))
+            if (TryAlias(instance, kv.Key, kv.Value, out var value) || (type is not null && TryAlias(type, kv.Key, kv.Value, out value)))
                 facts.Properties[kv.Key] = value;
         }
         if (facts.Properties.TryGetValue("QS_WorkItemId", out var wi) && wi is not null)
             facts.Properties["WorkItemOverride"] = wi;
     }
 
-    private static bool TryAlias(Element e, IEnumerable<string> aliases, out object? value)
+    private static bool TryAlias(Element e, string key, IEnumerable<string> aliases, out object? value)
     {
         foreach (var name in aliases)
         {
             var p = e.LookupParameter(name);
             if (p is null || !p.HasValue) continue;
-            value = ParameterValue(p);
+            value = ParameterValue(p, key);
             if (value is not null && !string.IsNullOrWhiteSpace(value.ToString())) return true;
         }
         value = null;
         return false;
     }
 
-    private static object? ParameterValue(Parameter p)
+    // Canonical selector units (parameterDictionary in the engine DB). Revit stores Length
+    // in feet and Area in ft²; QS_* NUMBER parameters are already canonical and pass through.
+    private static readonly Dictionary<string, ForgeTypeId> LengthKeyUnits = new(StringComparer.OrdinalIgnoreCase)
     {
+        ["Height"] = UnitTypeId.Meters,
+        ["Depth"] = UnitTypeId.Meters,
+        ["Thickness"] = UnitTypeId.Centimeters,
+        ["Width"] = UnitTypeId.Centimeters,
+        ["WallThickness"] = UnitTypeId.Centimeters,
+        ["Diameter"] = UnitTypeId.Centimeters,
+        ["PaintThickness"] = UnitTypeId.Millimeters,
+        ["RebarDiameter"] = UnitTypeId.Millimeters
+    };
+
+    private static object? ParameterValue(Parameter p, string key)
+    {
+        if (p.StorageType == StorageType.Double)
+        {
+            var raw = p.AsDouble();
+            var spec = p.Definition.GetDataType();
+            if (spec == SpecTypeId.Length && LengthKeyUnits.TryGetValue(key, out var unit))
+                return UnitUtils.ConvertFromInternalUnits(raw, unit);
+            if (spec == SpecTypeId.Area)
+                return UnitUtils.ConvertFromInternalUnits(raw, UnitTypeId.SquareMeters);
+            if (spec == SpecTypeId.Volume)
+                return UnitUtils.ConvertFromInternalUnits(raw, UnitTypeId.CubicMeters);
+            return raw;
+        }
         return p.StorageType switch
         {
             StorageType.String => p.AsString(),
             StorageType.Integer => p.AsInteger(),
-            StorageType.Double => p.AsDouble(),
             StorageType.ElementId => p.AsElementId().ToString(),
             _ => p.AsValueString()
         };

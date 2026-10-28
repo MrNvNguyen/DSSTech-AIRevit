@@ -11,7 +11,7 @@ public static class BoqExporter
         "STT", "Bộ môn", "Mã công tác BIM", "Mã định mức", "Tên công tác TT 38",
         "Loại cấu kiện / Host", "Biện pháp", "Kích thước danh nghĩa", "Dải hình học",
         "Vật liệu / mác", "Hệ MEPF", "System nguồn", "Schedule / Type", "Tầng / Level",
-        "Zone", "Type cấu kiện", "ĐVT", "Khối lượng BIM", "Hệ số QS", "Khối lượng BOQ",
+        "Zone", "Type cấu kiện", "ĐVT", "Khối lượng BIM", "Đơn vị BIM", "Hệ số QS", "Khối lượng BOQ",
         "Số cấu kiện", "Trạng thái", "Thông số thiếu", "Ứng viên mã", "Description",
         "Nguồn Category", "Element ID", "External ID"
     ];
@@ -36,6 +36,7 @@ public static class BoqExporter
         ["Type cấu kiện"] = row.ElementType,
         ["ĐVT"] = row.Unit,
         ["Khối lượng BIM"] = row.BimQuantity.ToString("0.######", CultureInfo.InvariantCulture),
+        ["Đơn vị BIM"] = row.BimUnit,
         ["Hệ số QS"] = row.QsFactor.ToString("0.######", CultureInfo.InvariantCulture),
         ["Khối lượng BOQ"] = row.BoqQuantity.ToString("0.######", CultureInfo.InvariantCulture),
         ["Số cấu kiện"] = row.ElementCount.ToString(CultureInfo.InvariantCulture),

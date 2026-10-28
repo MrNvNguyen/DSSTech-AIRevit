@@ -108,9 +108,18 @@ public sealed class App : IExternalApplication
             "Hiện địa chỉ / mã token cho ChatGPT và đường dẫn cấu hình Cursor / Claude.",
             "Show ChatGPT URL / token and the Cursor / Claude config path.", "tro-ly-ai"));
 
-        McpHostService.Instance.Start(application);
+        // MCP is optional: a pipe/port failure must not fail the whole add-in load (QS tools still work).
+        try
+        {
+            McpHostService.Instance.Start(application);
+            McpStartupNotice.ShowIfNeeded();
+        }
+        catch (Exception ex)
+        {
+            DssTechLog.Write($"MCP start failed: {ex}");
+        }
+        // Refresh either way so the AI toggle shows Off after a failed start.
         RibbonState.RefreshAi();
-        McpStartupNotice.ShowIfNeeded();
 
         return Result.Succeeded;
     }

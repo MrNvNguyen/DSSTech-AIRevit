@@ -14,6 +14,8 @@ public static class BoqAggregator
         facts.Properties.TryGetValue("ElementType", out var elementType);
         facts.Properties.TryGetValue("ExternalId", out var externalId);
         facts.Properties.TryGetValue("PlacementMethod", out var placementMethod);
+        // BimQuantity stays in the model unit; QsFactor carries it into the norm unit.
+        var unitFactor = ResourceCalculator.UnitFactor(result.QuantityUnit, result.NormUnit);
 
         return new BoqLineItem
         {
@@ -27,10 +29,12 @@ public static class BoqAggregator
             Discipline = family?.Discipline ?? "",
             Unit = string.IsNullOrWhiteSpace(result.NormUnit) ? result.QuantityUnit : result.NormUnit,
             BimQuantity = result.Quantity,
+            BimUnit = result.QuantityUnit,
+            QsFactor = unitFactor ?? 1,
             ElementCount = 1,
             Material = facts.MaterialName,
             MaterialLabel = facts.MaterialName,
-            Status = MapStatus(result),
+            Status = unitFactor.HasValue ? MapStatus(result) : "Cần kiểm tra",
             Level = Convert.ToString(level) ?? "",
             Zone = Convert.ToString(zone) ?? "",
             ElementType = Convert.ToString(elementType) ?? "",
@@ -45,7 +49,7 @@ public static class BoqAggregator
             CandidateNormCodes = result.CandidateCodes.ToList(),
             ElementIds = [result.ElementId],
             ExternalIds = string.IsNullOrWhiteSpace(Convert.ToString(externalId)) ? [] : [Convert.ToString(externalId)!],
-            CanIssueOfficially = result.CanIssueOfficially,
+            CanIssueOfficially = result.CanIssueOfficially && unitFactor.HasValue,
             LengthM = TryDouble(facts, "LengthM"),
             WidthM = TryDouble(facts, "WidthM"),
             HeightM = TryDouble(facts, "HeightM"),

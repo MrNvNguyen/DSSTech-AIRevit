@@ -11,7 +11,9 @@ dotnet exec src\QSNormEngine.Cli\bin\Release\net8.0\QSNormEngine.Cli.dll --boq
 dotnet exec src\QSNormEngine.Cli\bin\Release\net8.0\QSNormEngine.Cli.dll --boq-xlsx out\boq-smoke.xlsx
 ```
 
-Expected leaf codes: `tests/expected.json` (currently **9** fixtures including foundation).
+Expected leaf codes: `tests/expected.json` (currently **59** fixtures).
+
+Expected BOQ quantity + norm unit: `tests/expected-quantity.json`, checked by the same `--smoke` run (kg → t, m2 → 100m2).
 
 BOQ integrity: `--boq` asserts Σ BIM quantity detail == grouped.
 

@@ -50,7 +50,7 @@ $sidecarOptional = @("System.Text.Json.dll")
 $sidecarFiles = @($sidecarRequired + $sidecarOptional)
 
 foreach ($t in $targets) {
-  $tfm = if ($Framework) { $Framework } else { Get-QsRevitTargetFramework $t.Year }
+  $tfm = if ($Framework) { $Framework } else { Get-QsRevitTargetFramework $t.Year $t.ApiPath }
   Write-Host "Building host $($t.Year)  TFM=$tfm  API=$($t.ApiPath)"
   dotnet build $proj -c $Configuration `
     /p:RevitApiPath="$($t.ApiPath)" `

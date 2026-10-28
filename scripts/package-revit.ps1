@@ -22,8 +22,6 @@ $years = @(Get-ChildItem $binRoot -Directory -ErrorAction SilentlyContinue |
   ForEach-Object { [int]$_.Name } |
   Where-Object { $_ -ge $script:QsRevitYearMin -and $_ -le $script:QsRevitYearMax } |
   Sort-Object)
-# Gói PO: liệt kê 2025+ (build script vẫn có thể build 2024 dev).
-$years = @($years | Where-Object { $_ -ge 2025 })
 if ($years.Count -eq 0) {
   throw "Không có build output 2025+ dưới $binRoot. Chạy build-revit.ps1 -Year 2025 trước."
 }
