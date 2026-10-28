@@ -24,6 +24,7 @@ public sealed class BoqLineItem
     public string Discipline { get; set; } = "";
     public string Unit { get; set; } = "";
     public double BimQuantity { get; set; }
+    public string BimUnit { get; set; } = "";
     public double QsFactor { get; set; } = 1;
     public double BoqQuantity => Math.Round(BimQuantity * QsFactor, 6);
     public int ElementCount { get; set; } = 1;

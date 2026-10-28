@@ -10,6 +10,7 @@ if (!File.Exists(configPath)) configPath = Path.GetFullPath(Path.Combine(baseDir
 var repoRoot = FindRepoRoot(baseDir);
 var sampleDir = Path.Combine(repoRoot, "SampleInputs");
 var expectedPath = Path.Combine(repoRoot, "tests", "expected.json");
+var expectedQuantityPath = Path.Combine(repoRoot, "tests", "expected-quantity.json");
 
 static string FindRepoRoot(string start)
 {
@@ -102,12 +103,50 @@ void RunSmoke()
         }
     }
 
+    // BOQ quantity must land in the norm unit (kg → t, m2 → 100m2), not just pick the right code.
+    var expectedQuantities = File.Exists(expectedQuantityPath)
+        ? JsonSerializer.Deserialize<Dictionary<string, ExpectedQuantity>>(File.ReadAllText(expectedQuantityPath),
+              new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? []
+        : [];
+    foreach (var (file, want) in expectedQuantities)
+    {
+        var path = Path.Combine(sampleDir, file);
+        if (!File.Exists(path))
+        {
+            Console.WriteLine($"MISS  {file} (missing fixture)");
+            failed++;
+            continue;
+        }
+
+        var element = JsonSerializer.Deserialize<ElementFacts>(File.ReadAllText(path),
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+        var result = engine.Select(element);
+        var row = BoqAggregator.FromSelection(element, result, data);
+        var label = $"{file} -> {row.BoqQuantity:0.######} {row.Unit}";
+        if (string.Equals(row.Unit, want.Unit, StringComparison.OrdinalIgnoreCase) &&
+            Math.Abs(row.BoqQuantity - want.Quantity) <= 1e-6)
+            Console.WriteLine($"PASS  qty {label}");
+        else
+        {
+            Console.WriteLine($"FAIL  qty {label}, expected {want.Quantity:0.######} {want.Unit}");
+            failed++;
+        }
+    }
+
     Environment.ExitCode = failed == 0 ? 0 : 1;
     Console.WriteLine(failed == 0 ? "Smoke PASS" : $"Smoke FAIL ({failed})");
 }
 
 void RunBoqSmoke(string? outputPath)
 {
+    if (outputPath is not null && outputPath.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+    {
+        // --boq takes an output path; a .json here is almost always a fixture passed by mistake.
+        Console.Error.WriteLine($"--boq writes CSV; refusing to overwrite {outputPath}");
+        Environment.ExitCode = 1;
+        return;
+    }
+
     var data = RuntimeDataLoader.Load(dataPath);
     var config = RuntimeDataLoader.LoadConfig(configPath);
     var pipeline = new BoqPipeline(data, config);
@@ -155,3 +194,5 @@ void RunBoqXlsx(string outputPath)
     G8BoqExporter.ExportCongTrinhCsv(rows, g8OfficialPath, officialOnly: true);
     Console.WriteLine($"Wrote {outputPath} ({rows.Count} BOQ rows) + {g8Path} + {g8OfficialPath}");
 }
+
+sealed record ExpectedQuantity(double Quantity, string Unit);

@@ -99,15 +99,26 @@ public sealed class ResourceCalculator
 
     public static double QuantityFactor(double quantity, string quantityUnit, string normUnit, List<string>? warnings = null)
     {
-        var q = ValueTools.NormalizeText(quantityUnit).Replace("²", "2").Replace("³", "3");
-        var n = ValueTools.NormalizeText(normUnit).Replace("²", "2").Replace("³", "3");
-        if (string.IsNullOrWhiteSpace(n)) return quantity;
-        if (n == q || (n == "m3" && q is "m3" or "m^3") || (n == "m2" && q is "m2" or "m^2")) return quantity;
-        if (n == "100m2" && (q == "m2" || q == "m^2")) return quantity / 100.0;
-        if (n == "t" && q is "kg" or "kilogram") return quantity / 1000.0;
-        if (n == "kg" && q is "t" or "ton") return quantity * 1000.0;
-        if ((n is "each" or "cai" or "bo" or "set") && (q is "count" or "each" or "cai" or "bo" or "set")) return quantity;
+        var unitFactor = UnitFactor(quantityUnit, normUnit);
+        if (unitFactor.HasValue) return quantity * unitFactor.Value;
         warnings?.Add($"Chưa có conversion '{quantityUnit}' → '{normUnit}'. Engine dùng factor = Quantity trực tiếp.");
         return quantity;
+    }
+
+    /// <summary>
+    /// Multiplier from the BIM quantity unit to the norm unit (kg → t = 0.001, m2 → 100m2 = 0.01).
+    /// Null when no valid conversion exists (e.g. m3 → m2); callers must not issue that quantity.
+    /// </summary>
+    public static double? UnitFactor(string quantityUnit, string normUnit)
+    {
+        var q = ValueTools.NormalizeText(quantityUnit).Replace("²", "2").Replace("³", "3");
+        var n = ValueTools.NormalizeText(normUnit).Replace("²", "2").Replace("³", "3");
+        if (string.IsNullOrWhiteSpace(n)) return 1;
+        if (n == q || (n == "m3" && q is "m3" or "m^3") || (n == "m2" && q is "m2" or "m^2")) return 1;
+        if (n == "100m2" && (q == "m2" || q == "m^2")) return 0.01;
+        if (n == "t" && q is "kg" or "kilogram") return 0.001;
+        if (n == "kg" && q is "t" or "ton") return 1000.0;
+        if ((n is "each" or "cai" or "bo" or "set") && (q is "count" or "each" or "cai" or "bo" or "set")) return 1;
+        return null;
     }
 }

@@ -35,7 +35,7 @@ public static class BoqGrouper
     {
         var baseParts = new[]
         {
-            row.Code, row.NormCode, row.WorkItemId, row.Discipline, row.Unit,
+            row.Code, row.NormCode, row.WorkItemId, row.Discipline, row.Unit, row.BimUnit,
             row.SystemCode, row.SourceSystem, row.ScheduleType, row.Material,
             row.PlacementMethod, row.HostKind, row.SectionClass, row.HeightClass,
             row.DiameterBand, row.SizeClass
@@ -111,6 +111,7 @@ public static class BoqGrouper
         Discipline = row.Discipline,
         Unit = row.Unit,
         BimQuantity = row.BimQuantity,
+        BimUnit = row.BimUnit,
         QsFactor = row.QsFactor,
         ElementCount = row.ElementCount,
         Source = row.Source,
