@@ -47,7 +47,8 @@ internal sealed class PipeClient : IDisposable
         DisposeStream();
         try
         {
-            _stream = new NamedPipeClientStream(".", session.PipeName, PipeDirection.InOut, PipeOptions.None);
+            // Asynchronous: the read deadline is a cancellation token; PipeStream has no ReadTimeout.
+            _stream = new NamedPipeClientStream(".", session.PipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
             _stream.Connect(timeoutMs);
             return _stream.IsConnected;
         }
@@ -74,33 +75,23 @@ internal sealed class PipeClient : IDisposable
             _stream.Flush();
 
             var buffer = new FrameBuffer();
-            var deadline = Environment.TickCount64 + readTimeoutMs;
-            while (Environment.TickCount64 < deadline)
+            var chunk = new byte[4096];
+            using var cts = new CancellationTokenSource(readTimeoutMs);
+            while (true)
             {
                 if (McpFrame.TryReadFrame(buffer, out var responseJson))
                     return responseJson;
 
-                if (_stream.ReadTimeout != 500)
-                    _stream.ReadTimeout = 500;
-
-                var chunk = new byte[4096];
-                try
-                {
-                    var read = _stream.Read(chunk, 0, chunk.Length);
-                    if (read <= 0)
-                        return null;
-                    buffer.Append(chunk.AsSpan(0, read));
-                }
-                catch (IOException)
-                {
+                var read = _stream.ReadAsync(chunk.AsMemory(), cts.Token).AsTask().GetAwaiter().GetResult();
+                if (read <= 0)
                     return null;
-                }
-                catch (TimeoutException)
-                {
-                    // keep polling until deadline
-                }
+                buffer.Append(chunk.AsSpan(0, read));
             }
-
+        }
+        catch (OperationCanceledException)
+        {
+            // A late frame would desync the next request on this pipe.
+            DisposeStream();
             return null;
         }
         catch
