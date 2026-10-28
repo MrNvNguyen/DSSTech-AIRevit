@@ -1,7 +1,7 @@
 # Host discovery for Autodesk Revit. Product code is version-agnostic;
 # Autodesk still requires Addins\<year> and a matching .NET TFM at compile time.
 
-$script:QsRevitYearMin = 2024
+$script:QsRevitYearMin = 2025
 $script:QsRevitYearMax = 2027
 $script:DssTechAddInId = '7B52A0F1-7C61-4C8B-A6A4-0AC7398341A2'
 
@@ -44,7 +44,6 @@ function Get-QsRevitTargetFramework([int]$Year, [string]$ApiPath) {
     }
   }
   switch ($Year) {
-    2024 { "net48" }
     2025 { "net8.0-windows" }
     2026 { "net8.0-windows" }
     2027 { "net10.0-windows" }

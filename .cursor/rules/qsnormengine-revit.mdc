@@ -5,7 +5,7 @@ alwaysApply: true
 
 # QS-BIM Norm Engine (Revit)
 
-This repo is **QSNormEngine** — a Revit add-in (hosts 2024–2027) + Revit-independent engine:
+This repo is **QSNormEngine** — a Revit add-in (hosts 2025–2027) + Revit-independent engine:
 
 `Revit object → WorkItem → norm leaf-code → adjustment → VL/NC/M`
 

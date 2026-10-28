@@ -4,7 +4,7 @@
 
 - Core norm-selection engine + classification / bim_mapping rules.
 - Runtime export from SQLite (`migrate-engine-v1` → `export-runtime-data`).
-- Revit selection adapter (hosts 2024–2027) · ribbon **DSS.QSEngine**.
+- Revit selection adapter (hosts 2025–2027) · ribbon **DSS.QSEngine**.
 - Multi-element result grid · Gán giá trị QS (pick-lists) · Setup Parameters (45 QS_*).
 - CSV/JSON + BOQ 28-col Excel + G8 Công trình export.
 - AF/AE/AK resource-backed selection where digitized (Qc1 vs Official).
