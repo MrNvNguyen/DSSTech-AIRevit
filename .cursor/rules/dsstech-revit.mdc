@@ -3,23 +3,27 @@ description: DSSTech (Revit add-in, QS-BIM norm engine) product context — Nort
 alwaysApply: true
 ---
 
-# QS-BIM Norm Engine (Revit)
+# DSSTech (Revit)
 
-This repo is **DSSTech** (formerly QSNormEngine) — a Revit add-in (hosts 2025–2027) + Revit-independent engine:
+Revit add-in (hosts 2025–2027) plus a Revit-independent engine:
 
 `Revit object → WorkItem → norm leaf-code → adjustment → VL/NC/M`
 
 It is **not** OneX, Forma, Electron, APS copy, or an IFC viewer. Ignore any inherited OneX/Forma North Star for this workspace.
 
+Open `DSSTech.sln`. Namespaces are `DSSTech.*` and `Dss.*`. The installed assembly is `DSSTech.dll`, class `DSSTech.Revit.App`. Do not recreate `QSNormEngine.sln` or `src/QSNormEngine.*`. Shared parameter names stay `QS_*`. The quantity schedule name stays `QS-BIM Khối lượng cấu kiện`.
+
 ## North Star
 
-- Ribbon **DSSTech → Khối lượng → Norm Selector** on selected elements; results grid + CSV/JSON.
-- Norm Selector command uses `TransactionMode.Manual` so user-confirmed fill/write-back can run; it does **not** auto-write on open.
+- One ribbon tab **DSSTech**, panels left to right: **Thiết lập · Setup**, **CAD → BIM**, **Khối lượng · Quantity**, **Trợ lý AI · AI**. Button labels are bilingual; layout lives in `src/DSSTech.Revit/App.cs` and `docs/RIBBON_UI.md`.
+- **Chọn định mức / Norm Selector** on selected elements: results grid + CSV/JSON. `TransactionMode.Manual` so user-confirmed fill/write-back can run. It does **not** auto-write on open.
+- **Dựng mô hình / Model Revit** builds from a CAD link the user has already moved and rotated. Base/Top come from the open plan and the next level up; the settings window can adjust them before create.
+- Control Center is a dockable pane (parameters, QC, Excel, CAD, AI). QC Auto-Fix stays disabled until a rule sheet exists.
 - SQLite is the governed master; `Data/norm-engine-runtime.json` is a generated cache (do not hand-edit as source of truth).
 - `SelectedQc1` / `SelectedCodeOnly` / `CanIssueOfficially=false` are **not** official issue.
 - Concrete selection requires explicit construction method unless config says otherwise.
 - `QS_WorkItemId` is an override, not the primary classification path.
-- No dedicated app server. CLI exists to test `ElementFacts` JSON outside Revit.
+- No dedicated app server. CLI (`DSSTech.Cli`) tests `ElementFacts` JSON outside Revit. MCP is the in-Revit host plus `Dss.RevitMcp` stdio sidecar.
 
 ## Repo map
 
@@ -28,22 +32,21 @@ It is **not** OneX, Forma, Electron, APS copy, or an IFC viewer. Ignore any inhe
 | `DSSTech.sln` | **The** solution — open this one |
 | `src/DSSTech.Core` | Selection / rules / resources / BOQ (no Revit API) |
 | `src/DSSTech.Cli` | Console harness (`--smoke`, `--boq`) |
-| `src/DSSTech.Revit` | Add-in (ribbon, facts adapter, UI, export, CAD2BIM commands) |
+| `src/DSSTech.Revit` | Add-in (ribbon, facts adapter, UI, export, CAD commands) |
 | `src/Dss.McpContracts` · `src/Dss.McpHost` · `src/Dss.RevitMcp` | MCP contracts, in-Revit host, stdio sidecar for Cursor |
 | `src/Dss.Cad2Bim.Core` | DXF parse / preflight / intent (no Revit API) |
-| `src/QSNormEngine.*` · `QSNormEngine.sln` | **Legacy, frozen** — do not edit or build; fixes go to `DSSTech.*` |
 | `Database/` | Original SQLite + ENGINE_v1 snapshot |
 | `Data/` | Generated runtime JSON |
 | `Config/` | Engine / project defaults |
 | `tests/` · `SampleInputs/` | Smoke + expected leaf codes |
-| `docs/` | Product SSOT (architecture, roadmap, params) |
+| `docs/` | Product SSOT (architecture, roadmap, params, ribbon) |
 | `0 Documents/1 - Thaoluan/**` | Research (observation) when present |
 | `0 Documents/1-Sprints/**` | Campaign SSOT when PO signs a box |
 | `.cursor/**` | Rules, skills, agent profiles |
 
 ## Hard limits (do not violate)
 
-- Edit `src/DSSTech.*` / `src/Dss.*` only. Never change `src/QSNormEngine.*`; it is not built or shipped.
+- Edit `src/DSSTech.*` / `src/Dss.*` only.
 - Write-back of `QS_WorkItemId` / `QS_NormCode` / `QS_NormStatus` only after the user confirms (Ghi vào cấu kiện). Do not auto-write when the command opens, and do not remove that confirm path.
 - Do not treat `SelectedQc1` as official-ready in UI, export semantics, or Success claims.
 - Do not edit `Database_DinhMuc_QS_BIM_FINAL_v2_original.sqlite`; engine patches go through `scripts/migrate-engine-v1.py`.
@@ -51,6 +54,7 @@ It is **not** OneX, Forma, Electron, APS copy, or an IFC viewer. Ignore any inhe
 - Core must stay Revit-API-free. Height = construction elevation (`QS_ConstructionHeight`), not member length.
 - Do not hard-code TT38/norm codes into families as the primary mapping key.
 - Phase 2–5 in `docs/ROADMAP.md` are backlog, not an open implementation box.
+- MCP may create elements (`ReadCreate`, on at Revit start). Batch over 20 operations stays dry-run unless the batch `dryRun` flag is `false`. No delete tool. One create transaction, one Undo.
 
 ## Evidence
 

@@ -5,10 +5,10 @@
 **CLI** is the authoritative regression harness for leaf-code selection:
 
 ```powershell
-dotnet build src\QSNormEngine.Cli\QSNormEngine.Cli.csproj -c Release
-dotnet exec src\QSNormEngine.Cli\bin\Release\net8.0\QSNormEngine.Cli.dll --smoke
-dotnet exec src\QSNormEngine.Cli\bin\Release\net8.0\QSNormEngine.Cli.dll --boq
-dotnet exec src\QSNormEngine.Cli\bin\Release\net8.0\QSNormEngine.Cli.dll --boq-xlsx out\boq-smoke.xlsx
+dotnet build src\DSSTech.Cli\DSSTech.Cli.csproj -c Release
+dotnet exec src\DSSTech.Cli\bin\Release\net8.0\DSSTech.Cli.dll --smoke
+dotnet exec src\DSSTech.Cli\bin\Release\net8.0\DSSTech.Cli.dll --boq
+dotnet exec src\DSSTech.Cli\bin\Release\net8.0\DSSTech.Cli.dll --boq-xlsx out\boq-smoke.xlsx
 ```
 
 Expected leaf codes: `tests/expected.json` (currently **59** fixtures).

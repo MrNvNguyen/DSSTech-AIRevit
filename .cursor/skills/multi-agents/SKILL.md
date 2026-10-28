@@ -149,7 +149,7 @@ stop_rules: []
 
 Hard product envelope (until PO changes):
 
-- Norm Selector is read-only (no model write-back)
+- Norm Selector does not auto-write. `QS_*` write-back runs only after Ghi vào cấu kiện
 - `SelectedQc1` / `SelectedCodeOnly` ≠ official issue
 - Original QS SQLite snapshot is immutable; ENGINE_v1 via migration script
 - Runtime JSON is generated cache
@@ -199,7 +199,7 @@ WAVE_CARD:
   falsifier: "<observation that proves hypothesis wrong>"
   one_allowed_lever: <single causal change> | OBSERVE_ONLY
   theoretical_upper_bound: "<can it materially close the gap?>"
-  contracts_at_risk: [read-only-command, qc1-not-official, sqlite-master, runtime-generated, core-no-revit, explicit-method]
+  contracts_at_risk: [confirm-write, qc1-not-official, sqlite-master, runtime-generated, core-no-revit, explicit-method]
   qa_tier: Q0 | Q1 | Q2 | Q3
   regression_scope: []
   attempt_number: <n>/<cap>
@@ -308,7 +308,7 @@ Fail → `STRATEGY_REJECT_AND_DIRECT` (team), **never** PO.
 Before every lever:
 
 1. Failure = implementation, measurement, definition, or architecture?
-2. Does it respect hard limits (read-only, Qc1 not official, sqlite master, Core no Revit)?
+2. Does it respect hard limits (confirm-write, Qc1 not official, sqlite master, Core no Revit)?
 3. If the lever passes, what improves for the QS/BIM user?
 4. Targets measured owner and materially closes the gap?
 5. How many measured attempts and lever classes already spent?

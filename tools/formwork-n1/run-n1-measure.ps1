@@ -27,9 +27,8 @@ if ($hostInfo.Count -eq 0) {
 
 $tfm = if ($Framework) { $Framework } else { Get-QsRevitTargetFramework $Year }
 if (-not $NoBuild) {
-  Write-Host "Building QSNormEngine.Core + FormworkN1 harness for Revit $Year (TFM=$tfm)"
-  # Core is restored via ProjectReference; do not build/link QSNormEngine.Revit into the harness
-  # (avoids AppDomain clash with installed DSS.QSEngine QSNormEngine.Revit.dll).
+  Write-Host "Building DSSTech.Core + FormworkN1 harness for Revit $Year (TFM=$tfm)"
+  # Core is restored via ProjectReference. Do not build DSSTech.Revit into the harness.
   & dotnet build $proj -c $Configuration `
     /p:RevitApiPath="$($hostInfo.ApiPath)" `
     /p:RevitTargetFramework="$tfm" `
@@ -62,7 +61,7 @@ if ($Install -or $DevLink) {
     try {
       New-Item -ItemType Directory -Path $pluginDir -Force | Out-Null
       Copy-Item (Join-Path $outDir "*") $pluginDir -Force -Recurse
-      # Harness is self-contained (Formwork sources linked). Do not copy QSNormEngine.Revit.dll.
+      # Harness is self-contained (Formwork sources linked). Drop a leftover product DLL from the old name.
       Get-ChildItem $pluginDir -Filter "QSNormEngine.Revit*" -ErrorAction SilentlyContinue | Remove-Item -Force
 
       Set-Content -Path (Join-Path $pluginDir "repo-root.txt") -Value $root -Encoding UTF8

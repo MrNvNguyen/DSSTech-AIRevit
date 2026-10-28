@@ -93,7 +93,7 @@ Every review must:
 3. Audit attempt accounting; `NOT_MEASURED` cannot spend cap.
 4. Challenge at least one team assumption.
 5. Check whether the lever's theoretical upper bound closes the product gap.
-6. Check read-only / Qc1 / sqlite / Core-no-Revit / explicit-method contracts.
+6. Check confirm-write / Qc1 / sqlite / Core-no-Revit / explicit-method contracts.
 7. Run `PO_PACKET_PRECHECK` before any PO packet.
 8. Emit exactly one `strategyOutputType` from the contract below.
 

@@ -1,6 +1,6 @@
 # Formwork N1 / N2 Measure Harness
 
-Read-only measurement. Production Formwork sources are **linked** into `FormworkN1.AddIn.dll` (no dependency on installed `QSNormEngine.Revit.dll`).
+Read-only measurement. Production Formwork sources are **linked** into `FormworkN1.AddIn.dll` (no dependency on the installed `DSSTech.dll`).
 
 ## Install
 
@@ -8,7 +8,7 @@ Read-only measurement. Production Formwork sources are **linked** into `Formwork
 2. Double-click `tools\formwork-n1\install-n1.cmd` or:
 
 ```powershell
-cd d:\DEV\QSNormEngine_Revit
+cd <repo>
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\formwork-n1\run-n1-measure.ps1 -Year 2025 -DevLink
 ```
 

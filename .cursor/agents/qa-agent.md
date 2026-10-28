@@ -93,7 +93,7 @@ dotnet run --project src\DSSTech.Cli -- SampleInputs\<fixture>.json
 Product behavior for this app:
 
 - CLI: SampleInputs → leaf code vs `tests/expected.json`
-- Revit: select elements → DSS.QSEngine → Norm Selector → status grid, missing params, official-ready count, export
+- Revit: select elements → tab DSSTech → Khối lượng · Quantity → Chọn định mức → status grid, missing params, official-ready count, export
 - Qc1 rows must not be counted/presented as official-ready
 
 Do not grow a product spot into a full qualification matrix.

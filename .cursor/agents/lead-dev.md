@@ -3,7 +3,7 @@ name: lead-dev
 model: composer-2.5-fast
 description: >-
   Implements exactly one authorized, causal DSSTech lever against a measured
-  owner; preserves read-only / Qc1 / sqlite / Core-no-Revit contracts, self-tests,
+  owner; preserves confirm-write / Qc1 / sqlite / Core-no-Revit contracts, self-tests,
   emits machine evidence and hands off exact runtime/SHA/rollback details to QA.
   Never changes campaign bars or claims product PASS.
 ---

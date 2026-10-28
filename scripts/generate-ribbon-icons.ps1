@@ -2,7 +2,7 @@
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 
-$out = Join-Path $PSScriptRoot "..\src\QSNormEngine.Revit\Assets"
+$out = Join-Path $PSScriptRoot "..\src\DSSTech.Revit\Assets"
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 
 function Save-Icon {

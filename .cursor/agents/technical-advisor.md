@@ -106,7 +106,7 @@ Do not ask PO to ack Lx→Ly.
 Answer:
 
 1. Is failure in product, measurement, definition, or architecture?
-2. Does the lever respect hard limits (read-only, Qc1 not official, sqlite master, Core no Revit)?
+2. Does the lever respect hard limits (confirm-write, Qc1 not official, sqlite master, Core no Revit)?
 3. Does the lever target the measured owner?
 4. Can its upper bound materially close the gap?
 5. Does it risk official-issue semantics, runtime-as-master, or Core/Revit split?

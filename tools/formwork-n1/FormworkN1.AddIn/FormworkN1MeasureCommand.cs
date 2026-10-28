@@ -5,8 +5,8 @@ using System.Text.Json.Serialization;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using QSNormEngine.Core.Formwork;
-using QSNormEngine.Revit.Formwork;
+using DSSTech.Core.Formwork;
+using DSSTech.Revit.Formwork;
 
 namespace FormworkN1.AddIn;
 
@@ -254,7 +254,7 @@ internal static class RepoRootLocator
             return known;
 
         throw new InvalidOperationException(
-            "Could not locate QSNormEngine repo root. Re-run tools/formwork-n1/run-n1-measure.ps1 -Install " +
+            "Could not locate the DSSTech repo root. Re-run tools/formwork-n1/run-n1-measure.ps1 -Install " +
             "or set QS_NORMENGINE_ROOT.");
     }
 

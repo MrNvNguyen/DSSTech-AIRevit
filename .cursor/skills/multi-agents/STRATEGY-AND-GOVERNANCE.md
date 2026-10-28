@@ -113,7 +113,7 @@ ARG:
   definition: "Are bar and acceptance physically defined?"
   measured_owner: "Is the owner measured, co-dominant or distributed?"
   lever_viability: "Can the lever's upper bound materially close the gap?"
-  contract_risk: "Does it threaten read-only, Qc1-not-official, sqlite-master, or Core-no-Revit?"
+  contract_risk: "Does it threaten confirm-write, Qc1-not-official, sqlite-master, or Core-no-Revit?"
   qs_hard_limits: "No write-back? No Qc1-as-official? No hand-edit runtime JSON as master?"
   grind: "Has this class already consumed its measured cap?"
 ```

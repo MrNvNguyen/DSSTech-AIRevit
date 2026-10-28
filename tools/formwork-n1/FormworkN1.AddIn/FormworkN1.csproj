@@ -28,9 +28,8 @@
       <HintPath>$(RevitApiPath)\RevitAPIUI.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <!-- Core only — do NOT reference QSNormEngine.Revit (Revit AppDomain already loads the
-         installed product DLL without Formwork types → "Could not load type FormworkCalculator"). -->
-    <ProjectReference Include="..\..\..\src\QSNormEngine.Core\QSNormEngine.Core.csproj" />
-    <Compile Include="..\..\..\src\QSNormEngine.Revit\Formwork\**\*.cs" Link="Formwork\%(Filename)%(Extension)" />
+    <!-- Core only — do NOT reference DSSTech.Revit (Revit already loads the product DLL). -->
+    <ProjectReference Include="..\..\..\src\DSSTech.Core\DSSTech.Core.csproj" />
+    <Compile Include="..\..\..\src\DSSTech.Revit\Formwork\**\*.cs" Link="Formwork\%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
