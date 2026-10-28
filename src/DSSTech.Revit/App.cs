@@ -66,8 +66,16 @@ public sealed class App : IExternalApplication
         aiPanel.AddItem(CreateButton("DSSTechMcpClients", "MCP\nClients", asm, typeof(McpClientsCommand).FullName!, "icon-clients",
             "Hiện URL/token ChatGPT và đường dẫn sidecar Cursor/Claude."));
 
-        McpHostService.Instance.Start(application);
-        McpStartupNotice.ShowIfNeeded();
+        // MCP is optional: a pipe/port failure must not fail the whole add-in load (QS tools still work).
+        try
+        {
+            McpHostService.Instance.Start(application);
+            McpStartupNotice.ShowIfNeeded();
+        }
+        catch (Exception ex)
+        {
+            DssTechLog.Write($"MCP start failed: {ex}");
+        }
 
         return Result.Succeeded;
     }
