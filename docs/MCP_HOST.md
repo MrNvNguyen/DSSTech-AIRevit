@@ -23,7 +23,7 @@ Write (Read+Create): `create_element`, `create_batch` — một Transaction `"DS
 {
   "mcpServers": {
     "dsstech-revit": {
-      "command": "C:\\\\Users\\\\<USER>\\\\AppData\\\\Roaming\\\\Autodesk\\\\Revit\\\\Addins\\\\2025\\\\QSNormEngine\\\\Dss.RevitMcp.exe"
+      "command": "C:\\Users\\<USER>\\AppData\\Roaming\\Autodesk\\Revit\\Addins\\2025\\DSSTech\\Dss.RevitMcp.exe"
     }
   }
 }

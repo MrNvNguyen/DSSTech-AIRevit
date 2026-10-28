@@ -212,8 +212,8 @@ gov-update → A1→G1 DONE → G2 Layer B (user)
 | `Config/classification-rules.seed.json` | A1, M2 |
 | `scripts/migrate-engine-v1.py` (extend) | A1, A3, M1–M2 |
 | `scripts/report-leaf-coverage.py` | M0 |
-| `src/QSNormEngine.Core/BoqGrouper.cs` | F |
-| `src/QSNormEngine.Core/G8BoqExporter.cs` | G |
+| `src/DSSTech.Core/BoqGrouper.cs` | F |
+| `src/DSSTech.Core/G8BoqExporter.cs` | G |
 | `docs/G8_IMPORT_GUIDE.md` | G |
 | `docs/BOQ_EXPORT_SCHEMA.md` | F |
 | `docs/ENGINE_DB_PATCHES.md` | M1–M2 |

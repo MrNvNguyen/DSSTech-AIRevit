@@ -6,3 +6,7 @@
 *.log
 publish/
 dist/
+
+# Root-level scratch from agent sessions
+/tmp_*
+/out_*.txt

@@ -4,7 +4,7 @@
 
 **BOQ Extract → Export G8 CSV** produces `g8-cong-trinh.csv` mapped to G8 sheet **Công trình** (columns A,B,E,F,G,H,I,J,K,L,P — logic from row 6).
 
-Implementation: `src/QSNormEngine.Core/G8BoqExporter.cs`.
+Implementation: `src/DSSTech.Core/G8BoqExporter.cs`.
 
 ## Preconditions
 
@@ -29,5 +29,5 @@ Implementation: `src/QSNormEngine.Core/G8BoqExporter.cs`.
 ## CLI smoke (no Revit)
 
 ```powershell
-dotnet exec src\QSNormEngine.Cli\bin\Release\net8.0\QSNormEngine.Cli.dll --boq
+dotnet exec src\DSSTech.Cli\bin\Release\net8.0\DSSTech.Cli.dll --boq
 ```

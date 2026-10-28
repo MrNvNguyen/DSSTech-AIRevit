@@ -25,7 +25,7 @@ if ($hostInfo.Count -eq 0) {
   throw "Revit $Year not found. Installed hosts: [$years]. Pass -Year <installed>."
 }
 
-$tfm = if ($Framework) { $Framework } else { Get-QsRevitTargetFramework $Year }
+$tfm = if ($Framework) { $Framework } else { Get-QsRevitTargetFramework $Year $hostInfo[0].ApiPath }
 if (-not $NoBuild) {
   Write-Host "Building DSSTech.Core + FormworkN1 harness for Revit $Year (TFM=$tfm)"
   # Core is restored via ProjectReference. Do not build DSSTech.Revit into the harness.

@@ -37,4 +37,4 @@ plus `QS_InOutBuilding`, `QS_FormworkArea`, `QS_HostId`, `QS_WeightKg`, `QS_Mate
 - Facts: `RevitElementFactsFactory.AddQuantityTableFacts`
 - Model fields: `BoqLineItem` Q1/Q2 properties
 - Formwork SSOT: `docs/FORMWORK_RULES.md`
-- Schedule builder: `src/QSNormEngine.Revit/Quantity/QuantityScheduleBuilder.cs`
+- Schedule builder: `src/DSSTech.Revit/Quantity/QuantityScheduleBuilder.cs`
