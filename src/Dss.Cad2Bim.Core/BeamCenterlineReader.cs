@@ -768,13 +768,28 @@ public static class BeamCenterlineReader
         var eux = (extended.X1 - extended.X0) / elen;
         var euy = (extended.Y1 - extended.Y0) / elen;
         var centers = new List<double>();
+        var wallEnds = new List<double>();
         foreach (var support in supports)
         {
-            foreach (var t in SupportStations(extended, eux, euy, support))
+            var stations = SupportStations(extended, eux, euy, support);
+            foreach (var t in stations)
             {
-                if (t >= -1 && t <= elen + 1)
+                if (t < -1 || t > elen + 1)
+                    continue;
+                if (stations.Count > 1)
+                    wallEnds.Add(t);
+                else
                     centers.Add(t);
             }
+        }
+
+        // A wall end next to a column (wall between two columns) is not a joint of its own: the span runs
+        // column center → column center over the wall instead of leaving a junk stub at each column.
+        var minSpan = Math.Max(MinLengthMm, axis.ThicknessMm);
+        foreach (var t in wallEnds)
+        {
+            if (!centers.Any(c => Math.Abs(c - t) < minSpan))
+                centers.Add(t);
         }
 
         centers = UniqueSorted(centers);
@@ -817,11 +832,14 @@ public static class BeamCenterlineReader
         var touchEnd = false;
         foreach (var support in supports)
         {
-            foreach (var t in SupportStations(run, ux, uy, support))
+            var stations = SupportStations(run, ux, uy, support);
+            foreach (var t in stations)
             {
-                if (Math.Abs(t) <= 1)
+                // Ending on a collinear wall's end still reaches on to a column center just past it.
+                var wallEnd = stations.Count > 1;
+                if (Math.Abs(t) <= 1 && !wallEnd)
                     touchStart = true;
-                if (Math.Abs(t - len) <= 1)
+                if (Math.Abs(t - len) <= 1 && !wallEnd)
                     touchEnd = true;
                 if (t > len + 1)
                     ahead = Math.Min(ahead, t);

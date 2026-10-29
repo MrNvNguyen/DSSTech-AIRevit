@@ -155,6 +155,19 @@ public sealed class ModelRevitCommand : IExternalCommand
                 placement.Supports = ModelRevitSupports.Collect(doc, beamLevel, placement.TopOffsetMm, out supportColumns, out supportWalls);
                 placement.Log = DssTechLog.Write;
                 DssTechLog.Write($"beam supports level={beamLevel.Name} columns={supportColumns} walls={supportWalls}");
+                // Planner input for offline replay (tests/cad2bim-section-smoke --replay). Must not break the command.
+                try
+                {
+                    var capturePath = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DSSTech", "beam-capture.json");
+                    PlanCapture.From(geom, layerName, part, placement.BaseLevelName, placement.TopLevelName,
+                        size, placement, grids, gridAngles).Save(capturePath);
+                    DssTechLog.Write($"beam capture {capturePath}");
+                }
+                catch (Exception ex)
+                {
+                    DssTechLog.Write($"beam capture failed: {ex.Message}");
+                }
             }
 
             var ops = ModelRevitPlanner.Plan(
