@@ -61,10 +61,10 @@ public static class BeamCenterlineReader
     /// <summary>Crossing counts when the intersection lies within this past a run end.</summary>
     private const double CrossingPadMm = 50;
 
-    public static List<WallRun> FromEntities(IEnumerable<CadEntity> entities, Func<WallRun, bool>? widthMismatch = null)
+    public static List<WallRun> FromEntities(IEnumerable<CadEntity> entities, Func<WallRun, int>? pairRank = null)
     {
         var list = entities as IList<CadEntity> ?? entities.ToList();
-        var runs = WallCenterlineReader.FromEntities(list, wallFilter: false, widthMismatch);
+        var runs = WallCenterlineReader.FromEntities(list, wallFilter: false, pairRank);
         if (runs.Count > 0)
             return OrientAll(runs);
 
@@ -494,6 +494,10 @@ public static class BeamCenterlineReader
         var across = Math.Abs((midX - a.X0) * -auy + (midY - a.Y0) * aux);
         if (across > NearDuplicateMidlineMm)
             return false;
+        // Different face-pair thicknesses (500 vs 1000 shared-face double outline) stay separate so
+        // label-aware dedupe can keep the Mark-WxH width; averaging/modal-thinner would drop 1000.
+        if (Math.Abs(a.ThicknessMm - b.ThicknessMm) > 30)
+            return false;
         // Require some along-axis overlap so unrelated parallel beams far apart do not merge.
         var b0 = (b.X0 - a.X0) * aux + (b.Y0 - a.Y0) * auy;
         var b1 = (b.X1 - a.X0) * aux + (b.Y1 - a.Y0) * auy;
@@ -504,7 +508,18 @@ public static class BeamCenterlineReader
 
     private static WallRun MergeDuplicateGroup(List<WallRun> group)
     {
-        var rep = group.OrderByDescending(Length).First();
+        // Prefer the modal thickness (true outline), not max — a true+ghost cross-pair (t≈530 on a
+        // 500 beam) must not pull the merged midline or inflate thickness.
+        var thick = group
+            .GroupBy(r => Math.Round(r.ThicknessMm / 10.0) * 10.0)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key)
+            .First().Key;
+        var members = group.Where(r => Math.Abs(r.ThicknessMm - thick) <= 15).ToList();
+        if (members.Count == 0)
+            members = group.ToList();
+
+        var rep = members.OrderByDescending(Length).First();
         var len = Length(rep);
         var ux = (rep.X1 - rep.X0) / len;
         var uy = (rep.Y1 - rep.Y0) / len;
@@ -512,8 +527,7 @@ public static class BeamCenterlineReader
         var hi = double.MinValue;
         var weight = 0.0;
         var lateral = 0.0;
-        var thick = 0.0;
-        foreach (var m in group)
+        foreach (var m in members)
         {
             var l = Length(m);
             var a0 = (m.X0 - rep.X0) * ux + (m.Y0 - rep.Y0) * uy;
@@ -524,10 +538,11 @@ public static class BeamCenterlineReader
             var my = (m.Y0 + m.Y1) / 2 - rep.Y0;
             lateral += (mx * -uy + my * ux) * l;
             weight += l;
-            thick = Math.Max(thick, m.ThicknessMm);
         }
 
-        lateral = weight > 0 ? lateral / weight : 0;
+        // Single surviving outline: keep its midline (no average with a blocked ghost).
+        // Multiple same-thickness midlines (legacy): length-weighted mean of those members only.
+        lateral = members.Count == 1 || weight <= 0 ? 0 : lateral / weight;
         var ox = rep.X0 - uy * lateral;
         var oy = rep.Y0 + ux * lateral;
         return OrientRun(new WallRun(ox + ux * lo, oy + uy * lo, ox + ux * hi, oy + uy * hi, thick, rep.Nx, rep.Ny));
@@ -586,6 +601,9 @@ public static class BeamCenterlineReader
             var len = Length(rep);
             var ux = (rep.X1 - rep.X0) / len;
             var uy = (rep.Y1 - rep.Y0) / len;
+            // One lateral for the whole physical axis so a wall-hybrid nick on one bay cannot
+            // leave the next bay 100 mm off (log: D1Y-3 at x=-11950 vs -12050).
+            var axisLateral = DominantLateral(rep, ux, uy, axis);
             var spans = axis
                 .Select(r =>
                 {
@@ -609,13 +627,13 @@ public static class BeamCenterlineReader
                     continue;
                 }
 
-                result.Add(AxisRun(rep, ux, uy, lo, hi, members));
+                result.Add(AxisRun(rep, ux, uy, lo, hi, members, axisLateral));
                 lo = s.Lo;
                 hi = s.Hi;
                 members = new List<WallRun> { s.Run };
             }
 
-            result.Add(AxisRun(rep, ux, uy, lo, hi, members));
+            result.Add(AxisRun(rep, ux, uy, lo, hi, members, axisLateral));
         }
 
         return result;
@@ -624,23 +642,49 @@ public static class BeamCenterlineReader
     private static bool SimilarWidth(WallRun a, WallRun b) =>
         a.ThicknessMm <= 0 || b.ThicknessMm <= 0 || Math.Abs(a.ThicknessMm - b.ThicknessMm) <= 25;
 
-    /// <summary>Merged axis on the representative direction, laterally at the length-weighted member centerline.</summary>
-    private static WallRun AxisRun(WallRun rep, double ux, double uy, double lo, double hi, List<WallRun> members)
+    /// <summary>
+    /// Length-weighted modal lateral in ~20 mm bins — the true beam outline usually dominates a
+    /// shorter wall-hybrid nick on the same axis.
+    /// </summary>
+    private static double DominantLateral(WallRun rep, double ux, double uy, List<WallRun> members)
     {
-        var weight = 0.0;
-        var lateral = 0.0;
-        var thick = 0.0;
+        var bins = new Dictionary<int, double>();
         foreach (var m in members)
         {
             var l = Length(m);
             var mx = (m.X0 + m.X1) / 2 - rep.X0;
             var my = (m.Y0 + m.Y1) / 2 - rep.Y0;
-            lateral += (mx * -uy + my * ux) * l;
-            weight += l;
-            thick = Math.Max(thick, m.ThicknessMm);
+            var lat = mx * -uy + my * ux;
+            var key = (int)Math.Round(lat / 20.0);
+            bins[key] = bins.TryGetValue(key, out var w) ? w + l : l;
         }
 
-        lateral = weight > 0 ? lateral / weight : 0;
+        var bestKey = bins.OrderByDescending(kv => kv.Value).ThenBy(kv => Math.Abs(kv.Key)).First().Key;
+        var weight = 0.0;
+        var sum = 0.0;
+        foreach (var m in members)
+        {
+            var mx = (m.X0 + m.X1) / 2 - rep.X0;
+            var my = (m.Y0 + m.Y1) / 2 - rep.Y0;
+            var lat = mx * -uy + my * ux;
+            if ((int)Math.Round(lat / 20.0) != bestKey)
+                continue;
+            var l = Length(m);
+            sum += lat * l;
+            weight += l;
+        }
+
+        return weight > 0 ? sum / weight : 0;
+    }
+
+    /// <summary>Merged axis on the representative direction at a shared lateral (whole-axis lock).</summary>
+    private static WallRun AxisRun(
+        WallRun rep, double ux, double uy, double lo, double hi, List<WallRun> members, double lateral)
+    {
+        var thick = 0.0;
+        foreach (var m in members)
+            thick = Math.Max(thick, m.ThicknessMm);
+
         var ox = rep.X0 - uy * lateral;
         var oy = rep.Y0 + ux * lateral;
         return OrientRun(new WallRun(ox + ux * lo, oy + uy * lo, ox + ux * hi, oy + uy * hi, thick, rep.Nx, rep.Ny));
@@ -696,18 +740,19 @@ public static class BeamCenterlineReader
         var near = new List<double>();
         foreach (var support in supports)
         {
-            if (!SupportCenter(axis, ux, uy, support, out var t))
-                continue;
-            if (t >= -1 && t <= len + 1)
+            foreach (var t in SupportStations(axis, ux, uy, support))
             {
-                near.Add(t);
-                continue;
-            }
+                if (t >= -1 && t <= len + 1)
+                {
+                    near.Add(t);
+                    continue;
+                }
 
-            if (t > len + 1 && t <= len + ExtendMaxMm && Reachable(axis, ux, uy, len, t, runs, faces))
-                near.Add(t);
-            else if (t < -1 && t >= -ExtendMaxMm && Reachable(axis, ux, uy, t, 0, runs, faces))
-                near.Add(t);
+                if (t > len + 1 && t <= len + ExtendMaxMm && Reachable(axis, ux, uy, len, t, runs, faces))
+                    near.Add(t);
+                else if (t < -1 && t >= -ExtendMaxMm && Reachable(axis, ux, uy, t, 0, runs, faces))
+                    near.Add(t);
+            }
         }
 
         if (UniqueSorted(near).Count < 2)
@@ -725,8 +770,11 @@ public static class BeamCenterlineReader
         var centers = new List<double>();
         foreach (var support in supports)
         {
-            if (SupportCenter(extended, eux, euy, support, out var t) && t >= -1 && t <= elen + 1)
-                centers.Add(t);
+            foreach (var t in SupportStations(extended, eux, euy, support))
+            {
+                if (t >= -1 && t <= elen + 1)
+                    centers.Add(t);
+            }
         }
 
         centers = UniqueSorted(centers);
@@ -769,16 +817,17 @@ public static class BeamCenterlineReader
         var touchEnd = false;
         foreach (var support in supports)
         {
-            if (!SupportCenter(run, ux, uy, support, out var t))
-                continue;
-            if (Math.Abs(t) <= 1)
-                touchStart = true;
-            if (Math.Abs(t - len) <= 1)
-                touchEnd = true;
-            if (t > len + 1)
-                ahead = Math.Min(ahead, t);
-            if (t < -1)
-                behind = Math.Max(behind, t);
+            foreach (var t in SupportStations(run, ux, uy, support))
+            {
+                if (Math.Abs(t) <= 1)
+                    touchStart = true;
+                if (Math.Abs(t - len) <= 1)
+                    touchEnd = true;
+                if (t > len + 1)
+                    ahead = Math.Min(ahead, t);
+                if (t < -1)
+                    behind = Math.Max(behind, t);
+            }
         }
 
         var t0 = 0.0;
@@ -874,14 +923,47 @@ public static class BeamCenterlineReader
     /// <summary>Along-axis station of the support center when the axis meets the footprint.</summary>
     private static bool SupportCenter(WallRun run, double ux, double uy, SectionFootprint support, out double t)
     {
-        if (!SupportInterval(run, ux, uy, support, out var enter, out var exit))
+        var stations = SupportStations(run, ux, uy, support);
+        if (stations.Count == 0)
         {
             t = 0;
             return false;
         }
 
-        t = (enter + exit) / 2;
+        t = stations.Count == 1 ? stations[0] : (stations[0] + stations[stations.Count - 1]) / 2;
         return true;
+    }
+
+    /// <summary>
+    /// Bearing stations along the beam. Columns → midpoint. A long wall collinear with the beam
+    /// (dầm giằng / wall-top) → interval ends so the wall alone still yields ≥2 supports and a Main span
+    /// instead of a Secondary chopped at every crossing.
+    /// </summary>
+    private static List<double> SupportStations(WallRun run, double ux, double uy, SectionFootprint support)
+    {
+        var result = new List<double>();
+        if (!SupportInterval(run, ux, uy, support, out var enter, out var exit))
+            return result;
+        var span = exit - enter;
+        var minSide = Math.Min(support.WidthMm, support.DepthMm);
+        var maxSide = Math.Max(support.WidthMm, support.DepthMm);
+        var rad = support.RotationDeg * Math.PI / 180.0;
+        // Long axis of the footprint (Width when W≥D, else Depth) must align with the beam —
+        // a crossing wall is elongated perpendicular to the beam and must stay a single mid station.
+        var longAlongWidth = support.WidthMm >= support.DepthMm;
+        var longUx = longAlongWidth ? Math.Cos(rad) : -Math.Sin(rad);
+        var longUy = longAlongWidth ? Math.Sin(rad) : Math.Cos(rad);
+        var parallel = Math.Abs(longUx * ux + longUy * uy) >= 0.95;
+        // Elongated + parallel = structural wall under/along the beam, not a crossing wall stub.
+        if (parallel && maxSide >= 4 * Math.Max(minSide, 1) && span >= MinLengthMm)
+        {
+            result.Add(enter);
+            result.Add(exit);
+            return result;
+        }
+
+        result.Add((enter + exit) / 2);
+        return result;
     }
 
     /// <summary>

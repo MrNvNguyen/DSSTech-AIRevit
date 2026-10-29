@@ -59,6 +59,12 @@ public static class WallCenterlineReader
     public const double MaxThicknessMm = 1200;
     public const double MinOverlapMm = 200;
     /// <summary>
+    /// After a beam face-pair is accepted, parallel CAD faces within this of either face are treated as
+    /// ghost/double-outline and blocked on the same span (finish lines, hatch offsets ~25–35 mm).
+    /// Walls leave this unused (<see cref="FromEntities(IEnumerable{CadEntity}, bool, Func{WallRun, int}?)"/>).
+    /// </summary>
+    public const double GhostFacePadMm = 40;
+    /// <summary>
     /// On shared column/wall CAD layers, only elongated faces become walls (vách). L/b ≤ 4 stays for columns.
     /// </summary>
     public const double MinWallAspect = 4.0;
@@ -70,11 +76,11 @@ public static class WallCenterlineReader
     /// When true, keep L/b &gt; 4 (and attached stubs) as walls.
     /// When false (beams), keep every elongated parallel pair with L/b &gt; 1.5.
     /// </param>
-    /// <param name="widthMismatch">
-    /// True when a candidate centerline disagrees with the width written next to it; such pairs rank after
-    /// matching ones so a face is not taken by a nearer unrelated line.
+    /// <param name="pairRank">
+    /// Lower ranks first. Beams encode WxH match quality (exact thickness + text distance); unlabeled /
+    /// mismatched ranks sit far above so a thin wall-hatch pair cannot steal faces from a labelled outline.
     /// </param>
-    public static List<WallRun> FromEntities(IEnumerable<CadEntity> entities, bool wallFilter, Func<WallRun, bool>? widthMismatch = null)
+    public static List<WallRun> FromEntities(IEnumerable<CadEntity> entities, bool wallFilter, Func<WallRun, int>? pairRank = null)
     {
         var faces = new List<Seg>();
         foreach (var entity in entities)
@@ -98,16 +104,17 @@ public static class WallCenterlineReader
             {
                 if (!TryPair(faces[i], faces[j], out var thick, out var overlap, out var nx, out var ny, out var lo, out var hi, out var conflicts))
                     continue;
-                var mismatch = widthMismatch is not null && widthMismatch(new WallRun(
+                var run = new WallRun(
                     faces[i].X0 + faces[i].Ux * lo + nx * thick / 2, faces[i].Y0 + faces[i].Uy * lo + ny * thick / 2,
                     faces[i].X0 + faces[i].Ux * hi + nx * thick / 2, faces[i].Y0 + faces[i].Uy * hi + ny * thick / 2,
-                    thick, nx, ny));
-                pairs.Add(new Pair(i, j, thick, overlap, nx, ny, lo, hi, conflicts, mismatch ? 1 : 0));
+                    thick, nx, ny);
+                var rank = pairRank?.Invoke(run) ?? 0;
+                pairs.Add(new Pair(i, j, thick, overlap, nx, ny, lo, hi, conflicts, rank));
             }
         }
 
-        // Nearest parallel face first (a wall's own faces are closer than the gap to the next wall);
-        // closed-outline solid side breaks ties against gap / cross-core pairs.
+        // Label-matching beam pairs before unlabeled / mismatched; then nearest faces (thinner first)
+        // so a wall's own faces beat the gap to the next wall. Closed-outline solid side breaks ties.
         pairs.Sort(static (a, b) =>
         {
             var side = a.Conflicts.CompareTo(b.Conflicts);
@@ -145,6 +152,9 @@ public static class WallCenterlineReader
             var t0 = off + lo * c;
             var t1 = off + hi * c;
             used[pair.J].Add((Math.Min(t0, t1), Math.Max(t0, t1)));
+            // Beam double-outlines: consume parallel ghost faces within GhostFacePadMm of either face.
+            if (!wallFilter)
+                BlockGhostFaces(faces, used, pair.I, pair.J, a, lo, hi, pair.Thickness);
 
             var halfX = pair.Nx * pair.Thickness / 2;
             var halfY = pair.Ny * pair.Thickness / 2;
@@ -156,6 +166,45 @@ public static class WallCenterlineReader
 
         var merged = MergeRuns(runs);
         return MeetAtCorners(wallFilter ? KeepWalls(merged) : KeepElongated(merged, 1.5));
+    }
+
+    /// <summary>
+    /// Mark parallel faces that sit on (or within <see cref="GhostFacePadMm"/> of) either accepted face
+    /// as used on the overlap span so a second outline 25–35 mm away cannot form another midline.
+    /// Also block faces strictly between the pair (wall hatch / shared wall face) so a partial span
+    /// cannot form a hybrid wall+beam midline ~half a wall thickness off the true beam axis.
+    /// </summary>
+    private static void BlockGhostFaces(
+        List<Seg> faces, List<(double Lo, double Hi)>[] used,
+        int faceI, int faceJ, Seg a, double lo, double hi, double thickness)
+    {
+        var nx = -a.Uy;
+        var ny = a.Ux;
+        // Face A at across=0; face B at ±thickness in the pair normal frame.
+        for (var k = 0; k < faces.Count; k++)
+        {
+            if (k == faceI || k == faceJ)
+                continue;
+            var f = faces[k];
+            if (Math.Abs(a.Ux * f.Ux + a.Uy * f.Uy) < 0.9986)
+                continue;
+            var across = (f.X0 - a.X0) * nx + (f.Y0 - a.Y0) * ny;
+            var nearFace = Math.Abs(across) <= GhostFacePadMm ||
+                           Math.Abs(across - thickness) <= GhostFacePadMm ||
+                           Math.Abs(across + thickness) <= GhostFacePadMm;
+            // Interior of the accepted band (not on the faces themselves).
+            var interior = across > GhostFacePadMm && across < thickness - GhostFacePadMm ||
+                           across < -GhostFacePadMm && across > -thickness + GhostFacePadMm;
+            if (!nearFace && !interior)
+                continue;
+            var off = (a.X0 - f.X0) * f.Ux + (a.Y0 - f.Y0) * f.Uy;
+            var c = a.Ux * f.Ux + a.Uy * f.Uy;
+            if (Math.Abs(c) < 0.5)
+                continue;
+            var s0 = (lo - off) / c;
+            var s1 = (hi - off) / c;
+            used[k].Add((Math.Min(s0, s1), Math.Max(s0, s1)));
+        }
     }
 
     private static List<WallRun> KeepElongated(List<WallRun> runs, double minAspect)

@@ -760,7 +760,7 @@ public static class ModelRevitPlanner
         IReadOnlyList<double>? gridAnglesDeg)
     {
         var texts = BeamTexts(geom);
-        var runs = BeamCenterlineReader.FromEntities(entities, run => WidthMismatch(texts, run));
+        var runs = BeamCenterlineReader.FromEntities(entities, run => BeamPairRank(texts, run));
         if (runs.Count == 0)
             return Array.Empty<CreateOperation>();
 
@@ -838,7 +838,10 @@ public static class ModelRevitPlanner
             var placedW = width > 0 ? width : run.ThicknessMm;
             var flushShift = FlushToSupportFace(run, sx, sy, ex, ey, placedW, supports);
             var isEdge = edgeBeam[i];
-            if (flushShift is double shift && isEdge)
+            // Grow-inward flush only when type ≥ CAD face spacing (250 CAD → 300 type). Wall-top
+            // outlines wider than the WxH label (500 CAD, 30x70) must keep the CAD midline.
+            var cadWiderThanType = placedW + FlushFaceTolMm < run.ThicknessMm;
+            if (flushShift is double shift && isEdge && !cadWiderThanType)
             {
                 var flen = Math.Sqrt((ex - sx) * (ex - sx) + (ey - sy) * (ey - sy));
                 var fnx = -(ey - sy) / flen;
@@ -849,9 +852,14 @@ public static class ModelRevitPlanner
                 ey += fny * shift;
                 place.Log?.Invoke($"beam flush seg {i} edge=true shift={shift:0.###} to support face");
             }
-            else if (flushShift is double skipped)
+            else if (flushShift is double wideSkip && isEdge && cadWiderThanType)
             {
-                place.Log?.Invoke($"beam flush seg {i} edge=false skipped shift={skipped:0.###}");
+                place.Log?.Invoke(
+                    $"beam flush seg {i} edge=true skipped CAD wider than type shift={wideSkip:0.###}");
+            }
+            else if (flushShift is double interiorSkip)
+            {
+                place.Log?.Invoke($"beam flush seg {i} edge=false skipped shift={interiorSkip:0.###}");
             }
 
             var typeHint = width > 0 && depth > 0
@@ -1555,6 +1563,11 @@ public static class ModelRevitPlanner
     private const double BeamLabelAlignDeg = 10;
     /// <summary>CAD face spacing vs label width before a face pair is ranked as "not this beam".</summary>
     private const double BeamWidthTolMm = 50;
+    /// <summary>
+    /// Tighter than <see cref="BeamWidthTolMm"/> for face-pair claim order: a hatch face 50 mm inside a
+    /// true 500 outline (t=450) must not outrank the real 500 pair (legacy ≤50 matched both → thinner won).
+    /// </summary>
+    private const double BeamPairMatchTolMm = 25;
     /// <summary>Fallback CAD walls are read per layer; larger layers (hatches, details) are skipped.</summary>
     private const int CadWallLayerMaxCurves = 1500;
     /// <summary>CAD column outlines used as beam supports; drops grid bubbles / detail boxes.</summary>
@@ -1747,25 +1760,55 @@ public static class ModelRevitPlanner
         return Math.Abs(along - len / 2);
     }
 
-    /// <summary>A face pair whose spacing matches none of the WxH texts labelling it (when there are any).</summary>
-    private static bool WidthMismatch(List<BeamText> texts, WallRun run)
+    /// <summary>
+    /// Face-pair preference for beams (lower wins).
+    /// Matching WxH: <c>1000*|t−W| + 50*|across|</c> — exact mid-of-faces near the label beats a 525
+    /// true+ghost cross-pair and a parallel ghost outline. A wall-hatch hybrid that matches W but sits
+    /// far from the text (e.g. faces 200/500 for a 300 label at y=250) loses to the wider outline that
+    /// hosts the text on center (<c>soft</c> band). Unlabeled = 500_000; disagree-only = 1_000_000.
+    /// </summary>
+    private static int BeamPairRank(List<BeamText> texts, WallRun run)
     {
         var len = Math.Sqrt((run.X1 - run.X0) * (run.X1 - run.X0) + (run.Y1 - run.Y0) * (run.Y1 - run.Y0));
         if (len < 1)
-            return false;
+            return 500_000;
         var ux = (run.X1 - run.X0) / len;
         var uy = (run.Y1 - run.Y0) / len;
         var labelled = false;
+        var best = int.MaxValue;
         foreach (var text in texts)
         {
-            if (!text.Label.HasSize || LabelDistance(text, run, ux, uy, len) is null)
+            if (!text.Label.HasSize || LabelDistance(text, run, ux, uy, len) is not double d)
                 continue;
-            if (Math.Abs(text.Label.WidthMm!.Value - run.ThicknessMm) <= BeamWidthTolMm)
-                return false;
-            labelled = true;
+            var delta = Math.Abs(text.Label.WidthMm!.Value - run.ThicknessMm);
+            if (delta <= BeamPairMatchTolMm)
+            {
+                // Across dominates over small thickness slop so mid-of-label outlines win.
+                // Mark-WxH beats size-only on the same bay (D1Y7-100x65 over bare 50x65 → keep 1000).
+                var markBias = text.Label.HasMark ? 0 : 10_000;
+                var score = (int)Math.Round(delta) * 1000 + (int)Math.Min(9999, Math.Round(d * 50)) + markBias;
+                if (score < best)
+                    best = score;
+            }
+            else if (d <= Math.Max(30, run.ThicknessMm * 0.15) &&
+                     delta <= Math.Max(BeamWidthTolMm * 4, run.ThicknessMm))
+            {
+                // Text sits on this midline but W disagrees (beam outline 500, label 30x70 / wall 200):
+                // keep as a candidate behind true matches with low across, ahead of unlabeled hatch.
+                labelled = true;
+                var soft = 3_000 + (int)Math.Round(delta) + (int)Math.Min(99, Math.Round(d));
+                if (soft < best)
+                    best = soft;
+            }
+            else
+            {
+                labelled = true;
+            }
         }
 
-        return labelled;
+        if (best != int.MaxValue)
+            return best;
+        return labelled ? 1_000_000 : 500_000;
     }
 
     /// <summary>

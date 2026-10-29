@@ -2122,6 +2122,403 @@ public static class SectionFootprintSelfTest
         if (!BeamParallelMismatchDedupeCase(out message))
             return false;
 
+        // Wall-top / wall-hatch faces on the beam layer must not suppress or shift labelled beams.
+        if (!BeamWallTopAndHatchFaceCases(out message))
+            return false;
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>
+    /// D1X-15 class: beam faces + collinear wall faces/hatch on the same layer + model wall support
+    /// still produce the labelled beam on the mid of the beam faces (not wall thickness, not dropped).
+    /// D1Y-11 class: wall face 50 mm inside a true beam face must not shift the centerline by 25 mm.
+    /// </summary>
+    private static bool BeamWallTopAndHatchFaceCases(out string message)
+    {
+        message = "";
+        // Horizontal wall-top: beam y=0/500, wall hatch y=0/200 sharing the outer face, label D1X-15 (50x70).
+        // Model wall support collinear under the bay (long rectangle). Columns at ends.
+        var wallTop = new CadGeometry();
+        wallTop.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 8000, Y1 = 0 });
+        wallTop.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 500, X1 = 8000, Y1 = 500 });
+        wallTop.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 200, X1 = 8000, Y1 = 200 }); // wall/hatch face
+        wallTop.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1X-15 (50x70)", X = 4000, Y = 250, CenterX = 4000, CenterY = 250
+        });
+        var wallTopLogs = new List<string>();
+        var wallTopOps = ModelRevitPlanner.Plan(
+            wallTop, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                FamilyName = "S-BEAM",
+                Log = wallTopLogs.Add,
+                // Columns at ends + long structural wall under the beam (plan rectangle along X).
+                Supports = new[]
+                {
+                    new SectionFootprint(0, 250, 400, 400),
+                    new SectionFootprint(8000, 250, 400, 400),
+                    new SectionFootprint(4000, 100, 8000, 200, 0)
+                }
+            });
+        var wallTopHit = wallTopOps.FirstOrDefault(op =>
+        {
+            var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+            return mark.Equals("D1X-15", StringComparison.OrdinalIgnoreCase);
+        });
+        if (wallTopHit is null)
+        {
+            message = $"wall-top beam kept: expected Mark D1X-15, got {wallTopOps.Count} ops marks=" +
+                      string.Join(",", wallTopOps.Select(o =>
+                          o.Fields.TryGetProperty("mark", out var m) ? m.GetString() : "?"));
+            return false;
+        }
+        var wtY0 = wallTopHit.Fields.GetProperty("startMm")[1].GetDouble();
+        var wtY1 = wallTopHit.Fields.GetProperty("endMm")[1].GetDouble();
+        var wtW = wallTopHit.Fields.TryGetProperty("widthMm", out var wtw) ? wtw.GetInt32() : 0;
+        var wtD = wallTopHit.Fields.TryGetProperty("depthMm", out var wtd) ? wtd.GetInt32() : 0;
+        if (Math.Abs(wtY0 - 250) > 2.5 || Math.Abs(wtY1 - 250) > 2.5 || wtW != 500 || wtD != 700)
+        {
+            message = $"wall-top beam center/size: expected y=250 500x700, got y=({wtY0:0.###},{wtY1:0.###}) {wtW}x{wtD}";
+            return false;
+        }
+
+        // Vertical perimeter: true faces x=0/500 + hatch face x=50 → must center at 250 (not 275 = mid of 50..500).
+        var offset = new CadGeometry();
+        offset.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 0, Y1 = 8000 });
+        offset.Entities.Add(new CadLine { Layer = "BEAM", X0 = 500, Y0 = 0, X1 = 500, Y1 = 8000 });
+        offset.Entities.Add(new CadLine { Layer = "BEAM", X0 = 50, Y0 = 0, X1 = 50, Y1 = 8000 }); // wall face 50 mm in
+        offset.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1Y-11 (50x70)", X = 250, Y = 4000, CenterX = 250, CenterY = 4000, RotationDeg = 90
+        });
+        // Envelope so this vertical is an edge beam (flush candidate) — outer face near column face x=0.
+        offset.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 8000, Y1 = 0 });
+        offset.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 500, X1 = 8000, Y1 = 500 });
+        offset.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1X5-50x70", X = 4000, Y = 250, CenterX = 4000, CenterY = 250
+        });
+        offset.Entities.Add(new CadLine { Layer = "BEAM", X0 = 7500, Y0 = 0, X1 = 7500, Y1 = 8000 });
+        offset.Entities.Add(new CadLine { Layer = "BEAM", X0 = 8000, Y0 = 0, X1 = 8000, Y1 = 8000 });
+        offset.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1Y2-50x70", X = 7750, Y = 4000, CenterX = 7750, CenterY = 4000, RotationDeg = 90
+        });
+        var offsetOps = ModelRevitPlanner.Plan(
+            offset, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                FamilyName = "S-BEAM",
+                Supports = new[]
+                {
+                    new SectionFootprint(0, 0, 400, 400), new SectionFootprint(0, 8000, 400, 400),
+                    new SectionFootprint(8000, 0, 400, 400), new SectionFootprint(8000, 8000, 400, 400),
+                    // Long wall along the left bay (outer face at x=0) — flush candidate.
+                    new SectionFootprint(100, 4000, 200, 8000, 90)
+                }
+            });
+        var d1y11 = offsetOps.FirstOrDefault(op =>
+        {
+            var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+            return mark.Equals("D1Y-11", StringComparison.OrdinalIgnoreCase);
+        });
+        if (d1y11 is null)
+        {
+            message = $"beam hatch face pair: expected Mark D1Y-11, got marks=" +
+                      string.Join(",", offsetOps.Select(o =>
+                          o.Fields.TryGetProperty("mark", out var m) ? m.GetString() : "?"));
+            return false;
+        }
+        var ox0 = d1y11.Fields.GetProperty("startMm")[0].GetDouble();
+        var ox1 = d1y11.Fields.GetProperty("endMm")[0].GetDouble();
+        var ow = d1y11.Fields.TryGetProperty("widthMm", out var oww) ? oww.GetInt32() : 0;
+        // True mid of faces 0/500 = 250. Wrong mid of 50/500 = 275 (+25). Allow 5 mm grid round only.
+        if (Math.Abs(ox0 - 250) > 2.5 || Math.Abs(ox1 - 250) > 2.5 || ow != 500)
+        {
+            message = $"beam centerline mid-of-faces: expected x=250 width=500 (not +25 hatch mid), got x=({ox0:0.###},{ox1:0.###}) w={ow}";
+            return false;
+        }
+
+        // Double outline (true + parallel ghost 25/35 mm): must keep true mid, not average or ghost.
+        if (!BeamDoubleOutlineOffsetCases(out message))
+            return false;
+
+        // Whole-axis lock: wall hatch on only one bay must not leave the next bay ~100 mm off.
+        if (!BeamWholeAxisWallAdjacentCase(out message))
+            return false;
+
+        // Wall-top kept when the only model support is the collinear wall (no end columns).
+        if (!BeamWallTopWallSupportOnlyCase(out message))
+            return false;
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>
+    /// Production H1: same vertical axis has a clean 500 outline on the long bay and a wall-hybrid
+    /// (outer beam face + wall face) on a short stub → both spans must share mid=250, not ±50/100 mm.
+    /// </summary>
+    private static bool BeamWholeAxisWallAdjacentCase(out string message)
+    {
+        message = "";
+        var g = new CadGeometry();
+        // True beam faces x=0/500 for the full height.
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 0, Y1 = 12000 });
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 500, Y0 = 0, X1 = 500, Y1 = 12000 });
+        // Wall/hatch face only on the south bay (pairs with x=500 → mid=350 if not blocked).
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 200, Y0 = 0, X1 = 200, Y1 = 4000 });
+        // Parallel wall faces that could form a 200 mm wall mid=100 on the south stub alone.
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 0, Y1 = 4000 });
+        g.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1Y-B (50x70)", X = 250, Y = 8000,
+            CenterX = 250, CenterY = 8000, RotationDeg = 90
+        });
+        var logs = new List<string>();
+        var ops = ModelRevitPlanner.Plan(
+            g, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                FamilyName = "S-BEAM",
+                Log = logs.Add,
+                Supports = new[]
+                {
+                    new SectionFootprint(250, 0, 400, 400),
+                    new SectionFootprint(250, 4000, 400, 400),
+                    new SectionFootprint(250, 8000, 400, 400),
+                    new SectionFootprint(250, 12000, 400, 400),
+                    // Long wall along the left face (outer at x=0).
+                    new SectionFootprint(100, 2000, 200, 4000, 90)
+                }
+            });
+        var vertical = ops.Where(op =>
+        {
+            var sx = op.Fields.GetProperty("startMm")[0].GetDouble();
+            var ex = op.Fields.GetProperty("endMm")[0].GetDouble();
+            return Math.Abs(sx - ex) < 50;
+        }).ToList();
+        if (vertical.Count == 0)
+        {
+            message = "whole-axis wall-adjacent: expected vertical beam ops, got 0";
+            return false;
+        }
+
+        foreach (var op in vertical)
+        {
+            var x0 = op.Fields.GetProperty("startMm")[0].GetDouble();
+            var x1 = op.Fields.GetProperty("endMm")[0].GetDouble();
+            var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+            if (Math.Abs(x0 - 250) > 2.5 || Math.Abs(x1 - 250) > 2.5)
+            {
+                message =
+                    $"whole-axis wall-adjacent: expected x=250 on every span (not wall-hybrid), " +
+                    $"got x=({x0:0.###},{x1:0.###}) mark={mark} ops={vertical.Count}";
+                return false;
+            }
+        }
+
+        if (!vertical.Any(op =>
+        {
+            var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+            return mark.Equals("D1Y-B", StringComparison.OrdinalIgnoreCase);
+        }))
+        {
+            message = "whole-axis wall-adjacent: expected Mark D1Y-B, got marks=" +
+                      string.Join(",", vertical.Select(o =>
+                          o.Fields.TryGetProperty("mark", out var m) ? m.GetString() : "?"));
+            return false;
+        }
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>
+    /// Production H2: labelled wall-top bay with only a collinear model wall as support (ends on the
+    /// wall) must still emit a Main beam — wall stations are the interval ends, not a single mid.
+    /// </summary>
+    private static bool BeamWallTopWallSupportOnlyCase(out string message)
+    {
+        message = "";
+        var g = new CadGeometry();
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 8000, Y1 = 0 });
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 500, X1 = 8000, Y1 = 500 });
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 200, X1 = 8000, Y1 = 200 });
+        g.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1X-B (50x70)", X = 4000, Y = 250, CenterX = 4000, CenterY = 250
+        });
+        // Crossing vertical mains that would chop a Secondary wall-top into stubs.
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 2000, Y0 = -2000, X1 = 2000, Y1 = 2500 });
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 2500, Y0 = -2000, X1 = 2500, Y1 = 2500 });
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 5000, Y0 = -2000, X1 = 5000, Y1 = 2500 });
+        g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 5500, Y0 = -2000, X1 = 5500, Y1 = 2500 });
+        g.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1Y1 (50x70)", X = 2250, Y = 0, CenterX = 2250, CenterY = 500, RotationDeg = 90
+        });
+        g.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1Y2 (50x70)", X = 5250, Y = 0, CenterX = 5250, CenterY = 500, RotationDeg = 90
+        });
+        var logs = new List<string>();
+        var ops = ModelRevitPlanner.Plan(
+            g, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                FamilyName = "S-BEAM",
+                Log = logs.Add,
+                Supports = new[]
+                {
+                    // Only the collinear wall under the bay — no end columns.
+                    new SectionFootprint(4000, 100, 8000, 200, 0),
+                    // Columns for the crossing verticals only.
+                    new SectionFootprint(2250, -2000, 400, 400),
+                    new SectionFootprint(2250, 2500, 400, 400),
+                    new SectionFootprint(5250, -2000, 400, 400),
+                    new SectionFootprint(5250, 2500, 400, 400)
+                }
+            });
+        var hit = ops.FirstOrDefault(op =>
+        {
+            var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+            return mark.Equals("D1X-B", StringComparison.OrdinalIgnoreCase);
+        });
+        if (hit is null)
+        {
+            message = "wall-top wall-support-only: expected Mark D1X-B, got marks=" +
+                      string.Join(",", ops.Select(o =>
+                          o.Fields.TryGetProperty("mark", out var m) ? m.GetString() : "?")) +
+                      " logs=" + string.Join(" | ", logs.Where(l => l.Contains("D1X-B", StringComparison.Ordinal) ||
+                                                                    l.StartsWith("beam plan", StringComparison.Ordinal)));
+            return false;
+        }
+
+        var y0 = hit.Fields.GetProperty("startMm")[1].GetDouble();
+        var y1 = hit.Fields.GetProperty("endMm")[1].GetDouble();
+        var w = hit.Fields.TryGetProperty("widthMm", out var ww) ? ww.GetInt32() : 0;
+        var d = hit.Fields.TryGetProperty("depthMm", out var dd) ? dd.GetInt32() : 0;
+        if (Math.Abs(y0 - 250) > 2.5 || Math.Abs(y1 - 250) > 2.5 || w != 500 || d != 700)
+        {
+            message =
+                $"wall-top wall-support-only: expected y=250 500x700, got y=({y0:0.###},{y1:0.###}) {w}x{d}";
+            return false;
+        }
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>
+    /// Production failure after BeamPairRank WxH fix: CAD often carries a second beam outline offset
+    /// ~25 mm or ~35 mm (finish / hatch). Cross-pairing true+ghost (t≈525) plus near-dup averaging
+    /// shifted the midline; ghost-only would be a full 25 mm face error.
+    /// </summary>
+    private static bool BeamDoubleOutlineOffsetCases(out string message)
+    {
+        message = "";
+        foreach (var shift in new[] { 25.0, 35.0 })
+        {
+            var g = new CadGeometry();
+            g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 0, Y1 = 8000 });
+            g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 500, Y0 = 0, X1 = 500, Y1 = 8000 });
+            g.Entities.Add(new CadLine { Layer = "BEAM", X0 = shift, Y0 = 0, X1 = shift, Y1 = 8000 });
+            g.Entities.Add(new CadLine { Layer = "BEAM", X0 = 500 + shift, Y0 = 0, X1 = 500 + shift, Y1 = 8000 });
+            g.Entities.Add(new CadText
+            {
+                Layer = "ANN", Value = "D1Y-3 (50x70)", X = 250, Y = 4000,
+                CenterX = 250, CenterY = 4000, RotationDeg = 90
+            });
+            var ops = ModelRevitPlanner.Plan(
+                g, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+                new AnnotationSize(null, null, null, ""),
+                placement: new ModelRevitPlacement
+                {
+                    FamilyName = "S-BEAM",
+                    Supports = new[]
+                    {
+                        new SectionFootprint(250, 0, 400, 400),
+                        new SectionFootprint(250, 8000, 400, 400)
+                    }
+                });
+            var hit = ops.FirstOrDefault(op =>
+            {
+                var sx = op.Fields.GetProperty("startMm")[0].GetDouble();
+                var ex = op.Fields.GetProperty("endMm")[0].GetDouble();
+                return Math.Abs(sx - ex) < 50;
+            });
+            if (hit is null)
+            {
+                message = $"double-outline +{shift:0}mm: expected 1 vertical beam, got {ops.Count}";
+                return false;
+            }
+
+            var x0 = hit.Fields.GetProperty("startMm")[0].GetDouble();
+            var x1 = hit.Fields.GetProperty("endMm")[0].GetDouble();
+            var w = hit.Fields.TryGetProperty("widthMm", out var ww) ? ww.GetInt32() : 0;
+            if (Math.Abs(x0 - 250) > 2.5 || Math.Abs(x1 - 250) > 2.5 || w != 500)
+            {
+                message =
+                    $"double-outline +{shift:0}mm: expected x=250 w=500 (not average/ghost), got x=({x0:0.###},{x1:0.###}) w={w}";
+                return false;
+            }
+        }
+
+        // Wall-top style: beam faces 0/500 + wall 200, label 30x70 → keep mid of beam faces (250), type 300x700.
+        var wallTop = new CadGeometry();
+        wallTop.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 8000, Y1 = 0 });
+        wallTop.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 500, X1 = 8000, Y1 = 500 });
+        wallTop.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 200, X1 = 8000, Y1 = 200 });
+        wallTop.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D13-B (30x70)", X = 4000, Y = 250, CenterX = 4000, CenterY = 250
+        });
+        var wallOps = ModelRevitPlanner.Plan(
+            wallTop, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                FamilyName = "S-BEAM",
+                Supports = new[]
+                {
+                    new SectionFootprint(0, 250, 400, 400),
+                    new SectionFootprint(8000, 250, 400, 400),
+                    new SectionFootprint(4000, 100, 8000, 200, 0)
+                }
+            });
+        var d13 = wallOps.FirstOrDefault(op =>
+        {
+            var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+            return mark.Equals("D13-B", StringComparison.OrdinalIgnoreCase);
+        });
+        if (d13 is null)
+        {
+            message = "D13-B wall-top: expected Mark D13-B on beam outline, got marks=" +
+                      string.Join(",", wallOps.Select(o =>
+                          o.Fields.TryGetProperty("mark", out var m) ? m.GetString() : "?"));
+            return false;
+        }
+
+        var wy0 = d13.Fields.GetProperty("startMm")[1].GetDouble();
+        var wy1 = d13.Fields.GetProperty("endMm")[1].GetDouble();
+        var ww13 = d13.Fields.TryGetProperty("widthMm", out var w13) ? w13.GetInt32() : 0;
+        var wd13 = d13.Fields.TryGetProperty("depthMm", out var d13d) ? d13d.GetInt32() : 0;
+        // Mid of CAD beam faces 0/500 = 250 (not wall-hybrid 200/500 → 350). Type from label 300x700.
+        if (Math.Abs(wy0 - 250) > 2.5 || Math.Abs(wy1 - 250) > 2.5 || ww13 != 300 || wd13 != 700)
+        {
+            message =
+                $"D13-B wall-top: expected y=250 300x700 (beam faces, not wall hybrid), got y=({wy0:0.###},{wy1:0.###}) {ww13}x{wd13}";
+            return false;
+        }
+
         message = "ok";
         return true;
     }

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <!-- Stable UpgradeCode across versions. ProductCode regenerates each build (*). -->
+  <Package
+      Name="DSSTech Revit"
+      Manufacturer="OneCAD Viet Nam"
+      Version="$(var.ProductVersion)"
+      UpgradeCode="B8E4F2A1-5C3D-4E9F-A7B1-2D6C8E0F4A91"
+      Scope="perMachine"
+      Language="1033">
+    <SummaryInformation
+        Description="DSSTech Revit add-in (hosts 2025–2027)"
+        Manufacturer="OneCAD Viet Nam" />
+
+    <MajorUpgrade
+        DowngradeErrorMessage="A newer version of DSSTech Revit is already installed. Setup will now exit."
+        Schedule="afterInstallInitialize" />
+
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Feature Id="ProductFeature" Title="DSSTech Revit" Level="1">
+      <ComponentGroupRef Id="ProductComponents" />
+    </Feature>
+
+    <ui:WixUI Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="AutodeskFolder" Name="Autodesk">
+        <Directory Id="RevitFolder" Name="Revit">
+          <Directory Id="AddinsFolder" Name="Addins" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>

@@ -6,6 +6,7 @@
 *.log
 publish/
 dist/
+installer/DSSTech.Revit.Installer/GeneratedFiles.wxs
 
 # Root-level scratch from agent sessions
 /tmp_*
