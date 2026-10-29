@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$Configuration = "Release",
   [string]$OutDir,
   [switch]$SkipBuild,
@@ -35,11 +35,22 @@ if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 $addinId = "7B52A0F1-7C61-4C8B-A6A4-0AC7398341A2"
+# The host CLR must match the TFM each year was built for (2025.5+ runs .NET 10, 2025.0–2025.4 runs .NET 8).
+$hostLines = foreach ($y in $years) {
+  $deps = Join-Path $binRoot "$y\DSSTech.deps.json"
+  $target = if (Test-Path $deps) { (Get-Content $deps -Raw | ConvertFrom-Json).runtimeTarget.name } else { "" }
+  $net = if ($target -match 'Version=v(\d+\.\d+)') { ".NET $($Matches[1])" } else { "?" }
+  "- Revit ${y}: build $net"
+}
 $readme = @"
 # DSSTech Revit Add-in v$version
 
 Build: $stamp
 Hosts: $($years -join ', ')
+
+$($hostLines -join "`r`n")
+
+Revit 2025 bản .NET 10 chỉ chạy trên Revit 2025.5 trở lên (Help → About). Máy test còn 2025.0–2025.4 thì cập nhật Revit trước.
 
 ## Cài đặt (máy có Revit)
 
@@ -47,7 +58,18 @@ Hosts: $($years -join ', ')
 2. Chạy ``Install-All.cmd`` (hoặc ``Install-YYYY.cmd`` cho một host).
 3. Mở lại Revit → ribbon **DSSTech**.
 
-Chạy ``Install-Select.cmd`` để chọn một hoặc nhiều năm Revit (2025+).
+## Test dựng Cột / Vách / Dầm (Dựng mô hình · Model Revit)
+
+1. Mở project có Level và Grid (thiếu Grid: CAD → BIM → Trục & tầng).
+2. Link DWG mặt bằng kết cấu, Move/Rotate cho khớp trục model.
+3. Mở view mặt bằng của tầng cần dựng.
+4. DSSTech → CAD → BIM → **Dựng mô hình**:
+   - Cột: chọn family cột, level đáy/đỉnh, offset → pick nét trên layer cột. Tiết diện đo từ outline, Mark đọc chữ C1/C5 gần cột.
+   - Vách: chọn Tường kết cấu, type gốc → bề dày đo từ cặp nét song song (L/b > 4).
+   - Dầm: chọn family dầm, level đỉnh → Mark/tiết diện đọc từ chữ DWG (vd. D1Y19-40x60). Nên dựng cột và vách trước để dầm có gối.
+5. Kiểm tra hộp tổng kết sau khi dựng. Một lần Undo hoàn tác cả lô.
+
+Lỗi gửi lại: ảnh hộp thông báo và file log ``%LOCALAPPDATA%\DSSTech\mcp-host.log`` (log chung của add-in).
 
 Thủ công: copy ``Addins\<year>\DSSTech\`` và ``DSSTech.addin`` vào ``%APPDATA%\Autodesk\Revit\Addins\<year>\``.
 
@@ -159,19 +181,11 @@ pause
 "@
 Set-Content -Path (Join-Path $stage "Install-All.cmd") -Value $installAll -Encoding ASCII
 
-Copy-Item (Join-Path $PSScriptRoot "Install-SelectYears.ps1") (Join-Path $stage "Install-SelectYears.ps1") -Force
-$selectCmd = @"
-@echo off
-cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install-SelectYears.ps1" -PackageRoot "%~dp0"
-if errorlevel 1 ( echo FAILED & pause & exit /b 1 )
-pause
-"@
-Set-Content -Path (Join-Path $stage "Install-Select.cmd") -Value $selectCmd -Encoding ASCII
-
 $zipPath = Join-Path $OutDir "$pkgName.zip"
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Compress-Archive -Path $stage -DestinationPath $zipPath -CompressionLevel Optimal
+# Windows PowerShell 5.1 Compress-Archive can return without writing the zip and without an error.
+if (!(Test-Path $zipPath)) { throw "Compress-Archive không tạo được $zipPath. Chạy lại với -SkipBuild." }
 
 $dll = Get-Item (Join-Path $binRoot "$($years[0])\DSSTech.dll")
 $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash
