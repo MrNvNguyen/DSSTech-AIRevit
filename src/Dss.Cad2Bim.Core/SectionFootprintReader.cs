@@ -674,6 +674,208 @@ public static class SectionFootprintReader
 	/// </summary>
 	internal const double MaxColumnAspect = 4.0;
 
+	/// <summary>Pile caps / pads / raft outlines — larger than column Accept (max 2500).</summary>
+	internal const double MinFoundationEdgeMm = 200.0;
+
+	internal const double MaxFoundationEdgeMm = 50000.0;
+
+	internal const double MaxFoundationAspect = 50.0;
+
+	/// <summary>
+	/// Closed polylines and circles sized for footings/caps/rafts (not column Accept limits).
+	/// Line-pair clustering stays column-only; large pads are expected as closed outlines.
+	/// </summary>
+	public static List<SectionFootprint> FromEntitiesFoundation(IEnumerable<CadEntity> entities)
+	{
+		List<SectionFootprint> list = new List<SectionFootprint>();
+		foreach (CadEntity entity in entities)
+		{
+			if (entity is CadCircle circle)
+			{
+				double dia = Round10(circle.Radius * 2.0);
+				if (AcceptFoundation(dia, dia))
+					list.Add(new SectionFootprint(circle.Cx, circle.Cy, dia, dia));
+			}
+			else if (entity is CadPolyline poly && poly.Points.Count >= 3
+			         && (poly.Closed || FoundationPolylineNearlyClosed(poly))
+			         && TryBoxFoundation(poly.Points, out var footprint))
+			{
+				if (!NearExisting(list, footprint.CenterX, footprint.CenterY))
+					list.Add(footprint);
+			}
+		}
+
+		return list;
+	}
+
+	/// <summary>Treat first≈last (within 5 mm) as closed — DWG explode often drops the Closed flag.</summary>
+	private static bool FoundationPolylineNearlyClosed(CadPolyline poly)
+	{
+		if (poly.Points.Count < 3)
+			return false;
+		var a = poly.Points[0];
+		var b = poly.Points[poly.Points.Count - 1];
+		var dx = a.X - b.X;
+		var dy = a.Y - b.Y;
+		return dx * dx + dy * dy <= 25.0;
+	}
+
+	/// <summary>
+	/// Foundation outline → polygon centroid + AABB size + rotation from longest edge.
+	/// <see cref="SectionFootprint.RotationDeg"/> = CAD long-edge angle (world +X = 0°).
+	/// Irregular / clipped: tip = vertex farthest from centroid; orient so tip lies on +perp of long axis
+	/// (full 0–360° — 180° matters for Tamgiac/clipped families). Revit instance rotation may add −90°
+	/// when the family long side is local +Y — see <see cref="ModelRevitPlanner.FoundationInstanceRotationDeg"/>.
+	/// </summary>
+	private static bool TryBoxFoundation(IReadOnlyList<CadPoint2> points, out SectionFootprint footprint)
+	{
+		footprint = default;
+		if (points.Count < 3)
+			return false;
+
+		int n = FoundationVertexCount(points);
+		if (n < 3)
+			return false;
+
+		double minX = points[0].X, maxX = points[0].X, minY = points[0].Y, maxY = points[0].Y;
+		for (int i = 1; i < n; i++)
+		{
+			if (points[i].X < minX) minX = points[i].X;
+			if (points[i].X > maxX) maxX = points[i].X;
+			if (points[i].Y < minY) minY = points[i].Y;
+			if (points[i].Y > maxY) maxY = points[i].Y;
+		}
+
+		double w = Round10(maxX - minX);
+		double d = Round10(maxY - minY);
+		if (!AcceptFoundation(w, d))
+			return false;
+
+		PolygonCentroid(points, n, out double cx, out double cy);
+		double rotationDeg = FoundationRotationDeg(points, n, cx, cy);
+		footprint = new SectionFootprint(cx, cy, w, d, rotationDeg);
+		return true;
+	}
+
+	private static int FoundationVertexCount(IReadOnlyList<CadPoint2> points)
+	{
+		int n = points.Count;
+		if (n >= 2)
+		{
+			var a = points[0];
+			var b = points[n - 1];
+			var dx = a.X - b.X;
+			var dy = a.Y - b.Y;
+			if (dx * dx + dy * dy <= 25.0)
+				n--;
+		}
+
+		return n;
+	}
+
+	/// <summary>Shoelace centroid; falls back to vertex average for degenerate rings.</summary>
+	private static void PolygonCentroid(IReadOnlyList<CadPoint2> points, int n, out double cx, out double cy)
+	{
+		double area2 = 0, cxAcc = 0, cyAcc = 0;
+		for (int i = 0; i < n; i++)
+		{
+			int j = (i + 1) % n;
+			double cross = points[i].X * points[j].Y - points[j].X * points[i].Y;
+			area2 += cross;
+			cxAcc += (points[i].X + points[j].X) * cross;
+			cyAcc += (points[i].Y + points[j].Y) * cross;
+		}
+
+		if (Math.Abs(area2) < 1e-6)
+		{
+			cx = 0;
+			cy = 0;
+			for (int i = 0; i < n; i++)
+			{
+				cx += points[i].X;
+				cy += points[i].Y;
+			}
+
+			cx /= n;
+			cy /= n;
+			return;
+		}
+
+		cx = cxAcc / (3.0 * area2);
+		cy = cyAcc / (3.0 * area2);
+	}
+
+	private static double FoundationRotationDeg(IReadOnlyList<CadPoint2> points, int n, double cx, double cy)
+	{
+		if (n < 3)
+			return 0;
+
+		double bestLen = 0;
+		double ux = 1, uy = 0;
+		double lx0 = points[0].X, ly0 = points[0].Y;
+		for (int i = 0; i < n; i++)
+		{
+			int j = (i + 1) % n;
+			double ex = points[j].X - points[i].X;
+			double ey = points[j].Y - points[i].Y;
+			double len = Math.Sqrt(ex * ex + ey * ey);
+			if (len < 1.0)
+				continue;
+			if (len > bestLen)
+			{
+				bestLen = len;
+				ux = ex / len;
+				uy = ey / len;
+				lx0 = points[i].X;
+				ly0 = points[i].Y;
+			}
+		}
+
+		if (bestLen < MinFoundationEdgeMm * 0.5)
+			return 0;
+
+		// Quad = rectangle (incl. elongated 2:1 Đ2A). Tip logic is for n≥5 clipped caps only —
+		// elongated quads used to hit "short < 0.55×long" and return ±180° for horizontal boxes.
+		if (n == 4)
+			return NormHalfTurn(Math.Atan2(uy, ux) * 180.0 / Math.PI);
+
+		// Tip = vertex farthest from the long-edge line (clip of Đ3), not from centroid
+		// (base corners of a wide pad are farther from the centroid than the tip).
+		double tipX = cx, tipY = cy, tipAbs = -1;
+		double px = -uy;
+		double py = ux;
+		for (int i = 0; i < n; i++)
+		{
+			double s = (points[i].X - lx0) * px + (points[i].Y - ly0) * py;
+			double abs = Math.Abs(s);
+			if (abs > tipAbs)
+			{
+				tipAbs = abs;
+				tipX = points[i].X;
+				tipY = points[i].Y;
+			}
+		}
+
+		// Orient long axis so tip lies on +perpendicular — fixes 180° vs CAD for Đ3.
+		double tipDot = (tipX - cx) * px + (tipY - cy) * py;
+		if (tipDot < 0)
+		{
+			ux = -ux;
+			uy = -uy;
+		}
+
+		return Math.Atan2(uy, ux) * 180.0 / Math.PI;
+	}
+
+	private static bool AcceptFoundation(double width, double depth)
+	{
+		double min = Math.Min(width, depth);
+		double max = Math.Max(width, depth);
+		return min >= MinFoundationEdgeMm
+		       && max <= MaxFoundationEdgeMm
+		       && max / Math.Max(min, 1.0) <= MaxFoundationAspect;
+	}
+
 	private static bool Accept(double width, double depth)
 	{
 		double num = Math.Min(width, depth);

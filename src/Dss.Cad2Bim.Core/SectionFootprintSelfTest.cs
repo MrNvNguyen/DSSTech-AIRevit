@@ -152,10 +152,18 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
-        var (fx, fy) = ModelRevitPlanner.RoundColumnPosition(2175.4, 250.6, 0);
-        if (Math.Abs(fx - 2175) > 0.1 || Math.Abs(fy - 251) > 0.1)
+        var (fx, fy) = ModelRevitPlanner.RoundColumnPosition(2172.4, 2173, 0);
+        if (Math.Abs(fx - 2170) > 0.1 || Math.Abs(fy - 2175) > 0.1)
         {
-            message = $"round fraction: expected (2175,251), got ({fx},{fy})";
+            message = $"round 5 mm: expected (2170,2175), got ({fx},{fy})";
+            return false;
+        }
+
+        // From a grid intersection at (100.3, 50.7): offsets 2172.4 / 2173 → 2170 / 2175.
+        var (gx, gy) = ModelRevitPlanner.RoundColumnPosition(100.3 + 2172.4, 50.7 + 2173, 0, 100.3, 50.7);
+        if (Math.Abs(gx - 100.3 - 2170) > 0.01 || Math.Abs(gy - 50.7 - 2175) > 0.01)
+        {
+            message = $"round 5 mm from grid: expected offsets (2170,2175), got ({gx - 100.3},{gy - 50.7})";
             return false;
         }
 
@@ -164,6 +172,754 @@ public static class SectionFootprintSelfTest
         if (Math.Abs(ax - 2175 * Math.Cos(rad)) > 0.1 || Math.Abs(ay - 2175 * Math.Sin(rad)) > 0.1)
         {
             message = $"round rotated position: expected 2175 along 30°, got ({ax},{ay})";
+            return false;
+        }
+
+        // Pure math Round5 (same as UnitConv.Round5Mm) — CAD residue + float near-integers.
+        foreach (var (input, expected) in new (double, double)[]
+                 {
+                     (219.76134733, 220),
+                     (49.76144733, 50),
+                     (0.23865267, 0),
+                     (699.99999998, 700),
+                     (249.99999999, 250),
+                     (299.99999999, 300),
+                     (100.00000010, 100),
+                     (500.00727921, 500),
+                     (499.98614503, 500)
+                 })
+        {
+            var got = ModelRevitPlanner.Round5Mm(input);
+            if (Math.Abs(got - expected) > 1e-9)
+            {
+                message = $"Round5Mm({input}): expected {expected}, got {got}";
+                return false;
+            }
+        }
+
+        if (!PilePlanCases(out message))
+            return false;
+        if (!FoundationNgàmAndPlanCases(out message))
+            return false;
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>
+    /// Đỉnh cọc = đáy đài + ngàm; đài: Type Mark from CAD label (no WxH invent); type filter keywords.
+    /// </summary>
+    private static bool FoundationNgàmAndPlanCases(out string message)
+    {
+        var top = FoundationCatalogFilter.PileTopOffsetFromCapBottomMm(-800, 150);
+        if (Math.Abs(top - (-650)) > 0.01)
+        {
+            message = $"ngàm: expected pile top offset -650 (= -800+150), got {top}";
+            return false;
+        }
+
+        var place = new ModelRevitPlacement
+        {
+            BaseLevelName = "1F",
+            BaseOffsetMm = -800,
+            CapBottomOffsetMm = -800,
+            EmbedMm = 150,
+            LengthMm = 12000,
+            TypeName = "S-FOUN-PHC-Cir : D400"
+        };
+        if (Math.Abs(place.EffectivePileTopOffsetMm() - (-650)) > 0.01)
+        {
+            message = $"ngàm placement: EffectivePileTopOffsetMm expected -650, got {place.EffectivePileTopOffsetMm()}";
+            return false;
+        }
+
+        if (!FoundationCatalogFilter.MatchesPileSubtype("S-FOUN-PHC-Cir : D400", FoundationCatalogFilter.PileSubtypePressed))
+        {
+            message = "filter: PHC should match Pressed (ép)";
+            return false;
+        }
+
+        if (!FoundationCatalogFilter.MatchesPileSubtype("Bored pile khoan nhoi : D800", FoundationCatalogFilter.PileSubtypeBored))
+        {
+            message = "filter: khoan nhoi should match Bored";
+            return false;
+        }
+
+        if (!FoundationCatalogFilter.MatchesFoundationKind("S-FOUN-CAP-Rec : 2000x2000", FoundationCatalogFilter.KindPileCap)
+            && !FoundationCatalogFilter.MatchesFoundationKind("Pile Cap 2000x2000", FoundationCatalogFilter.KindPileCap))
+        {
+            message = "filter: pile cap name should match KindPileCap";
+            return false;
+        }
+
+        if (!CadMark.IsLabel("Đ4") || !CadMark.IsLabel("Đ2F")
+            || !CadMark.LooksLikePileCapId("Đ4A") || !CadMark.LooksLikePileCapId("đ2F")
+            || CadMark.LooksLikePileCapId("GMY23(50X100)") || CadMark.LooksLikePileCapId("B3"))
+        {
+            message = "type mark: CadMark must accept Đ* pile-cap ids and reject beam/grid labels";
+            return false;
+        }
+
+        if (!CadMark.TryExtractPileCapId("Đ4A-1000x1000x1100mm", out var extractedName)
+            || extractedName != "Đ4A"
+            || FoundationCatalogFilter.TypeNameMatchesMark("Đ4A-1000x1000x1100mm", "Đ4")
+            || !FoundationCatalogFilter.TypeNameMatchesMark("Đ4A-1000x1000x1100mm", "Đ4A"))
+        {
+            message = "type mark: type name prefix Đ4A-… must match Đ4A only (not Đ4)";
+            return false;
+        }
+
+        if (!FoundationCatalogFilter.TypeMarkEquals("Đ4", "đ4")
+            || FoundationCatalogFilter.TypeMarkEquals("Đ4", "D4")
+            || !FoundationCatalogFilter.TryMatchTypeMark(" đ4 ", new[] { "Đ3", "Đ4", "Đ2F" }, out var matched)
+            || matched != "Đ4")
+        {
+            message = "type mark: Normalize/match must be case-insensitive and keep Đ≠D";
+            return false;
+        }
+
+        if (FoundationCatalogFilter.TryMatchTypeMark("Đ9", new[] { "Đ4", "Đ3" }, out _))
+        {
+            message = "type mark: miss must not match";
+            return false;
+        }
+
+        var geom = new CadGeometry();
+        // 3000×2500 pile cap outline + CAD label Đ4 near center (size from Type Mark, not outline).
+        geom.Entities.Add(new CadPolyline
+        {
+            Layer = "DAI",
+            Closed = true,
+            Points =
+            {
+                new CadPoint2(100.3 + 0, 50.7 + 0),
+                new CadPoint2(100.3 + 3000, 50.7 + 0),
+                new CadPoint2(100.3 + 3000, 50.7 + 2500),
+                new CadPoint2(100.3 + 0, 50.7 + 2500)
+            }
+        });
+        geom.Entities.Add(new CadText
+        {
+            Layer = "TEXT",
+            X = 100.3 + 1500,
+            Y = 50.7 + 1250,
+            Value = "Đ4"
+        });
+        var grids = new List<CadPoint2> { new(100.3, 50.7) };
+        var ops = ModelRevitPlanner.Plan(
+            geom,
+            "DAI",
+            ModelRevitPartKind.PileCap,
+            "1F",
+            "1F",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                BaseLevelName = "1F",
+                BaseOffsetMm = -500,
+                TypeName = "S-FOUN-CAP-Rec : 1500x1500",
+                AssignMark = true,
+                FoundationTypeMarks = new[] { "Đ4", "Đ3", "Đ2F", "Đ2D" }
+            },
+            gridPoints: grids);
+
+        if (ops.Count != 1)
+        {
+            message = $"pilecap plan: expected 1 op, got {ops.Count}";
+            return false;
+        }
+
+        var op = ops[0];
+        if (!op.Fields.TryGetProperty("kind", out var kind) || kind.GetString() != FoundationCatalogFilter.KindPileCap)
+        {
+            message = $"pilecap plan: kind expected PileCap, got {kind}";
+            return false;
+        }
+
+        if (op.Fields.TryGetProperty("widthMm", out _) || op.Fields.TryGetProperty("depthMm", out _))
+        {
+            message = "pilecap plan: must not invent widthMm/depthMm from CAD outline";
+            return false;
+        }
+
+        if (!op.Fields.TryGetProperty("typeMark", out var tm) || tm.GetString() != "Đ4"
+            || !op.Fields.TryGetProperty("resolveByTypeMark", out var rbt) || rbt.ValueKind != System.Text.Json.JsonValueKind.True)
+        {
+            message = $"pilecap plan: expected typeMark=Đ4 resolveByTypeMark=true, got tm={tm}";
+            return false;
+        }
+
+        if (!op.Fields.TryGetProperty("mark", out var markEl) || markEl.GetString() != "Đ4")
+        {
+            message = $"pilecap plan: AssignMark should set instance mark Đ4, got {markEl}";
+            return false;
+        }
+
+        if (!op.Fields.TryGetProperty("sourceFamily", out var sf) || sf.GetString() != "S-FOUN-CAP-Rec")
+        {
+            message = $"pilecap plan: sourceFamily expected S-FOUN-CAP-Rec, got {sf}";
+            return false;
+        }
+
+        if (!op.Fields.TryGetProperty("exactMm", out var exact) || exact.ValueKind != System.Text.Json.JsonValueKind.True)
+        {
+            message = "pilecap plan: exactMm must be true";
+            return false;
+        }
+
+        // Center of rect at (100.3+1500, 50.7+1250); round 5 mm from grid origin → xxx0/xxx5.
+        var xyz = op.Fields.GetProperty("xyzMm").EnumerateArray().Select(v => v.GetDouble()).ToArray();
+        var (rx, ry) = ModelRevitPlanner.RoundColumnPosition(100.3 + 1500, 50.7 + 1250, 0, 100.3, 50.7);
+        if (Math.Abs(xyz[0] - rx) > 0.01 || Math.Abs(xyz[1] - ry) > 0.01)
+        {
+            message = $"pilecap plan: expected snapped ({rx},{ry}), got ({xyz[0]},{xyz[1]})";
+            return false;
+        }
+
+        // Skip-on-miss: CAD label not in Type Mark catalog → 0 ops.
+        var missGeom = new CadGeometry();
+        missGeom.Entities.Add(new CadPolyline
+        {
+            Layer = "DAI",
+            Closed = true,
+            Points =
+            {
+                new CadPoint2(0, 0),
+                new CadPoint2(2000, 0),
+                new CadPoint2(2000, 2000),
+                new CadPoint2(0, 2000)
+            }
+        });
+        missGeom.Entities.Add(new CadText { Layer = "TEXT", X = 1000, Y = 1000, Value = "Đ9" });
+        var missOps = ModelRevitPlanner.Plan(
+            missGeom,
+            "DAI",
+            ModelRevitPartKind.PileCap,
+            "1F",
+            "1F",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                BaseLevelName = "1F",
+                TypeName = "S-FOUN-CAP-Rec : 1500x1500",
+                FoundationTypeMarks = new[] { "Đ4", "Đ3" }
+            });
+        if (missOps.Count != 0)
+        {
+            message = $"pilecap skip-on-miss: expected 0 ops for Đ9, got {missOps.Count}";
+            return false;
+        }
+
+        // No CAD label → UI type fallback (still no WxH invent).
+        var noLabel = new CadGeometry();
+        noLabel.Entities.Add(new CadPolyline
+        {
+            Layer = "DAI",
+            Closed = true,
+            Points =
+            {
+                new CadPoint2(0, 0),
+                new CadPoint2(2500, 0),
+                new CadPoint2(2500, 2500),
+                new CadPoint2(0, 2500)
+            }
+        });
+        var fallbackOps = ModelRevitPlanner.Plan(
+            noLabel,
+            "DAI",
+            ModelRevitPartKind.PileCap,
+            "1F",
+            "1F",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                BaseLevelName = "1F",
+                TypeName = "S-FOUN-CAP-Rec : 1500x1500",
+                FoundationTypeMarks = new[] { "Đ4" }
+            });
+        if (fallbackOps.Count != 1
+            || !fallbackOps[0].Fields.TryGetProperty("familyType", out var ft)
+            || ft.GetString() != "S-FOUN-CAP-Rec : 1500x1500"
+            || fallbackOps[0].Fields.TryGetProperty("resolveByTypeMark", out _)
+            || fallbackOps[0].Fields.TryGetProperty("widthMm", out _))
+        {
+            message = "pilecap no-label: expected UI type fallback without resolveByTypeMark/WxH";
+            return false;
+        }
+
+        // Prefer Đ4A over nearer beam/grid text; match catalog token from type-name list.
+        var clutter = new CadGeometry();
+        clutter.Entities.Add(new CadPolyline
+        {
+            Layer = "DAI",
+            Closed = true,
+            Points =
+            {
+                new CadPoint2(0, 0),
+                new CadPoint2(3000, 0),
+                new CadPoint2(3000, 2500),
+                new CadPoint2(0, 2500)
+            }
+        });
+        clutter.Entities.Add(new CadText { Layer = "ANN", X = 1500, Y = 1250, Value = "GMY23(50X100)" });
+        clutter.Entities.Add(new CadText { Layer = "ANN", X = 1600, Y = 1400, Value = "Đ4A" });
+        clutter.Entities.Add(new CadText { Layer = "ANN", X = 1400, Y = 1200, Value = "B" });
+        var clutterOps = ModelRevitPlanner.Plan(
+            clutter,
+            "DAI",
+            ModelRevitPartKind.PileCap,
+            "1F",
+            "1F",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                BaseLevelName = "1F",
+                TypeName = "S-FOUD-CON-REC : Đ1-1000x1000x1100mm",
+                AssignMark = true,
+                FoundationTypeMarks = new[] { "Đ1", "Đ4A", "Đ3" }
+            });
+        if (clutterOps.Count != 1
+            || !clutterOps[0].Fields.TryGetProperty("typeMark", out var clutterTm)
+            || clutterTm.GetString() != "Đ4A"
+            || !clutterOps[0].Fields.TryGetProperty("mark", out var clutterMark)
+            || clutterMark.GetString() != "Đ4A")
+        {
+            var tmShown = clutterOps.Count > 0 && clutterOps[0].Fields.TryGetProperty("typeMark", out var t) ? t.GetString() : "?";
+            message = $"pilecap prefer Đ*: expected typeMark/mark Đ4A, got ops={clutterOps.Count} tm={tmShown}";
+            return false;
+        }
+
+        // Beam-only nearby text → skip (no UI Đ1 fallback).
+        var beamOnly = new CadGeometry();
+        beamOnly.Entities.Add(new CadPolyline
+        {
+            Layer = "DAI",
+            Closed = true,
+            Points =
+            {
+                new CadPoint2(0, 0),
+                new CadPoint2(2000, 0),
+                new CadPoint2(2000, 2000),
+                new CadPoint2(0, 2000)
+            }
+        });
+        beamOnly.Entities.Add(new CadText { Layer = "ANN", X = 1000, Y = 1000, Value = "GMY10(50X100)" });
+        var beamOnlyOps = ModelRevitPlanner.Plan(
+            beamOnly,
+            "DAI",
+            ModelRevitPartKind.PileCap,
+            "1F",
+            "1F",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                BaseLevelName = "1F",
+                TypeName = "S-FOUD-CON-REC : Đ1-1000x1000x1100mm",
+                FoundationTypeMarks = new[] { "Đ1", "Đ4A" }
+            });
+        if (beamOnlyOps.Count != 0)
+        {
+            message = $"pilecap beam-only: expected 0 ops (no UI fallback), got {beamOnlyOps.Count}";
+            return false;
+        }
+
+        // Horizontal vs vertical outline → CAD long-edge rotationDeg ~0 vs ~90; center = outline centroid.
+        var horiz = SectionFootprintReader.FromEntitiesFoundation(new List<CadEntity>
+        {
+            new CadPolyline
+            {
+                Layer = "DAI", Closed = true,
+                Points =
+                {
+                    new CadPoint2(0, 0), new CadPoint2(3000, 0),
+                    new CadPoint2(3000, 1500), new CadPoint2(0, 1500)
+                }
+            }
+        });
+        var vert = SectionFootprintReader.FromEntitiesFoundation(new List<CadEntity>
+        {
+            new CadPolyline
+            {
+                Layer = "DAI", Closed = true,
+                Points =
+                {
+                    new CadPoint2(0, 0), new CadPoint2(1500, 0),
+                    new CadPoint2(1500, 3000), new CadPoint2(0, 3000)
+                }
+            }
+        });
+        if (horiz.Count != 1 || vert.Count != 1
+            || Math.Abs(horiz[0].RotationDeg) > 1
+            || Math.Abs(Math.Abs(vert[0].RotationDeg) - 90) > 1
+            || Math.Abs(horiz[0].CenterX - 1500) > 1 || Math.Abs(horiz[0].CenterY - 750) > 1
+            || Math.Abs(vert[0].CenterX - 750) > 1 || Math.Abs(vert[0].CenterY - 1500) > 1)
+        {
+            message =
+                $"pilecap rotation/center: expected horiz~0@(1500,750) vert~±90@(750,1500), got " +
+                $"h={horiz.FirstOrDefault().RotationDeg:0.#}@({horiz.FirstOrDefault().CenterX:0},{horiz.FirstOrDefault().CenterY:0}) " +
+                $"v={vert.FirstOrDefault().RotationDeg:0.#}@({vert.FirstOrDefault().CenterX:0},{vert.FirstOrDefault().CenterY:0})";
+            return false;
+        }
+
+        // Family long on +Y (h>b): Revit needs cadLong−90 so horizontal CAD places long side E-W.
+        if (Math.Abs(ModelRevitPlanner.FoundationInstanceRotationDeg(0, 1000, 2500) - (-90)) > 0.01
+            || Math.Abs(ModelRevitPlanner.FoundationInstanceRotationDeg(90, 1000, 2500)) > 0.01
+            || Math.Abs(ModelRevitPlanner.FoundationInstanceRotationDeg(0, 2500, 1000)) > 0.01)
+        {
+            message =
+                "pilecap RevitRot: expected horiz fam 1000x2500 → −90, vert → 0, fam 2500x1000 horiz → 0";
+            return false;
+        }
+
+        // Clipped pentagon (Đ3): tip north → rotation ~0 (tip on +perp); center = polygon centroid (±1 mm).
+        var pent = SectionFootprintReader.FromEntitiesFoundation(new List<CadEntity>
+        {
+            new CadPolyline
+            {
+                Layer = "DAI", Closed = true,
+                Points =
+                {
+                    new CadPoint2(0, 0),
+                    new CadPoint2(2500, 0),
+                    new CadPoint2(2500, 2000),
+                    new CadPoint2(1750, 2500),
+                    new CadPoint2(750, 2500),
+                    new CadPoint2(0, 2000)
+                }
+            }
+        });
+        if (pent.Count != 1)
+        {
+            message = $"pilecap clipped: expected 1 footprint, got {pent.Count}";
+            return false;
+        }
+
+        // Shoelace centroid of the open ring (no duplicate close).
+        double[] px = { 0, 2500, 2500, 1750, 750, 0 };
+        double[] py = { 0, 0, 2000, 2500, 2500, 2000 };
+        double a2 = 0, cxAcc = 0, cyAcc = 0;
+        for (var i = 0; i < 6; i++)
+        {
+            var j = (i + 1) % 6;
+            var cross = px[i] * py[j] - px[j] * py[i];
+            a2 += cross;
+            cxAcc += (px[i] + px[j]) * cross;
+            cyAcc += (py[i] + py[j]) * cross;
+        }
+
+        var expectCx = cxAcc / (3.0 * a2);
+        var expectCy = cyAcc / (3.0 * a2);
+        if (Math.Abs(pent[0].CenterX - expectCx) > 1 || Math.Abs(pent[0].CenterY - expectCy) > 1)
+        {
+            message =
+                $"pilecap clipped center: expected centroid ({expectCx:0.###},{expectCy:0.###}), got ({pent[0].CenterX:0.###},{pent[0].CenterY:0.###})";
+            return false;
+        }
+
+        // Tip north → long-edge angle ~0 (not −180 from wrong short-edge / AABB tip).
+        if (Math.Abs(pent[0].RotationDeg) > 5)
+        {
+            message = $"pilecap clipped rot: tip north must be ~0, got {pent[0].RotationDeg:0.#}";
+            return false;
+        }
+
+        var rotGeom = new CadGeometry();
+        rotGeom.Entities.Add(new CadPolyline
+        {
+            Layer = "DAI", Closed = true,
+            Points =
+            {
+                new CadPoint2(0, 0), new CadPoint2(3000, 0),
+                new CadPoint2(3000, 1500), new CadPoint2(0, 1500)
+            }
+        });
+        rotGeom.Entities.Add(new CadText { Layer = "ANN", X = 1500, Y = 750, Value = "Đ2A" });
+        var rotOps = ModelRevitPlanner.Plan(
+            rotGeom,
+            "DAI",
+            ModelRevitPartKind.PileCap,
+            "1F",
+            "1F",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                BaseLevelName = "1F",
+                TypeName = "S-FOUN-CAP-Rec : Đ2A-3000x1500",
+                FoundationTypeMarks = new[] { "Đ2A" }
+            });
+        if (rotOps.Count != 1
+            || !rotOps[0].Fields.TryGetProperty("rotationDeg", out var rotEl)
+            || Math.Abs(rotEl.GetDouble()) > 1)
+        {
+            var rotShown = rotOps.Count > 0 && rotOps[0].Fields.TryGetProperty("rotationDeg", out var r)
+                ? r.GetDouble().ToString("0.#")
+                : "missing";
+            message = $"pilecap plan rotation: expected rotationDeg~0 on horizontal outline, got {rotShown}";
+            return false;
+        }
+
+        var planXyz = rotOps[0].Fields.GetProperty("xyzMm").EnumerateArray().Select(v => v.GetDouble()).ToArray();
+        if (Math.Abs(planXyz[0] - 1500) > 1 || Math.Abs(planXyz[1] - 750) > 1)
+        {
+            message = $"pilecap plan center: expected (1500,750) before snap, got ({planXyz[0]},{planXyz[1]})";
+            return false;
+        }
+
+        // Pile with ngàm: offset must be đáy+ngàm.
+        var pileGeom = new CadGeometry();
+        pileGeom.Entities.Add(new CadCircle { Layer = "COC", Cx = 5000, Cy = 6000, Radius = 200 });
+        var pileOps = ModelRevitPlanner.Plan(
+            pileGeom,
+            "COC",
+            ModelRevitPartKind.Pile,
+            "1F",
+            "1F",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                BaseLevelName = "1F",
+                BaseOffsetMm = -800,
+                CapBottomOffsetMm = -800,
+                EmbedMm = 150,
+                TypeName = "S-FOUN-PHC-Cir : D400",
+                LengthMm = 12000
+            });
+        if (pileOps.Count != 1)
+        {
+            message = $"pile ngàm plan: expected 1 op, got {pileOps.Count}";
+            return false;
+        }
+
+        if (!pileOps[0].Fields.TryGetProperty("offsetMm", out var poff))
+        {
+            message = "pile ngàm plan: missing offsetMm";
+            return false;
+        }
+
+        if (Math.Abs(poff.GetDouble() - (-650)) > 0.1)
+        {
+            message = $"pile ngàm plan: offsetMm expected -650, got {poff.GetDouble()}";
+            return false;
+        }
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>
+    /// Piles: selected Level + lengthMm; XY exactMm rounded 5 mm from fractional grids (like columns);
+    /// concentric CAD circles → max diameter type; nearby CadText → Mark.
+    /// </summary>
+    private static bool PilePlanCases(out string message)
+    {
+        // One pile near a fractional grid: 2172.4/2173 → 2170/2175 (exactMm, no world whole-mm).
+        var geom = new CadGeometry();
+        geom.Entities.Add(new CadCircle { Layer = "COC", Cx = 100.3 + 2172.4, Cy = 50.7 + 2173, Radius = 200 });
+        var grids = new List<CadPoint2> { new(100.3, 50.7) };
+        var ops = ModelRevitPlanner.Plan(
+            geom,
+            "COC",
+            ModelRevitPartKind.Pile,
+            "HẦM",
+            "1F",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                BaseLevelName = "1F",
+                BaseOffsetMm = -50,
+                TypeName = "S-FOUN-PHC-Cir : D400",
+                LengthMm = 12000
+            },
+            gridPoints: grids);
+
+        if (ops.Count != 1)
+        {
+            message = $"pile plan: expected 1 op, got {ops.Count}";
+            return false;
+        }
+
+        var op = ops[0];
+        if (!string.Equals(op.Category, "StructuralFoundation", StringComparison.OrdinalIgnoreCase))
+        {
+            message = $"pile plan: expected StructuralFoundation, got {op.Category}";
+            return false;
+        }
+
+        // Selected placement BaseLevel wins over Plan() baseLevelName arg ("HẦM").
+        if (!op.Fields.TryGetProperty("level", out var lvl) || lvl.GetString() != "1F")
+        {
+            message = $"pile plan: level must be selected BaseLevel (1F), got {lvl}";
+            return false;
+        }
+
+        if (!op.Fields.TryGetProperty("lengthMm", out var len) || Math.Abs(len.GetDouble() - 12000) > 0.1)
+        {
+            message = $"pile plan: lengthMm expected 12000, got {len}";
+            return false;
+        }
+
+        if (!op.Fields.TryGetProperty("offsetMm", out var off) || Math.Abs(off.GetDouble() - (-50)) > 0.1)
+        {
+            message = $"pile plan: offsetMm expected -50, got {off}";
+            return false;
+        }
+
+        if (!op.Fields.TryGetProperty("exactMm", out var exact) || exact.ValueKind != System.Text.Json.JsonValueKind.True)
+        {
+            message = "pile plan: exactMm must be true (no whole-mm world rounding vs fractional grids)";
+            return false;
+        }
+
+        var xyz = op.Fields.GetProperty("xyzMm").EnumerateArray().Select(v => v.GetDouble()).ToArray();
+        if (Math.Abs(xyz[0] - (100.3 + 2170)) > 0.01 || Math.Abs(xyz[1] - (50.7 + 2175)) > 0.01)
+        {
+            message = $"pile plan: expected (2270.3,2225.7), got ({xyz[0]},{xyz[1]})";
+            return false;
+        }
+
+        // CAD diameter 400 → familyType D400 (UI type leaf size not forced when footprint is clear).
+        if (!op.Fields.TryGetProperty("familyType", out var ft) || ft.GetString() != "D400")
+        {
+            message = $"pile plan: familyType expected D400 from CAD R=200, got {ft}";
+            return false;
+        }
+
+        if (!op.Fields.TryGetProperty("sourceFamily", out var sf) || sf.GetString() != "S-FOUN-PHC-Cir")
+        {
+            message = $"pile plan: sourceFamily expected S-FOUN-PHC-Cir, got {sf}";
+            return false;
+        }
+
+        if (!op.Fields.TryGetProperty("diameterMm", out var dia) || Math.Abs(dia.GetDouble() - 400) > 0.1)
+        {
+            message = $"pile plan: diameterMm expected 400, got {dia}";
+            return false;
+        }
+
+        if (!PileMaxDiameterClusterCases(out message))
+            return false;
+        if (!PileMarkParseCases(out message))
+            return false;
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>Concentric rings → one pile with the largest diameter; nested rects → max b×h.</summary>
+    private static bool PileMaxDiameterClusterCases(out string message)
+    {
+        var concentric = new List<SectionFootprint>
+        {
+            new(1000, 2000, 300, 300),
+            new(1005, 2002, 400, 400),
+            new(998, 1997, 250, 250)
+        };
+        var clustered = ModelRevitPlanner.ClusterLargestPileSections(concentric);
+        if (clustered.Count != 1)
+        {
+            message = $"pile cluster: expected 1 group for concentric, got {clustered.Count}";
+            return false;
+        }
+
+        if (Math.Abs(clustered[0].WidthMm - 400) > 0.1 || Math.Abs(clustered[0].DepthMm - 400) > 0.1)
+        {
+            message = $"pile cluster: expected max D=400, got {clustered[0].WidthMm}x{clustered[0].DepthMm}";
+            return false;
+        }
+
+        var geom = new CadGeometry();
+        geom.Entities.Add(new CadCircle { Layer = "COC", Cx = 5000, Cy = 6000, Radius = 150 });
+        geom.Entities.Add(new CadCircle { Layer = "COC", Cx = 5002, Cy = 5998, Radius = 200 });
+        geom.Entities.Add(new CadCircle { Layer = "COC", Cx = 8000, Cy = 6000, Radius = 250 });
+        var ops = ModelRevitPlanner.Plan(
+            geom,
+            "COC",
+            ModelRevitPartKind.Pile,
+            "1F",
+            "1F",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                BaseLevelName = "1F",
+                TypeName = "S-FOUN-PHC-Cir : D300",
+                LengthMm = 10000,
+                AssignMark = false
+            });
+
+        if (ops.Count != 2)
+        {
+            message = $"pile max-D plan: expected 2 piles, got {ops.Count}";
+            return false;
+        }
+
+        var types = ops
+            .Select(o => o.Fields.TryGetProperty("familyType", out var t) ? t.GetString() ?? "" : "")
+            .OrderBy(t => t, StringComparer.Ordinal)
+            .ToList();
+        if (types[0] != "D400" || types[1] != "D500")
+        {
+            message = $"pile max-D plan: expected D400+D500, got {string.Join(",", types)}";
+            return false;
+        }
+
+        // Square/rect nested outlines → keep largest b×h (not product of mixed edges).
+        var nestedRect = new List<SectionFootprint>
+        {
+            new(0, 0, 300, 300),
+            new(10, -5, 400, 500)
+        };
+        var rectCluster = ModelRevitPlanner.ClusterLargestPileSections(nestedRect);
+        if (rectCluster.Count != 1 ||
+            Math.Abs(rectCluster[0].WidthMm - 400) > 0.1 ||
+            Math.Abs(rectCluster[0].DepthMm - 500) > 0.1)
+        {
+            message = rectCluster.Count != 1
+                ? $"pile rect cluster: expected 1, got {rectCluster.Count}"
+                : $"pile rect cluster: expected 400x500, got {rectCluster[0].WidthMm}x{rectCluster[0].DepthMm}";
+            return false;
+        }
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>CadText near pile (K1) → fields.mark when AssignMark.</summary>
+    private static bool PileMarkParseCases(out string message)
+    {
+        var geom = new CadGeometry();
+        geom.Entities.Add(new CadCircle { Layer = "COC", Cx = 1000, Cy = 2000, Radius = 200 });
+        geom.Entities.Add(new CadText { Layer = "TEXT", X = 1050, Y = 2100, Value = "K1" });
+        geom.Entities.Add(new CadText { Layer = "TEXT", X = 9000, Y = 9000, Value = "K99" });
+        var ops = ModelRevitPlanner.Plan(
+            geom,
+            "COC",
+            ModelRevitPartKind.Pile,
+            "1F",
+            "1F",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                BaseLevelName = "1F",
+                TypeName = "S-FOUN-PHC-Cir : D400",
+                LengthMm = 12000,
+                AssignMark = true
+            });
+
+        if (ops.Count != 1)
+        {
+            message = $"pile mark: expected 1 op, got {ops.Count}";
+            return false;
+        }
+
+        if (!ops[0].Fields.TryGetProperty("mark", out var mark) || mark.GetString() != "K1")
+        {
+            message = $"pile mark: expected K1, got {mark}";
+            return false;
+        }
+
+        if (!CadMark.IsLabel("K1") || CadMark.IsLabel("400") || CadMark.IsSizeOnly("K1"))
+        {
+            message = "pile mark: CadMark.IsLabel(K1) must be true; pure numbers are not labels";
             return false;
         }
 
@@ -440,6 +1196,14 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // Letter O in mark (not digit 0): D1O1-200x500 → 200×500 mm as written.
+        if (!BeamLabelParser.TryParse("D1O1-200x500", out var blO) ||
+            blO.Mark != "D1O1" || blO.WidthMm != 200 || blO.DepthMm != 500)
+        {
+            message = $"beam label D1O1-200x500: got mark={blO.Mark} {blO.WidthMm}x{blO.DepthMm}";
+            return false;
+        }
+
         if (!BeamLabelParser.TryParse("30x60", out var bl2) ||
             bl2.HasMark || bl2.WidthMm != 300 || bl2.DepthMm != 600)
         {
@@ -489,6 +1253,55 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // Name (WxH) / Name(WxH) — space optional; Mark must never keep trailing '('.
+        if (!BeamLabelParser.TryParse("D1Y-2 (60x70)", out var blParen) ||
+            blParen.Mark != "D1Y-2" || blParen.WidthMm != 600 || blParen.DepthMm != 700)
+        {
+            message = $"beam label D1Y-2 (60x70): got mark={blParen.Mark} {blParen.WidthMm}x{blParen.DepthMm}";
+            return false;
+        }
+
+        if (!BeamLabelParser.TryParse("GTC3(30x40)", out var blGtc) ||
+            blGtc.Mark != "GTC3" || blGtc.WidthMm != 300 || blGtc.DepthMm != 400)
+        {
+            message = $"beam label GTC3(30x40): got mark={blGtc.Mark} {blGtc.WidthMm}x{blGtc.DepthMm}";
+            return false;
+        }
+
+        if (!BeamLabelParser.TryParse("G1X-2 (50x70)", out var blG1x) ||
+            blG1x.Mark != "G1X-2" || blG1x.WidthMm != 500 || blG1x.DepthMm != 700)
+        {
+            message = $"beam label G1X-2 (50x70): got mark={blG1x.Mark} {blG1x.WidthMm}x{blG1x.DepthMm}";
+            return false;
+        }
+
+        if (BeamLabelParser.CleanMark("D1Y-2(") != "D1Y-2" ||
+            BeamLabelParser.CleanMark("GTC3(") != "GTC3")
+        {
+            message = "beam CleanMark must strip trailing '('";
+            return false;
+        }
+
+        // MLINE explode: two offsets ±200 → face pair thickness 400 after BeamCenterlineReader.
+        var mlineFaces = MlineFaceReader.ToFaceLines(
+            "BEAM",
+            new[] { (0.0, 0.0), (5000.0, 0.0) },
+            miters: null,
+            elementOffsets: new[] { 0.5, -0.5 },
+            scale: 400);
+        if (mlineFaces.Count != 2)
+        {
+            message = $"mline faces: expected 2 lines, got {mlineFaces.Count}";
+            return false;
+        }
+
+        var mlineRuns = BeamCenterlineReader.FromEntities(mlineFaces);
+        if (mlineRuns.Count != 1 || Math.Abs(mlineRuns[0].ThicknessMm - 400) > 0.1)
+        {
+            message = $"mline centerline: expected 1×400, got {mlineRuns.Count} t={mlineRuns.FirstOrDefault().ThicknessMm}";
+            return false;
+        }
+
         BeamCenterlineReader.Orient(100, 50, 0, 50, out var ox0, out var oy0, out var ox1, out var oy1);
         if (ox0 > ox1 || Math.Abs(oy0 - 50) > 1e-9)
         {
@@ -524,15 +1337,15 @@ public static class SectionFootprintSelfTest
     }
 
     /// <summary>
-    /// Column-to-column split; merge+extend stubs; size-only wins over far mark+size;
-    /// one shared Mark on axis; two Marks; size inheritance to blank segment.
+    /// Column-to-column (center); secondary at main centerlines; local text wins, then unlabeled
+    /// collinear siblings inherit Mark-WxH from the nearest on-axis labeled piece.
     /// </summary>
     private static bool BeamPlanRulesCase(out string message)
     {
         if (!BeamSpanCases(out message))
             return false;
 
-        // Shared mark on axis (one CadText) → both planned segments get D1Y10.
+        // Text on span 1 only → unlabeled abutting span 2 inherits Mark-WxH (no width×2).
         var sharedGeom = BeamAxisGeom(
             new CadText { Layer = "ANN", Value = "D1Y10-40x60", X = 2000, Y = 500, RotationDeg = 0 });
         var sharedOps = ModelRevitPlanner.Plan(
@@ -541,20 +1354,30 @@ public static class SectionFootprintSelfTest
             placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
         if (sharedOps.Count != 2)
         {
-            message = $"beam shared mark plan: expected 2 ops, got {sharedOps.Count}";
+            message = $"beam per-segment mark plan: expected 2 ops, got {sharedOps.Count}";
             return false;
         }
 
-        foreach (var op in sharedOps)
+        var sharedByX = sharedOps
+            .Select(op => (
+                X: op.Fields.GetProperty("startMm")[0].GetDouble(),
+                Mark: op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "",
+                W: op.Fields.TryGetProperty("widthMm", out var ww) ? ww.GetInt32() : 0,
+                D: op.Fields.TryGetProperty("depthMm", out var dd) ? dd.GetInt32() : 0))
+            .OrderBy(t => t.X)
+            .ToList();
+        if (!string.Equals(sharedByX[0].Mark, "D1Y10", StringComparison.OrdinalIgnoreCase) ||
+            sharedByX[0].W != 400 || sharedByX[0].D != 600)
         {
-            var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() : null;
-            var w = op.Fields.TryGetProperty("widthMm", out var ww) ? ww.GetInt32() : 0;
-            var d = op.Fields.TryGetProperty("depthMm", out var dd) ? dd.GetInt32() : 0;
-            if (!string.Equals(mark, "D1Y10", StringComparison.OrdinalIgnoreCase) || w != 400 || d != 600)
-            {
-                message = $"beam shared mark: expected D1Y10 400x600, got mark={mark} {w}x{d}";
-                return false;
-            }
+            message = $"beam per-segment: span1 expected D1Y10 400x600, got {sharedByX[0].Mark} {sharedByX[0].W}x{sharedByX[0].D}";
+            return false;
+        }
+
+        if (!string.Equals(sharedByX[1].Mark, "D1Y10", StringComparison.OrdinalIgnoreCase) ||
+            sharedByX[1].W != 400 || sharedByX[1].D != 600)
+        {
+            message = $"beam inherit: span2 expected D1Y10 400x600, got {sharedByX[1].Mark} {sharedByX[1].W}x{sharedByX[1].D}";
+            return false;
         }
 
         // Two marks on two segments → each keeps its own.
@@ -583,28 +1406,27 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
-        // Size inheritance: first span has 30x60; second span blank → inherits 300x600.
-        var sizeGeom = BeamAxisGeom(
-            new CadText { Layer = "ANN", Value = "30x60", X = 2000, Y = 500 });
-        var sizeOps = ModelRevitPlanner.Plan(
-            sizeGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+        // Neighbor 100x65 must NOT win over local D1Y34-40x60 on this segment (Hình 2).
+        var localBeatGeom = BeamAxisGeom(
+            new CadText { Layer = "ANN", Value = "D1Y34-40x60", X = 2000, Y = 200, CenterX = 2000, CenterY = 200 },
+            new CadText { Layer = "ANN", Value = "D1Y30-50x60", X = 2500, Y = 800, CenterX = 5500, CenterY = 200 },
+            new CadText { Layer = "ANN", Value = "D1Y29-100x65", X = 6000, Y = 900, CenterX = 6000, CenterY = 900 });
+        var localBeatOps = ModelRevitPlanner.Plan(
+            localBeatGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
             new AnnotationSize(null, null, null, ""),
             placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
-        if (sizeOps.Count != 2)
+        var span1 = localBeatOps
+            .Select(op => (
+                X: op.Fields.GetProperty("startMm")[0].GetDouble(),
+                Mark: op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "",
+                Type: op.Fields.TryGetProperty("familyType", out var ft) ? ft.GetString() ?? "" : ""))
+            .OrderBy(t => t.X)
+            .FirstOrDefault();
+        if (!string.Equals(span1.Mark, "D1Y34", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(span1.Type, "400x600", StringComparison.OrdinalIgnoreCase))
         {
-            message = $"beam size inherit plan: expected 2 ops, got {sizeOps.Count}";
+            message = $"beam local vs neighbor: expected D1Y34 400x600, got mark={span1.Mark} type={span1.Type}";
             return false;
-        }
-
-        foreach (var op in sizeOps)
-        {
-            var w = op.Fields.TryGetProperty("widthMm", out var ww) ? ww.GetInt32() : 0;
-            var d = op.Fields.TryGetProperty("depthMm", out var dd) ? dd.GetInt32() : 0;
-            if (w != 300 || d != 600)
-            {
-                message = $"beam size inherit: expected both 300x600, got {w}x{d}";
-                return false;
-            }
         }
 
         // Size-only on THIS vertical segment wins over far horizontal D1X18-50x60.
@@ -659,11 +1481,793 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // Large label below a 400 beam: middle 656 mm off the axis (256 mm gap below the face) — Hình 3.
+        var belowOps = ModelRevitPlanner.Plan(
+            BeamAxisGeom(new CadText { Layer = "ANN", Value = "D1X9-40X60", X = 400, Y = -656, CenterX = 2000, CenterY = -456 }),
+            "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        var below = FirstSpan(belowOps);
+        if (below.Mark != "D1X9" || below.Type != "400x600")
+        {
+            message = $"beam label below: expected D1X9 400x600, got mark={below.Mark} type={below.Type}";
+            return false;
+        }
+
+        // D1X10-100x60 above a 600 pair (676 mm off the axis); perpendicular 100x75 beside it is ignored — Hình 4.
+        var wideGeom = new CadGeometry();
+        wideGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 6000, Y1 = 0 });
+        wideGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 600, X1 = 6000, Y1 = 600 });
+        wideGeom.Entities.Add(ColRect(-300, 0, 300, 600));
+        wideGeom.Entities.Add(ColRect(5700, 0, 6300, 600));
+        wideGeom.Entities.Add(new CadText { Layer = "ANN", Value = "D1X10-100X60", X = 1100, Y = 776, CenterX = 3000, CenterY = 976 });
+        wideGeom.Entities.Add(new CadText { Layer = "ANN", Value = "100X75", X = 900, Y = 1200, RotationDeg = 90, CenterX = 700, CenterY = 1900 });
+        wideGeom.Entities.Add(new CadText { Layer = "ANN", Value = "100X75", X = 5300, Y = 1200, RotationDeg = 90, CenterX = 5100, CenterY = 1900 });
+        var wide = FirstSpan(ModelRevitPlanner.Plan(
+            wideGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" }));
+        if (wide.Mark != "D1X10" || wide.Type != "1000x600")
+        {
+            message = $"beam label above: expected D1X10 1000x600, got mark={wide.Mark} type={wide.Type}";
+            return false;
+        }
+
+        // A text between two parallel beams labels only the nearer axis (collinear spans on that
+        // axis may share Mark via inheritance; the far parallel axis must stay unmarked).
+        var pairGeom = BeamAxisGeom(new CadText { Layer = "ANN", Value = "D1X5-30X60", X = 1000, Y = 700, CenterX = 2000, CenterY = 700 });
+        pairGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 1200, X1 = 8000, Y1 = 1200 });
+        pairGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 1600, X1 = 8000, Y1 = 1600 });
+        var pairOps = ModelRevitPlanner.Plan(
+            pairGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        var pairFarMarks = pairOps.Count(op =>
+        {
+            var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+            if (mark != "D1X5")
+                return false;
+            var sy = op.Fields.GetProperty("startMm")[1].GetDouble();
+            var ey = op.Fields.GetProperty("endMm")[1].GetDouble();
+            return Math.Abs((sy + ey) / 2 - 1400) < 100;
+        });
+        var pairNearMarks = pairOps.Count(op =>
+        {
+            var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+            return mark == "D1X5";
+        });
+        if (pairFarMarks != 0 || pairNearMarks < 1)
+        {
+            message = $"beam label owner: expected D1X5 on near axis only, far={pairFarMarks} total={pairNearMarks}";
+            return false;
+        }
+
+        if (!BeamDedupeAndCompetingTextCases(out message))
+            return false;
+
+        if (!BeamAxisMarkAndMergeCases(out message))
+            return false;
+
         message = "ok";
         return true;
     }
 
-    /// <summary>Main = support face to support face; secondary breaks at main-beam faces.</summary>
+    /// <summary>
+    /// H1: Mark D1X14 on one bay → other same-axis unlabeled bays inherit Mark (size-only stays size-only source).
+    /// H2: two collinear same-section pieces with a gap and no real support → one beam; column between → stay two.
+    /// </summary>
+    private static bool BeamAxisMarkAndMergeCases(out string message)
+    {
+        // H1 — three column bays; Mark-WxH only on bay 1; bay 2/3 have size-only → all get Mark D1X14.
+        var markGeom = new CadGeometry();
+        markGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 12000, Y1 = 0 });
+        markGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 400, X1 = 12000, Y1 = 400 });
+        markGeom.Entities.Add(ColRect(-200, 0, 200, 400));
+        markGeom.Entities.Add(ColRect(3800, 0, 4200, 400));
+        markGeom.Entities.Add(ColRect(7800, 0, 8200, 400));
+        markGeom.Entities.Add(ColRect(11800, 0, 12200, 400));
+        markGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1X14-40x60", X = 2000, Y = 200, CenterX = 2000, CenterY = 200
+        });
+        markGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "40x60", X = 6000, Y = 200, CenterX = 6000, CenterY = 200
+        });
+        markGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "40x60", X = 10000, Y = 200, CenterX = 10000, CenterY = 200
+        });
+        var markOps = ModelRevitPlanner.Plan(
+            markGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        var markSpans = markOps
+            .Select(op => (
+                X: op.Fields.GetProperty("startMm")[0].GetDouble(),
+                Mark: op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "",
+                Type: op.Fields.TryGetProperty("familyType", out var ft) ? ft.GetString() ?? "" : ""))
+            .OrderBy(t => t.X)
+            .ToList();
+        if (markSpans.Count != 3 ||
+            markSpans.Any(t => !string.Equals(t.Mark, "D1X14", StringComparison.OrdinalIgnoreCase) ||
+                               !string.Equals(t.Type, "400x600", StringComparison.OrdinalIgnoreCase)))
+        {
+            message = "beam axis-mark H1: expected 3× D1X14 400x600, got " +
+                      string.Join(",", markSpans.Select(t => $"{t.Mark}:{t.Type}"));
+            return false;
+        }
+
+        // H2 — two collinear 400x600 CAD pieces with a gap, columns only at outer ends → one beam.
+        var mergeGeom = new CadGeometry();
+        mergeGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 200, Y0 = 0, X1 = 3500, Y1 = 0 });
+        mergeGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 200, Y0 = 400, X1 = 3500, Y1 = 400 });
+        mergeGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 4500, Y0 = 0, X1 = 7800, Y1 = 0 });
+        mergeGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 4500, Y0 = 400, X1 = 7800, Y1 = 400 });
+        mergeGeom.Entities.Add(ColRect(-200, 0, 200, 400));
+        mergeGeom.Entities.Add(ColRect(7800, 0, 8200, 400));
+        mergeGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1X9-40x60", X = 1800, Y = 200, CenterX = 1800, CenterY = 200
+        });
+        mergeGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "40x60", X = 6000, Y = 200, CenterX = 6000, CenterY = 200
+        });
+        var mergeOps = ModelRevitPlanner.Plan(
+            mergeGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        var mergeHorizontal = mergeOps
+            .Where(op =>
+            {
+                var s = op.Fields.GetProperty("startMm");
+                var e = op.Fields.GetProperty("endMm");
+                return Math.Abs(s[1].GetDouble() - e[1].GetDouble()) < 50;
+            })
+            .ToList();
+        if (mergeHorizontal.Count != 1)
+        {
+            message = $"beam merge H2 no-support: expected 1 horizontal op, got {mergeHorizontal.Count}";
+            return false;
+        }
+
+        var mh = mergeHorizontal[0];
+        var mhMark = mh.Fields.TryGetProperty("mark", out var mm) ? mm.GetString() ?? "" : "";
+        var mhType = mh.Fields.TryGetProperty("familyType", out var mt) ? mt.GetString() ?? "" : "";
+        var mhLen = Math.Abs(
+            mh.Fields.GetProperty("endMm")[0].GetDouble() - mh.Fields.GetProperty("startMm")[0].GetDouble());
+        if (!string.Equals(mhMark, "D1X9", StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(mhType, "400x600", StringComparison.OrdinalIgnoreCase) ||
+            mhLen < 7000)
+        {
+            message = $"beam merge H2 no-support: expected D1X9 400x600 L≥7000, got mark={mhMark} type={mhType} L={mhLen:0}";
+            return false;
+        }
+
+        // H2 / D1Y7 — false mid hatch splits one bay; a parallel bay continues through → merge fragments.
+        var falseSplitGeom = new CadGeometry();
+        falseSplitGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = -200, Y0 = 0, X1 = -200, Y1 = 12000 });
+        falseSplitGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 200, Y0 = 0, X1 = 200, Y1 = 12000 });
+        falseSplitGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 2800, Y0 = 0, X1 = 2800, Y1 = 12000 });
+        falseSplitGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 3200, Y0 = 0, X1 = 3200, Y1 = 12000 });
+        falseSplitGeom.Entities.Add(ColRect(-300, -200, 300, 200));
+        falseSplitGeom.Entities.Add(ColRect(-300, 11800, 300, 12200));
+        falseSplitGeom.Entities.Add(ColRect(2700, -200, 3300, 200));
+        falseSplitGeom.Entities.Add(ColRect(2700, 11800, 3300, 12200));
+        // Lone hatch on the first bay only (parallel bay has no column here).
+        falseSplitGeom.Entities.Add(ColRect(-250, 1900, 250, 2300));
+        falseSplitGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1Y7-100x65", X = 50, Y = 6000, RotationDeg = 90,
+            CenterX = 50, CenterY = 6000
+        });
+        falseSplitGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "40x60", X = 3050, Y = 6000, RotationDeg = 90,
+            CenterX = 3050, CenterY = 6000
+        });
+        var falseOps = ModelRevitPlanner.Plan(
+            falseSplitGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        var falseD1Y7 = falseOps
+            .Where(op =>
+            {
+                var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+                return string.Equals(mark, "D1Y7", StringComparison.OrdinalIgnoreCase);
+            })
+            .ToList();
+        if (falseD1Y7.Count != 1)
+        {
+            message = $"beam merge H2 false-split: expected 1× D1Y7, got {falseD1Y7.Count}";
+            return false;
+        }
+
+        var f0 = falseD1Y7[0].Fields.GetProperty("startMm");
+        var f1 = falseD1Y7[0].Fields.GetProperty("endMm");
+        var fLen = Math.Sqrt(
+            Math.Pow(f1[0].GetDouble() - f0[0].GetDouble(), 2) +
+            Math.Pow(f1[1].GetDouble() - f0[1].GetDouble(), 2));
+        if (fLen < 10000)
+        {
+            message = $"beam merge H2 false-split: expected D1Y7 L≥10000 (not a 2100 fragment), got L={fLen:0}";
+            return false;
+        }
+
+        // H2 — same pieces but a real middle column that also terminates a perpendicular beam → stay two.
+        var splitGeom = new CadGeometry();
+        splitGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 200, Y0 = 0, X1 = 3800, Y1 = 0 });
+        splitGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 200, Y0 = 400, X1 = 3800, Y1 = 400 });
+        splitGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 4200, Y0 = 0, X1 = 7800, Y1 = 0 });
+        splitGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 4200, Y0 = 400, X1 = 7800, Y1 = 400 });
+        splitGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 3800, Y0 = 200, X1 = 3800, Y1 = 5000 });
+        splitGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 4200, Y0 = 200, X1 = 4200, Y1 = 5000 });
+        splitGeom.Entities.Add(ColRect(-200, 0, 200, 400));
+        splitGeom.Entities.Add(ColRect(3800, 0, 4200, 400));
+        splitGeom.Entities.Add(ColRect(7800, 0, 8200, 400));
+        splitGeom.Entities.Add(ColRect(3800, 4800, 4200, 5200));
+        splitGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "40x60", X = 2000, Y = 200, CenterX = 2000, CenterY = 200
+        });
+        splitGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "40x60", X = 6000, Y = 200, CenterX = 6000, CenterY = 200
+        });
+        var splitOps = ModelRevitPlanner.Plan(
+            splitGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                FamilyName = "S-BEAM",
+                Supports = new[]
+                {
+                    new SectionFootprint(0, 200, 400, 400),
+                    new SectionFootprint(4000, 200, 400, 400),
+                    new SectionFootprint(8000, 200, 400, 400),
+                    new SectionFootprint(4000, 5000, 400, 400)
+                }
+            });
+        var splitHorizontal = splitOps
+            .Where(op =>
+            {
+                var s = op.Fields.GetProperty("startMm");
+                var e = op.Fields.GetProperty("endMm");
+                return Math.Abs(s[1].GetDouble() - e[1].GetDouble()) < 50 &&
+                       string.Equals(
+                           op.Fields.TryGetProperty("familyType", out var ft) ? ft.GetString() : "",
+                           "400x600",
+                           StringComparison.OrdinalIgnoreCase);
+            })
+            .ToList();
+        if (splitHorizontal.Count < 2)
+        {
+            message = $"beam merge H2 with-column: expected ≥2 horizontal 400x600 ops, got {splitHorizontal.Count}";
+            return false;
+        }
+
+        // Grids on fractional world mm (x=1000.23855267, y=500.11578539): beam ops stay exact (exactMm) and
+        // centerline + faces of a 400 beam land on 5 mm from both grids. World whole-mm rounding broke this.
+        const double gx = 1000.23855267, gy = 500.11578539;
+        var fracGeom = new CadGeometry();
+        fracGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = gx, Y0 = gy + 2000.4 - 200, X1 = gx + 8000, Y1 = gy + 2000.4 - 200 });
+        fracGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = gx, Y0 = gy + 2000.4 + 200, X1 = gx + 8000, Y1 = gy + 2000.4 + 200 });
+        fracGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1X3-40x60", X = gx + 4000, Y = gy + 2000, CenterX = gx + 4000, CenterY = gy + 2000
+        });
+        var fracOps = ModelRevitPlanner.Plan(
+            fracGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                FamilyName = "S-BEAM",
+                Supports = new[] { new SectionFootprint(gx, gy + 2000, 400, 400), new SectionFootprint(gx + 8000, gy + 2000, 400, 400) }
+            },
+            gridPoints: new[] { new CadPoint2(gx, gy), new CadPoint2(gx + 8000, gy), new CadPoint2(gx, gy + 6000) },
+            gridAnglesDeg: new[] { 0.0, 90.0 });
+        static bool On5(double v) => Math.Abs(v / 5 - Math.Round(v / 5)) * 5 < 1e-6;
+        if (fracOps.Count != 1 ||
+            !fracOps[0].Fields.TryGetProperty("exactMm", out var exact) || exact.ValueKind != System.Text.Json.JsonValueKind.True)
+        {
+            message = $"beam exactMm: expected 1 op with exactMm=true, got {fracOps.Count}";
+            return false;
+        }
+
+        var fs = fracOps[0].Fields.GetProperty("startMm");
+        var fe = fracOps[0].Fields.GetProperty("endMm");
+        var across = fs[1].GetDouble() - gy;
+        if (Math.Abs(fs[1].GetDouble() - fe[1].GetDouble()) > 1e-9 || !On5(across) || !On5(across - 200) ||
+            !On5(fs[0].GetDouble() - gx) || !On5(fe[0].GetDouble() - gx))
+        {
+            message = $"beam fractional grid: across={across:0.########} ends=({fs[0].GetDouble() - gx:0.########},{fe[0].GetDouble() - gx:0.########})";
+            return false;
+        }
+
+        // Odd half width (b=225): the face nearer the grid goes on 5 mm, not the centerline.
+        var oddAcross = ModelRevitPlanner.RoundAcross(301.3, 112.5);
+        if (!On5(oddAcross - 112.5) || Math.Abs(oddAcross - 301.3) > 2.5 || !On5(ModelRevitPlanner.RoundAcross(301.3, 200)))
+        {
+            message = $"beam RoundAcross odd half: got {oddAcross:0.###}";
+            return false;
+        }
+
+        // Edge beam flush with column outer face: 500×500 columns, face y=-250. (a) CAD outer line 3 mm off
+        // (y=-247, t=300) → outer face exactly -250. (b) CAD 250 pair flush but type 300 → grows inward, center -100.
+        foreach (var (outer, inner, label) in new[] { (-247.0, 53.0, "D1X5-30x60"), (-250.0, 0.0, "D1X5-30x60") })
+        {
+            var edgeGeom = new CadGeometry();
+            edgeGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = outer, X1 = 8000, Y1 = outer });
+            edgeGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = inner, X1 = 8000, Y1 = inner });
+            edgeGeom.Entities.Add(new CadText
+            {
+                Layer = "ANN", Value = label, X = 4000, Y = (outer + inner) / 2, CenterX = 4000, CenterY = (outer + inner) / 2
+            });
+            var edgeOps = ModelRevitPlanner.Plan(
+                edgeGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+                new AnnotationSize(null, null, null, ""),
+                placement: new ModelRevitPlacement
+                {
+                    FamilyName = "S-BEAM",
+                    Supports = new[] { new SectionFootprint(0, 0, 500, 500), new SectionFootprint(8000, 0, 500, 500) }
+                });
+            var ey0 = edgeOps.Count == 1 ? edgeOps[0].Fields.GetProperty("startMm")[1].GetDouble() : double.NaN;
+            var ey1 = edgeOps.Count == 1 ? edgeOps[0].Fields.GetProperty("endMm")[1].GetDouble() : double.NaN;
+            if (Math.Abs(ey0 + 100) > 1e-6 || Math.Abs(ey1 + 100) > 1e-6)
+            {
+                message = $"beam flush to column face (CAD {outer}/{inner}): expected center y=-100, got {edgeOps.Count} ops y=({ey0:0.###},{ey1:0.###})";
+                return false;
+            }
+        }
+
+        // Flush is edge-only: perimeter beams (CAD face 3 mm off column) still flush; interior beams whose CAD
+        // face is 3 mm off a column face stay on CAD centerline (5 mm round) — no ±50 type-width shift.
+        {
+            var mixGeom = new CadGeometry();
+            void PairH(double y0, double y1, string mark)
+            {
+                mixGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = y0, X1 = 8000, Y1 = y0 });
+                mixGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = y1, X1 = 8000, Y1 = y1 });
+                mixGeom.Entities.Add(new CadText
+                {
+                    Layer = "ANN", Value = mark, X = 4000, Y = (y0 + y1) / 2, CenterX = 4000, CenterY = (y0 + y1) / 2
+                });
+            }
+            void PairV(double x0, double x1, string mark)
+            {
+                mixGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = x0, Y0 = 0, X1 = x0, Y1 = 6000 });
+                mixGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = x1, Y0 = 0, X1 = x1, Y1 = 6000 });
+                mixGeom.Entities.Add(new CadText
+                {
+                    Layer = "ANN", Value = mark, X = (x0 + x1) / 2, Y = 3000, CenterX = (x0 + x1) / 2, CenterY = 3000
+                });
+            }
+            // Bottom edge: outer face -247 (3 mm off column face -250), type 300 → flush to center -100.
+            PairH(-247, 53, "D1X21-30x140");
+            // Top edge (envelope).
+            PairH(5750, 6250, "D1X5-30x60");
+            // Side edges (envelope).
+            PairV(-250, 250, "D1Y1-30x60");
+            PairV(7750, 8250, "D1Y2-30x60");
+            // Interior on mid columns: CAD face 2753 = column face 2750 + 3 mm, t=500, type 400 → must NOT flush.
+            PairH(2753, 3253, "D1X14-40x60");
+            var mixLogs = new List<string>();
+            var mixOps = ModelRevitPlanner.Plan(
+                mixGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+                new AnnotationSize(null, null, null, ""),
+                placement: new ModelRevitPlacement
+                {
+                    FamilyName = "S-BEAM",
+                    Log = mixLogs.Add,
+                    Supports = new[]
+                    {
+                        new SectionFootprint(0, 0, 500, 500), new SectionFootprint(8000, 0, 500, 500),
+                        new SectionFootprint(0, 3000, 500, 500), new SectionFootprint(8000, 3000, 500, 500),
+                        new SectionFootprint(0, 6000, 500, 500), new SectionFootprint(8000, 6000, 500, 500)
+                    }
+                });
+            double? YOf(string markSub)
+            {
+                foreach (var op in mixOps)
+                {
+                    var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+                    if (mark.IndexOf(markSub, StringComparison.OrdinalIgnoreCase) < 0)
+                        continue;
+                    return op.Fields.GetProperty("startMm")[1].GetDouble();
+                }
+                return null;
+            }
+            var edgeY = YOf("D1X21");
+            var intY = YOf("D1X14");
+            var cadInteriorCenter = (2753.0 + 3253.0) / 2;
+            var flushedInterior = 2750 + 200; // would-be center if flush applied (face 2750, b=400)
+            if (edgeY is not double ey || Math.Abs(ey + 100) > 1e-6)
+            {
+                message = $"edge flush (D1X21 3 mm off): expected y=-100, got {edgeY?.ToString("0.###") ?? "missing"} ops={mixOps.Count}";
+                return false;
+            }
+            if (intY is not double iy || Math.Abs(iy - flushedInterior) < 1 ||
+                Math.Abs(iy - cadInteriorCenter) > 2.5)
+            {
+                message = $"interior no-flush (CAD face 3 mm off): expected ~{cadInteriorCenter:0.###} (not {flushedInterior}), got {intY?.ToString("0.###") ?? "missing"}";
+                return false;
+            }
+            var flushLogs = mixLogs.Where(l => l.StartsWith("beam flush ", StringComparison.Ordinal)).ToList();
+            if (!flushLogs.Any(l => l.Contains("edge=true", StringComparison.Ordinal)))
+            {
+                message = "edge flush log missing edge=true; logs=" + string.Join(" | ", flushLogs);
+                return false;
+            }
+            if (!flushLogs.Any(l => l.Contains("edge=false skipped", StringComparison.Ordinal)))
+            {
+                message = "interior flush skip log missing edge=false; logs=" + string.Join(" | ", flushLogs);
+                return false;
+            }
+        }
+
+        // Dedupe keeps own text (log: `dedupe drop seg 153 keep 172 lat=25 a=D1X22-25X140|300 b=D1X21-30X140|250`):
+        // bay 2 has a 250 pair (center -125, flush with the column face -250) that inherited D1X21-30x140 from
+        // bay 1, and an overlapping 300 pair (center -100) carrying its own D1X22-25x140. Survivor must be the
+        // 250 pair with D1X22 250x1400, placed flush (center -125); bay 1 stays D1X21 300.
+        var dupPlanned = new List<BeamSegment>
+        {
+            new(new WallRun(0, -100, 8000, -100, 300), BeamSpanKind.Main),
+            new(new WallRun(8000, -125, 16000, -125, 250), BeamSpanKind.Main),
+            new(new WallRun(8000, -100, 16000, -100, 300), BeamSpanKind.Main),
+            // Mark-only text (D5B box beside a beam) on a dropped pair must not rename an own-size beam.
+            new(new WallRun(0, 5000, 8000, 5000, 300), BeamSpanKind.Main),
+            new(new WallRun(0, 5150, 8000, 5150, 300), BeamSpanKind.Secondary)
+        };
+        var dupLabels = new[]
+        {
+            new BeamLabel("D1X21", 300, 1400, "D1X21-30X140"),
+            new BeamLabel("D1X21", 300, 1400, "D1X21-30X140"),
+            new BeamLabel("D1X22", 250, 1400, "D1X22-25X140"),
+            new BeamLabel("D5PX4", 300, 600, "30X60+D5PX4"),
+            new BeamLabel("D5B", null, null, "D5B")
+        };
+        var dupSources = new[]
+        {
+            "cands=1 combined=D1X21-30X140@0", "inherit=D1X21-30X140@seg0", "cands=1 combined=D1X22-25X140@25",
+            "axisMark=D5PX4@seg9", "cands=1 markText=D5B@100"
+        };
+        var dupKeep = new[] { true, true, true, true, true };
+        ModelRevitPlanner.DeduplicateOverlappingBeams(dupPlanned, dupLabels, dupSources, dupKeep, null);
+        var flushShift = ModelRevitPlanner.FlushToSupportFace(
+            dupPlanned[1].Run, 8000, -125, 16000, -125, dupLabels[1].WidthMm ?? 0,
+            new[] { new SectionFootprint(8000, 0, 500, 500), new SectionFootprint(16000, 0, 500, 500) });
+        if (!dupKeep[0] || !dupKeep[1] || dupKeep[2] || !dupKeep[3] || dupKeep[4] || dupLabels[3].Mark != "D5PX4" ||
+            dupLabels[0].Mark != "D1X21" || dupLabels[0].WidthMm != 300 ||
+            dupLabels[1].Mark != "D1X22" || dupLabels[1].WidthMm != 250 || dupLabels[1].DepthMm != 1400 ||
+            flushShift is not null)
+        {
+            message = $"beam dedupe own text: keep=({dupKeep[0]},{dupKeep[1]},{dupKeep[2]}) " +
+                      $"bay1={dupLabels[0].Mark}/{dupLabels[0].WidthMm} bay2={dupLabels[1].Mark}/{dupLabels[1].WidthMm}x{dupLabels[1].DepthMm} " +
+                      $"flushShift={flushShift?.ToString("0.###") ?? "none (already flush)"}";
+            return false;
+        }
+
+        // H1 + merge — secondary D1PY15 crosses the middle main; Mark/size inherited on the upper piece,
+        // but it must stay broken at the main centerline (y=6000), not re-merge into one 12 m beam.
+        var secGeom = new CadGeometry();
+        foreach (var y in new[] { 0.0, 6000, 12000 })
+        {
+            secGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = y - 200, X1 = 8000, Y1 = y - 200 });
+            secGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = y + 200, X1 = 8000, Y1 = y + 200 });
+            secGeom.Entities.Add(new CadText
+            {
+                Layer = "ANN", Value = "D1X2-40x60", X = 2000, Y = y, CenterX = 2000, CenterY = y
+            });
+        }
+
+        secGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 3850, Y0 = 0, X1 = 3850, Y1 = 12000 });
+        secGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 4150, Y0 = 0, X1 = 4150, Y1 = 12000 });
+        secGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1PY15-30x60", X = 4000, Y = 3000, RotationDeg = 90,
+            CenterX = 4000, CenterY = 3000
+        });
+        var secOps = ModelRevitPlanner.Plan(
+            secGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                FamilyName = "S-BEAM",
+                Supports = new[] { 0.0, 6000, 12000 }
+                    .SelectMany(y => new[]
+                    {
+                        new SectionFootprint(0, y, 400, 400), new SectionFootprint(8000, y, 400, 400)
+                    })
+                    .ToArray()
+            });
+        var secVertical = secOps
+            .Where(op => Math.Abs(op.Fields.GetProperty("startMm")[0].GetDouble() -
+                                  op.Fields.GetProperty("endMm")[0].GetDouble()) < 50)
+            .Select(op => (
+                Y0: Math.Min(op.Fields.GetProperty("startMm")[1].GetDouble(), op.Fields.GetProperty("endMm")[1].GetDouble()),
+                Y1: Math.Max(op.Fields.GetProperty("startMm")[1].GetDouble(), op.Fields.GetProperty("endMm")[1].GetDouble()),
+                Mark: op.Fields.TryGetProperty("mark", out var sm) ? sm.GetString() ?? "" : ""))
+            .OrderBy(t => t.Y0)
+            .ToList();
+        if (secVertical.Count != 2 ||
+            secVertical.Any(t => !string.Equals(t.Mark, "D1PY15", StringComparison.OrdinalIgnoreCase)) ||
+            Math.Abs(secVertical[0].Y1 - 6000) > 1 || Math.Abs(secVertical[1].Y0 - 6000) > 1)
+        {
+            message = "beam secondary keeps break at main with inherited Mark: expected 2× D1PY15 split at y=6000, got " +
+                      string.Join(",", secVertical.Select(t => $"{t.Mark}:{t.Y0:0}-{t.Y1:0}"));
+            return false;
+        }
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>
+    /// Overlapping parallel face-pairs (500 vs 1000, 250 mm apart) + competing 50x65 / D1Y7-100x65
+    /// → one beam Mark-WxH; ultra-short unlabeled stubs suppressed; near-duplicate midlines merge.
+    /// </summary>
+    private static bool BeamDedupeAndCompetingTextCases(out string message)
+    {
+        // Double outline of one bay: 500-wide pair at X=0 and 1000-wide at X=250 (shared face),
+        // texts 50x65 + D1Y7-100x65 → keep a single Mark-WxH beam (not 1000x2000 + 1000x650).
+        var overlapGeom = new CadGeometry();
+        overlapGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = -250, Y0 = 0, X1 = -250, Y1 = 8000 });
+        overlapGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 250, Y0 = 0, X1 = 250, Y1 = 8000 });
+        overlapGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = -500, Y0 = 0, X1 = -500, Y1 = 8000 });
+        overlapGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 500, Y0 = 0, X1 = 500, Y1 = 8000 });
+        overlapGeom.Entities.Add(ColRect(-400, -200, 400, 200));
+        overlapGeom.Entities.Add(ColRect(-400, 7800, 400, 8200));
+        overlapGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "50x65", X = 0, Y = 3000, RotationDeg = 90, CenterX = 0, CenterY = 3000
+        });
+        overlapGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1Y7-100x65", X = 50, Y = 5000, RotationDeg = 90, CenterX = 50, CenterY = 5000
+        });
+        var overlapOps = ModelRevitPlanner.Plan(
+            overlapGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        var vertical = overlapOps
+            .Where(op =>
+            {
+                var sx = op.Fields.GetProperty("startMm")[0].GetDouble();
+                var ex = op.Fields.GetProperty("endMm")[0].GetDouble();
+                return Math.Abs(sx - ex) < 50;
+            })
+            .ToList();
+        if (vertical.Count != 1)
+        {
+            message = $"beam overlapping bay dedupe: expected 1 vertical op, got {vertical.Count}";
+            return false;
+        }
+
+        var vo = vertical[0];
+        var vw = vo.Fields.TryGetProperty("widthMm", out var vww) ? vww.GetInt32() : 0;
+        var vd = vo.Fields.TryGetProperty("depthMm", out var vdd) ? vdd.GetInt32() : 0;
+        var vm = vo.Fields.TryGetProperty("mark", out var vmm) ? vmm.GetString() ?? "" : "";
+        if (!string.Equals(vm, "D1Y7", StringComparison.OrdinalIgnoreCase) || vw != 1000 || vd != 650)
+        {
+            message = $"beam overlapping bay: expected D1Y7 1000x650, got mark={vm} {vw}x{vd}";
+            return false;
+        }
+
+        // Near-duplicate midlines (15 mm apart, same thickness) merge before split.
+        var nearDup = BeamCenterlineReader.MergeNearDuplicateCenterlines(new[]
+        {
+            new WallRun(0, 0, 6000, 0, 400),
+            new WallRun(0, 15, 6000, 15, 400)
+        });
+        if (nearDup.Count != 1 || Math.Abs(nearDup[0].Y0 - 7.5) > 1 || Math.Abs(nearDup[0].ThicknessMm - 400) > 0.1)
+        {
+            message = $"beam near-dup midlines: expected 1 run ~Y=7.5 t=400, got {nearDup.Count}";
+            return false;
+        }
+
+        // Ultra-short unlabeled stub between two parallel axes is suppressed; size-labelled short kept.
+        var stubGeom = new CadGeometry();
+        stubGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 0, Y1 = 4000 });
+        stubGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 400, Y0 = 0, X1 = 400, Y1 = 4000 });
+        stubGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 2000, X1 = 250, Y1 = 2000 });
+        stubGeom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 2300, X1 = 250, Y1 = 2300 });
+        stubGeom.Entities.Add(ColRect(-200, -200, 600, 200));
+        stubGeom.Entities.Add(ColRect(-200, 3800, 600, 4200));
+        stubGeom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "40x60", X = 500, Y = 2000, RotationDeg = 90, CenterX = 200, CenterY = 2000
+        });
+        var stubOps = ModelRevitPlanner.Plan(
+            stubGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        var shortUnlabeled = stubOps.Count(op =>
+        {
+            var s = op.Fields.GetProperty("startMm");
+            var e = op.Fields.GetProperty("endMm");
+            var dx = e[0].GetDouble() - s[0].GetDouble();
+            var dy = e[1].GetDouble() - s[1].GetDouble();
+            var len = Math.Sqrt(dx * dx + dy * dy);
+            var mark = op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "";
+            var w = op.Fields.TryGetProperty("widthMm", out var ww) ? ww.GetInt32() : 0;
+            var d = op.Fields.TryGetProperty("depthMm", out var dd) ? dd.GetInt32() : 0;
+            return len < 350 && string.IsNullOrEmpty(mark) && !(w == 400 && d == 600);
+        });
+        if (shortUnlabeled != 0)
+        {
+            message = $"beam short suppress: expected 0 unlabeled junk stubs, got {shortUnlabeled}";
+            return false;
+        }
+
+        // Competing texts on one segment: Mark-WxH wins over size-only (50x65 vs D1X4-50x65 → Mark + 500x650).
+        var competeGeom = BeamAxisGeom(
+            new CadText { Layer = "ANN", Value = "50x65", X = 1800, Y = 100, CenterX = 2000, CenterY = 100 },
+            new CadText { Layer = "ANN", Value = "D1X4-50x65", X = 2200, Y = -100, CenterX = 2500, CenterY = -50 });
+        var compete = FirstSpan(ModelRevitPlanner.Plan(
+            competeGeom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" }));
+        if (compete.Mark != "D1X4" || compete.Type != "500x650")
+        {
+            message = $"beam competing texts: expected D1X4 500x650, got mark={compete.Mark} type={compete.Type}";
+            return false;
+        }
+
+        // Collinear diagonal: labeled middle + unlabeled ends → both ends inherit 800x1200 (not 800x1600).
+        if (!BeamCollinearInheritCase(out message))
+            return false;
+
+        // Parallel 500+1000 midlines ~250 mm apart, same span → one beam matching Mark-WxH text width.
+        if (!BeamParallelMismatchDedupeCase(out message))
+            return false;
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>
+    /// Diagonal face-pair broken into three abutting Main spans; only the middle has D1Y36-80x120 →
+    /// all three become 800x1200 (no width×2 on the unlabeled ends).
+    /// </summary>
+    private static bool BeamCollinearInheritCase(out string message)
+    {
+        // Unit diagonal direction (~33.7°): three abutting 800-wide face pairs + columns at joints.
+        const double ux = 0.83205;
+        const double uy = 0.55470;
+        static (double X, double Y) P(double t) => (t * ux, t * uy);
+        var a = P(0);
+        var b = P(3000);
+        var c = P(7000);
+        var d = P(11000);
+        var nx = -uy * 400;
+        var ny = ux * 400;
+        var geom = new CadGeometry();
+        void Face(double t0, double t1)
+        {
+            var p0 = P(t0);
+            var p1 = P(t1);
+            geom.Entities.Add(new CadLine { Layer = "BEAM", X0 = p0.X, Y0 = p0.Y, X1 = p1.X, Y1 = p1.Y });
+            geom.Entities.Add(new CadLine
+            {
+                Layer = "BEAM", X0 = p0.X + nx, Y0 = p0.Y + ny, X1 = p1.X + nx, Y1 = p1.Y + ny
+            });
+        }
+
+        Face(0, 3000);
+        Face(3000, 7000);
+        Face(7000, 11000);
+        geom.Entities.Add(ColRect(a.X - 200, a.Y - 200, a.X + 200, a.Y + 200));
+        geom.Entities.Add(ColRect(b.X - 200, b.Y - 200, b.X + 200, b.Y + 200));
+        geom.Entities.Add(ColRect(c.X - 200, c.Y - 200, c.X + 200, c.Y + 200));
+        geom.Entities.Add(ColRect(d.X - 200, d.Y - 200, d.X + 200, d.Y + 200));
+        var mid = P(5000);
+        geom.Entities.Add(new CadText
+        {
+            Layer = "ANN",
+            Value = "D1Y36-80x120",
+            X = mid.X + nx * 0.5,
+            Y = mid.Y + ny * 0.5,
+            CenterX = mid.X + nx * 0.5,
+            CenterY = mid.Y + ny * 0.5,
+            RotationDeg = Math.Atan2(uy, ux) * 180.0 / Math.PI
+        });
+
+        var ops = ModelRevitPlanner.Plan(
+            geom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        var diagonal = ops
+            .Select(op => (
+                W: op.Fields.TryGetProperty("widthMm", out var ww) ? ww.GetInt32() : 0,
+                D: op.Fields.TryGetProperty("depthMm", out var dd) ? dd.GetInt32() : 0,
+                Mark: op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "",
+                Type: op.Fields.TryGetProperty("familyType", out var ft) ? ft.GetString() ?? "" : ""))
+            .Where(t => t.W == 800 || t.Type.StartsWith("800x", StringComparison.Ordinal))
+            .ToList();
+        if (diagonal.Count < 2)
+        {
+            message = $"beam collinear inherit: expected ≥2 diagonal ops, got {diagonal.Count} (total {ops.Count})";
+            return false;
+        }
+
+        if (diagonal.Any(t => t.W != 800 || t.D != 1200))
+        {
+            message = "beam collinear inherit: expected all 800x1200, got " +
+                      string.Join(",", diagonal.Select(t => $"{t.Mark}:{t.W}x{t.D}"));
+            return false;
+        }
+
+        if (diagonal.Count(t => string.Equals(t.Mark, "D1Y36", StringComparison.OrdinalIgnoreCase)) < 1)
+        {
+            message = "beam collinear inherit: expected Mark D1Y36 on ≥1 segment";
+            return false;
+        }
+
+        message = "ok";
+        return true;
+    }
+
+    /// <summary>
+    /// Parallel 500 vs 1000 midlines 250 mm apart, almost identical span → keep the Mark-WxH width.
+    /// </summary>
+    private static bool BeamParallelMismatchDedupeCase(out string message)
+    {
+        var geom = new CadGeometry();
+        // 500-wide at X=0, 1000-wide at X=250 (shared-ish face), midlines 250 mm apart.
+        geom.Entities.Add(new CadLine { Layer = "BEAM", X0 = -250, Y0 = 0, X1 = -250, Y1 = 9000 });
+        geom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 250, Y0 = 0, X1 = 250, Y1 = 9000 });
+        geom.Entities.Add(new CadLine { Layer = "BEAM", X0 = -500, Y0 = 0, X1 = -500, Y1 = 9000 });
+        geom.Entities.Add(new CadLine { Layer = "BEAM", X0 = 500, Y0 = 0, X1 = 500, Y1 = 9000 });
+        geom.Entities.Add(ColRect(-400, -200, 400, 200));
+        geom.Entities.Add(ColRect(-400, 8800, 400, 9200));
+        geom.Entities.Add(new CadText
+        {
+            Layer = "ANN", Value = "D1Y7-100x65", X = 50, Y = 4500, RotationDeg = 90,
+            CenterX = 50, CenterY = 4500
+        });
+        var ops = ModelRevitPlanner.Plan(
+            geom, "BEAM", ModelRevitPartKind.Beam, "L1", "L2",
+            new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        var vertical = ops
+            .Where(op =>
+            {
+                var sx = op.Fields.GetProperty("startMm")[0].GetDouble();
+                var ex = op.Fields.GetProperty("endMm")[0].GetDouble();
+                return Math.Abs(sx - ex) < 50;
+            })
+            .ToList();
+        if (vertical.Count != 1)
+        {
+            message = $"beam parallel mismatch dedupe: expected 1 vertical op, got {vertical.Count}";
+            return false;
+        }
+
+        var vo = vertical[0];
+        var vw = vo.Fields.TryGetProperty("widthMm", out var vww) ? vww.GetInt32() : 0;
+        var vd = vo.Fields.TryGetProperty("depthMm", out var vdd) ? vdd.GetInt32() : 0;
+        var vm = vo.Fields.TryGetProperty("mark", out var vmm) ? vmm.GetString() ?? "" : "";
+        if (!string.Equals(vm, "D1Y7", StringComparison.OrdinalIgnoreCase) || vw != 1000 || vd != 650)
+        {
+            message = $"beam parallel mismatch: expected D1Y7 1000x650, got mark={vm} {vw}x{vd}";
+            return false;
+        }
+
+        message = "ok";
+        return true;
+    }
+
+    private static (string Mark, string Type) FirstSpan(IReadOnlyList<Dss.McpContracts.CreateOperation> ops) =>
+        ops.Select(op => (
+                X: op.Fields.GetProperty("startMm")[0].GetDouble(),
+                Mark: op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "",
+                Type: op.Fields.TryGetProperty("familyType", out var ft) ? ft.GetString() ?? "" : ""))
+            .OrderBy(t => t.X)
+            .Select(t => (t.Mark, t.Type))
+            .FirstOrDefault();
+
+    /// <summary>Main = support center to support center; secondary breaks at main centerlines.</summary>
     private static bool BeamSpanCases(out string message)
     {
         message = "";
@@ -675,29 +2279,29 @@ public static class SectionFootprintSelfTest
                           Math.Abs(s.Run.X0 - x0) <= 1 && Math.Abs(s.Run.Y0 - y0) <= 1 &&
                           Math.Abs(s.Run.X1 - x1) <= 1 && Math.Abs(s.Run.Y1 - y1) <= 1);
 
-        // (i) 3 columns on one axis → 2 main spans, column face to face.
+        // (i) 3 columns on one axis → 2 main spans, column center to center.
         var three = BeamCenterlineReader.PrepareRuns(
             new[] { new WallRun(0, 200, 8000, 200, 400) },
             new[] { Col(0, 200), Col(4000, 200), Col(8000, 200) });
-        if (three.Count != 2 || !Has(three, BeamSpanKind.Main, 200, 200, 3800, 200) ||
-            !Has(three, BeamSpanKind.Main, 4200, 200, 7800, 200))
+        if (three.Count != 2 || !Has(three, BeamSpanKind.Main, 0, 200, 4000, 200) ||
+            !Has(three, BeamSpanKind.Main, 4000, 200, 8000, 200))
         {
-            message = $"beam 3 columns: expected main 200..3800 + 4200..7800, got {Describe(three)}";
+            message = $"beam 3 columns: expected main 0..4000 + 4000..8000, got {Describe(three)}";
             return false;
         }
 
-        // (ii) A structural wall across the axis is a support too.
+        // (ii) A structural wall across the axis is a support too (center of wall footprint).
         var wall = BeamCenterlineReader.PrepareRuns(
             new[] { new WallRun(0, 0, 8000, 0, 300) },
             new[] { Col(0, 0), new SectionFootprint(4000, 0, 200, 3000), Col(8000, 0) });
-        if (wall.Count != 2 || !Has(wall, BeamSpanKind.Main, 200, 0, 3900, 0) ||
-            !Has(wall, BeamSpanKind.Main, 4100, 0, 7800, 0))
+        if (wall.Count != 2 || !Has(wall, BeamSpanKind.Main, 0, 0, 4000, 0) ||
+            !Has(wall, BeamSpanKind.Main, 4000, 0, 8000, 0))
         {
-            message = $"beam wall support: expected main 200..3900 + 4100..7800, got {Describe(wall)}";
+            message = $"beam wall support: expected main 0..4000 + 4000..8000, got {Describe(wall)}";
             return false;
         }
 
-        // (iii) Secondary crossing two main beams → 3 pieces ending at main faces; mains stay whole.
+        // (iii) Secondary CAD across 2 mains → 3 pieces ending at main centers; mains stay whole (center→center).
         var grid = BeamCenterlineReader.PrepareRuns(
             new[]
             {
@@ -707,17 +2311,85 @@ public static class SectionFootprintSelfTest
             },
             new[] { Col(0, 0), Col(8000, 0), Col(0, 6000), Col(8000, 6000) });
         if (grid.Count(s => s.Kind == BeamSpanKind.Main) != 2 ||
-            !Has(grid, BeamSpanKind.Main, 200, 0, 7800, 0) || !Has(grid, BeamSpanKind.Main, 200, 6000, 7800, 6000) ||
+            !Has(grid, BeamSpanKind.Main, 0, 0, 8000, 0) || !Has(grid, BeamSpanKind.Main, 0, 6000, 8000, 6000) ||
             grid.Count(s => s.Kind == BeamSpanKind.Secondary) != 3 ||
-            !Has(grid, BeamSpanKind.Secondary, 4000, -2000, 4000, -200) ||
-            !Has(grid, BeamSpanKind.Secondary, 4000, 200, 4000, 5800) ||
-            !Has(grid, BeamSpanKind.Secondary, 4000, 6200, 4000, 8000))
+            !Has(grid, BeamSpanKind.Secondary, 4000, -2000, 4000, 0) ||
+            !Has(grid, BeamSpanKind.Secondary, 4000, 0, 4000, 6000) ||
+            !Has(grid, BeamSpanKind.Secondary, 4000, 6000, 4000, 8000))
         {
             message = $"beam secondary split: got {Describe(grid)}";
             return false;
         }
 
-        // (v) Collinear CAD pieces 2500 apart at a crossing beam → one main span column to column.
+        // Long beam with columns only at its far ends, crossed mid-span by 4 column-to-column mains → 5 pieces.
+        var longRuns = new List<WallRun> { new WallRun(0, 0, 20000, 0, 300) };
+        var longCols = new List<SectionFootprint> { Col(0, 0), Col(20000, 0) };
+        foreach (var x in new[] { 4000.0, 8000, 12000, 16000 })
+        {
+            longRuns.Add(new WallRun(x, -3000, x, 3000, 500));
+            longCols.Add(Col(x, -3000));
+            longCols.Add(Col(x, 3000));
+        }
+
+        var crossed = BeamCenterlineReader.PrepareRuns(longRuns, longCols);
+        if (crossed.Count(s => s.Kind == BeamSpanKind.Main) != 4 ||
+            crossed.Count(s => s.Kind == BeamSpanKind.Secondary) != 5 ||
+            !Has(crossed, BeamSpanKind.Secondary, 0, 0, 4000, 0) ||
+            !Has(crossed, BeamSpanKind.Secondary, 8000, 0, 12000, 0) ||
+            !Has(crossed, BeamSpanKind.Secondary, 16000, 0, 20000, 0))
+        {
+            message = $"beam long span across 4 mains: expected 4 main + 5 secondary, got {Describe(crossed)}";
+            return false;
+        }
+
+        // Two secondaries crossing between mains: the narrower one breaks, the wider stays whole.
+        var twoSecondary = BeamCenterlineReader.PrepareRuns(
+            new[]
+            {
+                new WallRun(0, 0, 8000, 0, 400),
+                new WallRun(0, 6000, 8000, 6000, 400),
+                new WallRun(4000, 0, 4000, 6000, 300),
+                new WallRun(1000, 3000, 7000, 3000, 250)
+            },
+            new[] { Col(0, 0), Col(8000, 0), Col(0, 6000), Col(8000, 6000) });
+        if (!Has(twoSecondary, BeamSpanKind.Secondary, 4000, 0, 4000, 6000) ||
+            !Has(twoSecondary, BeamSpanKind.Secondary, 1000, 3000, 4000, 3000) ||
+            !Has(twoSecondary, BeamSpanKind.Secondary, 4000, 3000, 7000, 3000))
+        {
+            message = $"beam secondary × secondary: expected 250 broken at x=4000, got {Describe(twoSecondary)}";
+            return false;
+        }
+
+        // Fake column (grid bubble) alone on a beam-to-beam axis → still secondary, split at mains.
+        var fake = BeamCenterlineReader.PrepareRuns(
+            new[]
+            {
+                new WallRun(0, 0, 8000, 0, 400),
+                new WallRun(0, 6000, 8000, 6000, 400),
+                new WallRun(4000, 500, 4000, 5500, 300)
+            },
+            new[] { Col(0, 0), Col(8000, 0), Col(0, 6000), Col(8000, 6000), new SectionFootprint(4000, 3000, 100, 100) });
+        if (fake.Any(s => s.Kind == BeamSpanKind.Main && Math.Abs(s.Run.X0 - 4000) < 1 && Math.Abs(s.Run.X1 - 4000) < 1) ||
+            fake.Count(s => s.Kind == BeamSpanKind.Secondary) < 1)
+        {
+            message = $"beam fake support: vertical must stay secondary, got {Describe(fake)}";
+            return false;
+        }
+
+        // Mid-span false CAD supports on a continuous main must not leave a hole: only real
+        // end columns (and joints) should define main centers. Dense mid-span hatches that do
+        // not form a second axis stay filtered out upstream; here ClassifyAxis with only the
+        // two end columns keeps one continuous main.
+        var continuous = BeamCenterlineReader.PrepareRuns(
+            new[] { new WallRun(0, 200, 12000, 200, 500) },
+            new[] { Col(0, 200), Col(12000, 200) });
+        if (continuous.Count != 1 || !Has(continuous, BeamSpanKind.Main, 0, 200, 12000, 200))
+        {
+            message = $"beam continuous main: expected one main 0..12000, got {Describe(continuous)}";
+            return false;
+        }
+
+        // (v) Collinear CAD pieces 2500 apart at a crossing beam → one main span column center to center.
         var bridged = BeamCenterlineReader.PrepareRuns(
             new[]
             {
@@ -726,24 +2398,34 @@ public static class SectionFootprintSelfTest
                 new WallRun(4250, -3000, 4250, 3000, 400)
             },
             new[] { Col(0, 0), Col(10000, 0) });
-        if (bridged.Count(s => s.Kind == BeamSpanKind.Main) != 1 || !Has(bridged, BeamSpanKind.Main, 200, 0, 9800, 0) ||
+        if (bridged.Count(s => s.Kind == BeamSpanKind.Main) != 1 || !Has(bridged, BeamSpanKind.Main, 0, 0, 10000, 0) ||
             bridged.Count(s => s.Kind == BeamSpanKind.Secondary) != 2)
         {
-            message = $"beam gap at crossing: expected main 200..9800 + 2 secondary, got {Describe(bridged)}";
+            message = $"beam gap at crossing: expected main 0..10000 + 2 secondary, got {Describe(bridged)}";
             return false;
         }
 
-        // Stub stopping short of both columns reaches their faces.
+        // Stub stopping short of both columns reaches their centers.
         var stub = BeamCenterlineReader.PrepareRuns(
             new[] { new WallRun(800, 200, 3000, 200, 400) },
             new[] { Col(0, 200), Col(4000, 200) });
-        if (stub.Count != 1 || !Has(stub, BeamSpanKind.Main, 200, 200, 3800, 200))
+        if (stub.Count != 1 || !Has(stub, BeamSpanKind.Main, 0, 200, 4000, 200))
         {
-            message = $"beam extend to columns: expected main 200..3800, got {Describe(stub)}";
+            message = $"beam extend to columns: expected main 0..4000, got {Describe(stub)}";
             return false;
         }
 
-        // (vi) 30° beam in two CAD pieces → one main span between rotated columns.
+        // Near one distant column only (no pair on CAD) → secondary, do not become fake main.
+        var nearOne = BeamCenterlineReader.PrepareRuns(
+            new[] { new WallRun(2000, 200, 5000, 200, 300) },
+            new[] { Col(0, 200), Col(8000, 5000) });
+        if (nearOne.Count != 1 || nearOne[0].Kind != BeamSpanKind.Secondary)
+        {
+            message = $"beam near one column: expected 1 secondary, got {Describe(nearOne)}";
+            return false;
+        }
+
+        // (vi) 30° beam in two CAD pieces → one main span between rotated column centers.
         var rad = 30.0 * Math.PI / 180.0;
         (double X, double Y) P(double t) => (1000 + t * Math.Cos(rad), 2000 + t * Math.Sin(rad));
         var a0 = P(200);
@@ -755,9 +2437,9 @@ public static class SectionFootprintSelfTest
         var diagonal = BeamCenterlineReader.PrepareRuns(
             new[] { new WallRun(a0.X, a0.Y, a1.X, a1.Y, 400), new WallRun(b0.X, b0.Y, b1.X, b1.Y, 400) },
             new[] { new SectionFootprint(c0.X, c0.Y, 400, 400, 30), new SectionFootprint(c1.X, c1.Y, 400, 400, 30) });
-        if (diagonal.Count != 1 || !Has(diagonal, BeamSpanKind.Main, a0.X, a0.Y, b1.X, b1.Y))
+        if (diagonal.Count != 1 || !Has(diagonal, BeamSpanKind.Main, c0.X, c0.Y, c1.X, c1.Y))
         {
-            message = $"beam 30° merge: expected one main ({a0.X:0},{a0.Y:0})-({b1.X:0},{b1.Y:0}), got {Describe(diagonal)}";
+            message = $"beam 30° merge: expected one main ({c0.X:0},{c0.Y:0})-({c1.X:0},{c1.Y:0}), got {Describe(diagonal)}";
             return false;
         }
 

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using Autodesk.Revit.DB;
@@ -28,6 +29,12 @@ internal sealed class ModelRevitFormChoice
     public string Function { get; init; } = "";
     public string SystemName { get; init; } = "";
     public double? ThicknessMm { get; init; }
+    /// <summary>Bored / Pressed / Driven — filters Family : Type list for piles.</summary>
+    public string PileSubtype { get; init; } = "";
+    /// <summary>When true, BaseOffsetMm is đáy đài; pile top = đáy + EmbedMm.</summary>
+    public bool PileFromCapBottom { get; init; }
+    /// <summary>Ngàm cọc vào đài (mm), typically 100–200.</summary>
+    public double EmbedMm { get; init; }
 }
 
 internal sealed class ModelRevitFormCatalog
@@ -45,6 +52,8 @@ internal sealed class ModelRevitFormCatalog
     public IReadOnlyList<string> WallTypes { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> FloorTypes { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> FoundationTypes { get; init; } = Array.Empty<string>();
+    /// <summary>Type Mark values on Structural Foundation symbols (Đài cọc CAD labels: Đ4, Đ3…).</summary>
+    public IReadOnlyList<string> FoundationTypeMarks { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> CeilingTypes { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Materials { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> PipeSystems { get; init; } = Array.Empty<string>();
@@ -76,6 +85,7 @@ internal sealed class ModelRevitFormCatalog
             WallTypes = TypeNames<WallType>(doc),
             FloorTypes = TypeNames<FloorType>(doc),
             FoundationTypes = SymbolNames(doc, BuiltInCategory.OST_StructuralFoundation),
+            FoundationTypeMarks = FoundationTypeMarkValues(doc),
             CeilingTypes = TypeNames<CeilingType>(doc),
             Materials = new FilteredElementCollector(doc).OfClass(typeof(Material)).Cast<Material>()
                 .Select(m => m.Name)
@@ -114,6 +124,37 @@ internal sealed class ModelRevitFormCatalog
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+    /// <summary>
+    /// Collect Đài cọc lookup keys: Type Mark param, plus pile-cap id prefix of type name
+    /// when Type Mark is empty (<c>Đ4A-1000x1000x1100mm</c> → <c>Đ4A</c>).
+    /// </summary>
+    private static List<string> FoundationTypeMarkValues(Document doc)
+    {
+        var marks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var symbol in new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol))
+                     .OfCategory(BuiltInCategory.OST_StructuralFoundation)
+                     .Cast<FamilySymbol>())
+        {
+            try
+            {
+                var tm = symbol.get_Parameter(BuiltInParameter.ALL_MODEL_TYPE_MARK)?.AsString();
+                if (!string.IsNullOrWhiteSpace(tm))
+                    marks.Add(tm.Trim());
+            }
+            catch
+            {
+                // ignore locked/unavailable params
+            }
+
+            if (CadMark.TryExtractPileCapId(symbol.Name, out var fromName))
+                marks.Add(fromName);
+            else if (CadMark.TryExtractPileCapId(symbol.FamilyName + " : " + symbol.Name, out var fromFull))
+                marks.Add(fromFull);
+        }
+
+        return marks.OrderBy(m => m, StringComparer.OrdinalIgnoreCase).ToList();
+    }
 
     private static List<string> TypeNames<T>(Document doc) where T : Element =>
         new FilteredElementCollector(doc).OfClass(typeof(T)).Cast<T>()
@@ -172,6 +213,9 @@ internal sealed class ModelRevitSetupWindow : DssDialog
     private readonly ComboBox _system;
     private readonly TextBox _thickness;
     private readonly CheckBox _mark;
+    private readonly ComboBox _pileSubtype;
+    private readonly CheckBox _fromCapBottom;
+    private readonly TextBox _embedMm;
     private readonly ComboBox _baseLevel;
     private readonly ComboBox _topLevel;
     private readonly TextBox _baseOffset;
@@ -187,12 +231,22 @@ internal sealed class ModelRevitSetupWindow : DssDialog
     private readonly StackPanel _functionRow;
     private readonly StackPanel _thickRow;
     private readonly StackPanel _systemRow;
+    private readonly StackPanel _pileSubtypeRow;
+    private readonly StackPanel _fromCapRow;
+    private readonly StackPanel _embedRow;
     private readonly UIElement _markRow;
     private readonly StackPanel _baseRow;
     private readonly StackPanel _topRow;
     private readonly StackPanel _baseOffsetRow;
     private readonly StackPanel _topOffsetRow;
     public ModelRevitFormChoice? Choice { get; private set; }
+
+    private static readonly (string Label, string Id)[] PileSubtypeItems =
+    {
+        ("Cọc khoan nhồi / Bored", FoundationCatalogFilter.PileSubtypeBored),
+        ("Cọc ép / Pressed (PHC)", FoundationCatalogFilter.PileSubtypePressed),
+        ("Cọc đóng / Driven", FoundationCatalogFilter.PileSubtypeDriven)
+    };
 
     private ModelRevitSetupWindow(ModelRevitFormCatalog catalog)
         : base(
@@ -223,6 +277,9 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         _system = DssTheme.Combo();
         _thickness = DssTheme.Input("");
         _mark = DssTheme.Option("Gán Mark từ text lân cận");
+        _pileSubtype = DssTheme.Combo(PileSubtypeItems.Select(p => p.Label), PileSubtypeItems[1].Label);
+        _fromCapBottom = DssTheme.Option("Đỉnh cọc theo đáy đài + ngàm");
+        _embedMm = DssTheme.Input("150");
         _baseLevel = DssTheme.Combo(catalog.Levels, catalog.BaseLevel);
         _topLevel = DssTheme.Combo(catalog.Levels, catalog.TopLevel);
         _baseOffset = DssTheme.Input("0");
@@ -243,6 +300,9 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         _systemRow = new StackPanel();
         _systemRow.Children.Add(_systemLabel);
         _systemRow.Children.Add(_system);
+        _pileSubtypeRow = DssTheme.Field("Loại cọc", _pileSubtype);
+        _fromCapRow = new StackPanel { Children = { _fromCapBottom } };
+        _embedRow = DssTheme.Field("Ngàm vào đài (mm)", _embedMm);
         _markRow = _mark;
         _baseRow = DssTheme.Field("Level đáy", _baseLevel);
         _topRow = DssTheme.Field("Level đỉnh", _topLevel);
@@ -254,14 +314,15 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         var kindHost = new StackPanel();
         kindHost.Children.Add(new TextBlock
         {
-            Text = "Cột/dầm: chọn family có tham số b/h. Dầm đọc Mark/kích thước từ CadText DWG (D1Y19-40x60 → 400×600; 30x140 → 300×1400; một cạnh <3 chữ số → cả hai cm×10). Không ghi Assembly Code.",
+            Text = "Cột/dầm: chọn family có tham số b/h. Dầm đọc Mark/kích thước từ CadText DWG (D1Y19-40x60 → 400×600; 30x140 → 300×1400; một cạnh <3 chữ số → cả hai cm×10). Không ghi Assembly Code. Móng/cọc: Type lọc theo tên family đã load (S-FOUN-*, PHC, Bored…). Đài cọc: kích thước theo Type đã setup — gán Type Mark = tên CAD (Đ4, Đ3…); CAD chỉ chọn type + vị trí.",
             TextWrapping = TextWrapping.Wrap,
             Foreground = DssTheme.Muted,
             Margin = new Thickness(0, 0, 0, 8)
         });
         foreach (var row in new UIElement[]
                  {
-                     _familyRow, _shapeRow, _paramRow, _materialRow, _typeRow, _functionRow, _thickRow, _systemRow, _markRow
+                     _pileSubtypeRow, _familyRow, _shapeRow, _paramRow, _materialRow, _typeRow, _functionRow,
+                     _thickRow, _fromCapRow, _embedRow, _systemRow, _markRow
                  })
             kindHost.Children.Add(row);
 
@@ -273,6 +334,13 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             DssTheme.Pair(_baseOffsetRow, _topOffsetRow));
 
         _part.SelectionChanged += (_, _) => ApplyKind();
+        _pileSubtype.SelectionChanged += (_, _) =>
+        {
+            if (SelectedKind() == ModelRevitPartKind.Pile)
+                FillTypes(ModelRevitPartKind.Pile);
+        };
+        _fromCapBottom.Checked += (_, _) => UpdatePileOffsetLabels();
+        _fromCapBottom.Unchecked += (_, _) => UpdatePileOffsetLabels();
         _family.SelectionChanged += (_, _) =>
         {
             FillLengthParams();
@@ -314,49 +382,84 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         Show(_paramRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.Beam
             or ModelRevitPartKind.Door or ModelRevitPartKind.Window);
         Show(_markRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.Beam
+            or ModelRevitPartKind.Pile or ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
+            or ModelRevitPartKind.StripFoundation or ModelRevitPartKind.RaftFoundation
             or ModelRevitPartKind.Door or ModelRevitPartKind.Window);
+        if (kind is ModelRevitPartKind.Pile or ModelRevitPartKind.PileCap
+            or ModelRevitPartKind.IsolatedFoundation)
+            _mark.IsChecked = true;
         Show(_materialRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall
             or ModelRevitPartKind.Beam or ModelRevitPartKind.Floor or ModelRevitPartKind.IsolatedFoundation
+            or ModelRevitPartKind.PileCap or ModelRevitPartKind.RaftFoundation
             or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation);
         Show(_functionRow, kind == ModelRevitPartKind.StructuralWall);
         Show(_thickRow, kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Floor
-            or ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation);
+            or ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.PileCap
+            or ModelRevitPartKind.RaftFoundation or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation);
         Show(_typeRow, kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam or ModelRevitPartKind.Floor
-            or ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation
+            or ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.PileCap or ModelRevitPartKind.RaftFoundation
+            or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation
             or ModelRevitPartKind.Ceiling or ModelRevitPartKind.Pipe or ModelRevitPartKind.Duct
             or ModelRevitPartKind.CableTray);
         Show(_systemRow, kind is ModelRevitPartKind.Pipe or ModelRevitPartKind.Duct);
+        Show(_pileSubtypeRow, kind == ModelRevitPartKind.Pile);
+        Show(_fromCapRow, kind == ModelRevitPartKind.Pile);
+        Show(_embedRow, kind == ModelRevitPartKind.Pile && _fromCapBottom.IsChecked == true);
 
         var bothLevels = kind is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall;
-        var topOnly = kind == ModelRevitPartKind.Beam;
-        Show(_baseRow, !topOnly);
-        Show(_topRow, bothLevels || topOnly);
-        Show(_baseOffsetRow, kind != ModelRevitPartKind.Beam && kind != ModelRevitPartKind.Room);
-        Show(_topOffsetRow, bothLevels || topOnly);
+        // Beams + piles: one reference level (= open-plan GenLevel by default) + one offset.
+        var levelOnly = kind is ModelRevitPartKind.Beam or ModelRevitPartKind.Pile;
+        Show(_baseRow, !levelOnly);
+        Show(_topRow, bothLevels || levelOnly);
+        Show(_baseOffsetRow, kind != ModelRevitPartKind.Beam && kind != ModelRevitPartKind.Pile
+            && kind != ModelRevitPartKind.Room);
+        Show(_topOffsetRow, bothLevels || levelOnly);
         _baseOffsetLabel.Text = kind == ModelRevitPartKind.Ceiling ? "Cao độ bù (mm)" : "Offset đáy (mm)";
-        // Beams: one reference level (= view floor by default) + one offset. Catalog.TopLevel is the
-        // floor above (for columns/walls); do not default beams onto that.
+        // Beams/piles: Catalog.TopLevel is the floor above (for columns/walls); do not default onto that.
         if (_topRow.Children[0] is TextBlock topLevelLabel)
-            topLevelLabel.Text = topOnly ? "Level" : "Level đỉnh";
+            topLevelLabel.Text = levelOnly ? "Level" : "Level đỉnh";
         if (_topOffsetRow.Children[0] is TextBlock topOffsetLabel)
-            topOffsetLabel.Text = topOnly ? "Offset (mm)" : "Offset đỉnh (mm)";
-        if (topOnly)
+            topOffsetLabel.Text = levelOnly ? "Offset (mm)" : "Offset đỉnh (mm)";
+        if (_thickRow.Children[0] is TextBlock thickLabel)
+            thickLabel.Text = kind == ModelRevitPartKind.Pile
+                ? "Chiều sâu cọc (mm)"
+                : kind is ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.PileCap
+                    or ModelRevitPartKind.RaftFoundation or ModelRevitPartKind.StripFoundation
+                    ? "Chiều dày móng (mm, tùy chọn)"
+                    : "Bề dày hoặc tiết diện (mm)";
+        if (levelOnly)
         {
             DssTheme.FillCombo(_topLevel, _catalog.Levels, _catalog.BaseLevel);
             if (ParseMm(_topOffset.Text) == 0 && ParseMm(_baseOffset.Text) != 0)
                 _topOffset.Text = _baseOffset.Text;
         }
+        UpdatePileOffsetLabels();
         _typeLabel.Text = kind switch
         {
             ModelRevitPartKind.Pipe => "Loại ống",
             ModelRevitPartKind.Duct => "Loại gió",
             ModelRevitPartKind.CableTray => "Loại máng",
             ModelRevitPartKind.Beam => "Family / type",
+            ModelRevitPartKind.Pile => "Family / type cọc",
+            ModelRevitPartKind.PileCap => "Family / type đài (lọc; Type Mark = tên CAD)",
+            ModelRevitPartKind.IsolatedFoundation => "Family / type móng đơn",
+            ModelRevitPartKind.StripFoundation => "Family / type móng băng",
+            ModelRevitPartKind.RaftFoundation => "Family / type móng bè",
             _ => "Type"
         };
         _systemLabel.Text = "Hệ thống";
         FillTypes(kind);
         FillLengthParams();
+    }
+
+    private void UpdatePileOffsetLabels()
+    {
+        if (SelectedKind() != ModelRevitPartKind.Pile)
+            return;
+        var fromCap = _fromCapBottom.IsChecked == true;
+        Show(_embedRow, fromCap);
+        if (_topOffsetRow.Children[0] is TextBlock topOffsetLabel)
+            topOffsetLabel.Text = fromCap ? "Offset đáy đài (mm)" : "Offset đỉnh cọc (mm)";
     }
 
     private void FillTypes(ModelRevitPartKind kind)
@@ -371,7 +474,16 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             {
                 ModelRevitPartKind.StructuralWall => _catalog.WallTypes,
                 ModelRevitPartKind.Floor => _catalog.FloorTypes,
-                ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation => _catalog.FoundationTypes,
+                ModelRevitPartKind.Pile => FoundationCatalogFilter.FilterPileTypes(
+                    _catalog.FoundationTypes, SelectedPileSubtype()),
+                ModelRevitPartKind.PileCap => FoundationCatalogFilter.FilterFoundationTypes(
+                    _catalog.FoundationTypes, FoundationCatalogFilter.KindPileCap),
+                ModelRevitPartKind.IsolatedFoundation => FoundationCatalogFilter.FilterFoundationTypes(
+                    _catalog.FoundationTypes, FoundationCatalogFilter.KindIsolated),
+                ModelRevitPartKind.StripFoundation => FoundationCatalogFilter.FilterFoundationTypes(
+                    _catalog.FoundationTypes, FoundationCatalogFilter.KindStrip),
+                ModelRevitPartKind.RaftFoundation => FoundationCatalogFilter.FilterFoundationTypes(
+                    _catalog.FoundationTypes, FoundationCatalogFilter.KindRaft),
                 ModelRevitPartKind.Ceiling => _catalog.CeilingTypes,
                 ModelRevitPartKind.Pipe => _catalog.PipeTypes,
                 ModelRevitPartKind.Duct => _catalog.DuctTypes,
@@ -388,6 +500,18 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             _ => Array.Empty<string>()
         };
         DssTheme.FillCombo(_system, WithBlank(systems), "");
+    }
+
+    private string SelectedPileSubtype()
+    {
+        var label = DssTheme.ComboValue(_pileSubtype);
+        foreach (var item in PileSubtypeItems)
+        {
+            if (item.Label == label)
+                return item.Id;
+        }
+
+        return FoundationCatalogFilter.PileSubtypePressed;
     }
 
     /// <summary>
@@ -480,10 +604,10 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         var topOff = ParseMm(_topOffset.Text);
         var baseLevel = DssTheme.ComboValue(_baseLevel);
         var topLevel = DssTheme.ComboValue(_topLevel);
-        if (kind == ModelRevitPartKind.Beam)
+        if (kind is ModelRevitPartKind.Beam or ModelRevitPartKind.Pile)
         {
-            // Beam UI exposes one level + one offset (top fields). Carry đáy→đỉnh if user typed
-            // offset before switching part; keep Base* in sync so summary matches create.
+            // One Level + one Offset (top fields). Carry đáy→đỉnh if user typed offset before
+            // switching part; keep Base* in sync so summary matches create.
             if (topOff == 0 && baseOff != 0)
                 topOff = baseOff;
             if (string.IsNullOrWhiteSpace(topLevel))
@@ -491,6 +615,48 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             baseLevel = topLevel;
             baseOff = topOff;
         }
+
+        if (kind == ModelRevitPartKind.Pile)
+        {
+            if (string.IsNullOrWhiteSpace(BlankToEmpty(DssTheme.ComboValue(_type))))
+            {
+                MessageBox.Show(this,
+                    "Chọn type cọc (ví dụ S-FOUN-PHC-Cir : D400) trước khi dựng.",
+                    "DSSTech", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (thickness is null || thickness <= 0)
+            {
+                MessageBox.Show(this,
+                    "Nhập chiều sâu cọc (mm). Đỉnh cọc tại Level đã chọn (+ offset); đáy = đỉnh − chiều sâu.",
+                    "DSSTech", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var embed = ParseMm(_embedMm.Text);
+            if (_fromCapBottom.IsChecked == true && (embed < 100 || embed > 200))
+            {
+                var ask = MessageBox.Show(this,
+                    $"Ngàm thường 100–200 mm (hiện {embed:0} mm). Tiếp tục?",
+                    "DSSTech", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (ask != MessageBoxResult.Yes)
+                    return;
+            }
+        }
+
+        if ((kind is ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
+                or ModelRevitPartKind.StripFoundation or ModelRevitPartKind.RaftFoundation)
+            && string.IsNullOrWhiteSpace(BlankToEmpty(DssTheme.ComboValue(_type))))
+        {
+            MessageBox.Show(this,
+                "Chọn Family / type móng đã load trong project trước khi dựng.",
+                "DSSTech", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var fromCap = kind == ModelRevitPartKind.Pile && _fromCapBottom.IsChecked == true;
+        var embedMm = fromCap ? ParseMm(_embedMm.Text) : 0;
 
         Choice = new ModelRevitFormChoice
         {
@@ -519,7 +685,10 @@ internal sealed class ModelRevitSetupWindow : DssDialog
                 _ => kind == ModelRevitPartKind.StructuralWall ? "CoreShaft" : "Interior"
             },
             SystemName = BlankToEmpty(DssTheme.ComboValue(_system)),
-            ThicknessMm = thickness
+            ThicknessMm = thickness,
+            PileSubtype = kind == ModelRevitPartKind.Pile ? SelectedPileSubtype() : "",
+            PileFromCapBottom = fromCap,
+            EmbedMm = embedMm
         };
         DialogResult = true;
         Close();
@@ -554,6 +723,8 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         ModelRevitPartKind.Beam => "Dựng dầm",
         ModelRevitPartKind.Floor => "Dựng sàn",
         ModelRevitPartKind.IsolatedFoundation => "Dựng móng đơn",
+        ModelRevitPartKind.PileCap => "Dựng đài cọc",
+        ModelRevitPartKind.RaftFoundation => "Dựng móng bè",
         ModelRevitPartKind.Pile => "Dựng cọc",
         ModelRevitPartKind.StripFoundation => "Dựng móng băng",
         ModelRevitPartKind.Door => "Dựng cửa",

@@ -16,9 +16,11 @@ internal static class ParamPackageCatalog
         ("Tường", ModelRevitPartKind.StructuralWall),
         ("Dầm", ModelRevitPartKind.Beam),
         ("Sàn", ModelRevitPartKind.Floor),
+        ("Đài cọc", ModelRevitPartKind.PileCap),
         ("Móng đơn", ModelRevitPartKind.IsolatedFoundation),
-        ("Cọc", ModelRevitPartKind.Pile),
         ("Móng băng", ModelRevitPartKind.StripFoundation),
+        ("Móng bè", ModelRevitPartKind.RaftFoundation),
+        ("Cọc", ModelRevitPartKind.Pile),
         ("Cửa", ModelRevitPartKind.Door),
         ("Cửa sổ", ModelRevitPartKind.Window),
         ("Phòng", ModelRevitPartKind.Room),
@@ -44,6 +46,8 @@ internal static class ParamPackageCatalog
         [ModelRevitPartKind.Floor] = ["QS_ElementType", "QS_ConcreteGrade", "QS_Thickness", "QS_ConstructionHeight", "QS_FormworkArea", "QS_FormworkBottom"],
         [ModelRevitPartKind.FloorOpening] = ["QS_ElementType", "QS_Thickness"],
         [ModelRevitPartKind.IsolatedFoundation] = ["QS_ElementType", "QS_ConcreteGrade", "QS_ConstructionHeight"],
+        [ModelRevitPartKind.PileCap] = ["QS_ElementType", "QS_ConcreteGrade", "QS_ConstructionHeight"],
+        [ModelRevitPartKind.RaftFoundation] = ["QS_ElementType", "QS_ConcreteGrade", "QS_ConstructionHeight"],
         [ModelRevitPartKind.Pile] = ["QS_ElementType", "QS_ConcreteGrade", "QS_PileType", "QS_PileMaterial", "QS_ConstructionHeight"],
         [ModelRevitPartKind.StripFoundation] = ["QS_ElementType", "QS_ConcreteGrade", "QS_ConstructionHeight"],
         [ModelRevitPartKind.Door] = ["QS_ElementType", "QS_FrameType"],
@@ -64,6 +68,8 @@ internal static class ParamPackageCatalog
         [ModelRevitPartKind.Floor] = [BuiltInCategory.OST_Floors],
         [ModelRevitPartKind.FloorOpening] = [BuiltInCategory.OST_Floors],
         [ModelRevitPartKind.IsolatedFoundation] = [BuiltInCategory.OST_StructuralFoundation],
+        [ModelRevitPartKind.PileCap] = [BuiltInCategory.OST_StructuralFoundation],
+        [ModelRevitPartKind.RaftFoundation] = [BuiltInCategory.OST_StructuralFoundation],
         [ModelRevitPartKind.Pile] = [BuiltInCategory.OST_StructuralFoundation],
         [ModelRevitPartKind.StripFoundation] = [BuiltInCategory.OST_StructuralFoundation],
         [ModelRevitPartKind.Door] = [BuiltInCategory.OST_Doors],
@@ -79,7 +85,8 @@ internal static class ParamPackageCatalog
     private static readonly ModelRevitPartKind[] StructureParts =
     [
         ModelRevitPartKind.Column, ModelRevitPartKind.StructuralWall, ModelRevitPartKind.Beam, ModelRevitPartKind.Floor,
-        ModelRevitPartKind.IsolatedFoundation, ModelRevitPartKind.Pile, ModelRevitPartKind.StripFoundation
+        ModelRevitPartKind.IsolatedFoundation, ModelRevitPartKind.PileCap, ModelRevitPartKind.RaftFoundation,
+        ModelRevitPartKind.Pile, ModelRevitPartKind.StripFoundation
     ];
 
     private static readonly ModelRevitPartKind[] ArchitectureParts =

@@ -14,6 +14,11 @@ Phong cách **A – Kỹ sư xanh–vàng** (chốt 2026-10-27).
 Icon: nét navy dày 2px trên khung 32×32, mỗi icon có đúng một mảng vàng. Có cả bản 32px và 16px trong `src/DSSTech.Revit/Assets/`.
 Icon các bước CAD → BIM có số ①②③ trên bản 32px (bản 16px bỏ số vì quá nhỏ).
 
+## Giao diện tối (Revit 2024+)
+
+Mỗi icon có thêm bản `*-32-dark.png` / `*-16-dark.png`: nét `#D6E2EE` (xám xanh sáng) thay cho navy, giữ nguyên mảng vàng; số bước ①②③ đổi sang nền vàng chữ tối.
+`RibbonIcons.Load` tự chọn bản tối khi `UIThemeManager.CurrentTheme == UITheme.Dark`; `RibbonState.RefreshTheme()` chạy lại khi người dùng đổi theme (sự kiện `ThemeChanged`) nên không cần khởi động lại Revit.
+
 ## Nhãn song ngữ
 
 - **Nút to:** 2 dòng, `Tiếng Việt\nEnglish`, mỗi dòng nên ≤ 16 ký tự.

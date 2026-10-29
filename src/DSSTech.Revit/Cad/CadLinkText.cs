@@ -348,6 +348,9 @@ internal static class CadLinkText
             case ACadSharp.Entities.Line line:
                 AddLine(layer, transform.Apply(line.StartPoint), transform.Apply(line.EndPoint), units, curves);
                 break;
+            case MLine mline:
+                AddMLine(layer, mline, transform, units, curves);
+                break;
             case IPolyline poly:
                 AddPolyline(layer, poly, transform, units, curves);
                 break;
@@ -402,6 +405,75 @@ internal static class CadLinkText
             X1 = ToMm(end.X, units),
             Y1 = ToMm(end.Y, units)
         });
+    }
+
+    /// <summary>
+    /// Explode MLINE into parallel face lines (style element offsets × scale, or vertex parameters)
+    /// so BeamCenterlineReader can pair them like ordinary CAD edge faces.
+    /// </summary>
+    private static void AddMLine(
+        string layer, MLine mline, Transform2 transform, UnitsType units, List<CadEntity> curves)
+    {
+        var verts = mline.Vertices;
+        if (verts is null || verts.Count < 2)
+            return;
+
+        var positions = new List<(double X, double Y)>(verts.Count);
+        var miters = new List<(double X, double Y)>(verts.Count);
+        var parameters = new List<IReadOnlyList<double>>(verts.Count);
+        var anyParams = false;
+        foreach (var v in verts)
+        {
+            var p = transform.Apply(v.Position);
+            positions.Add((ToMm(p.X, units), ToMm(p.Y, units)));
+            // Miter is a direction — apply the linear part of the insert transform only.
+            var mx = transform.M11 * v.Miter.X + transform.M12 * v.Miter.Y;
+            var my = transform.M21 * v.Miter.X + transform.M22 * v.Miter.Y;
+            miters.Add((mx, my));
+            if (v.Segments is { Count: > 0 })
+            {
+                var faceParams = new List<double>(v.Segments.Count);
+                foreach (var seg in v.Segments)
+                {
+                    var param = seg.Parameters is { Count: > 0 } ? seg.Parameters[0] : 0.0;
+                    faceParams.Add(ToMm(param, units));
+                }
+
+                parameters.Add(faceParams);
+                if (faceParams.Count > 0)
+                    anyParams = true;
+            }
+            else
+            {
+                parameters.Add(Array.Empty<double>());
+            }
+        }
+
+        List<CadLine> faces;
+        if (anyParams)
+        {
+            faces = MlineFaceReader.ToFaceLinesFromParameters(
+                layer, positions, miters, parameters,
+                closed: (mline.Flags & MLineFlags.Closed) != 0);
+        }
+        else
+        {
+            var scale = Math.Abs(mline.ScaleFactor) > 1e-9 ? mline.ScaleFactor : 1.0;
+            var offsets = new List<double>();
+            if (mline.Style?.Elements is { Count: > 0 } elements)
+            {
+                foreach (var el in elements)
+                    offsets.Add(ToMm(el.Offset, units));
+            }
+
+            if (offsets.Count == 0)
+                offsets.Add(0);
+            faces = MlineFaceReader.ToFaceLines(
+                layer, positions, miters, offsets, scale,
+                closed: (mline.Flags & MLineFlags.Closed) != 0);
+        }
+
+        curves.AddRange(faces);
     }
 
     private static void AddPolyline(string layer, IPolyline poly, Transform2 transform, UnitsType units, List<CadEntity> curves)

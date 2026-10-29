@@ -5,11 +5,13 @@ using Dss.McpHost.Create;
 namespace DSSTech.Revit.ModelRevit;
 
 /// <summary>
-/// After ModelRevit creates columns/walls/beams, snap offsets to whole millimetres and place
-/// linear dimensions from element faces to the nearest parallel grids.
+/// After ModelRevit creates columns/walls/beams/piles, snap offsets to 5 mm steps (xxx0 / xxx5) and place
+/// linear dimensions from element faces (or pile center ± diameter/2) to the nearest parallel grids.
 /// </summary>
 internal static class ModelRevitAxisDimensions
 {
+    /// <summary>Offsets to grids land on multiples of this. Not 10/50 — that moves elements visibly off the CAD.</summary>
+    private const double SnapStepMm = UnitConv.SnapStepMm;
     /// <summary>Auto-dim only when face/center is this close to a grid.</summary>
     private const double MaxDimOffsetMm = 3000;
     /// <summary>Snap search — mid-bay columns are often 4–8 m from grids.</summary>
@@ -18,9 +20,26 @@ internal static class ModelRevitAxisDimensions
     private const double NearFaceSnapMm = 1200;
     private const double DimLineSideMm = 350;
     private const double ParallelCos = 0.9986; // ~3°
-    private const double WholeMmTol = 1e-6;
-    /// <summary>Wall/beam snap never moves an end further than this from where ModelRevit placed it.</summary>
-    private const double WallMaxMoveMm = 2.0;
+    /// <summary>Geometry is clean when offset is this close to a 5 mm station (mm).</summary>
+    private const double GeomOkMm = 0.001;
+    /// <summary>Below this a nudge is pointless (double precision on model coordinates).</summary>
+    private const double ExactTolMm = 1e-9;
+    /// <summary>Dimension types show 8 decimals: 699.99999998 is visible noise, so dims must be within half of 1e-8.</summary>
+    private const double DimDisplayTolMm = 5e-9;
+    /// <summary>Always apply a nudge this small (float dust / near-integer).</summary>
+    private const double TinyNudgeMm = 0.05;
+    /// <summary>
+    /// Half of <see cref="SnapStepMm"/> — distance to the nearest 5 mm station never exceeds this.
+    /// Snap moves within this are always allowed; larger end rebuilds may still run up to SafetyMaxMoveMm.
+    /// </summary>
+    private const double HalfStepMm = 2.5;
+    /// <summary>Hard safety: refuse only when the intended station is absurdly far (should not happen for nearest).</summary>
+    private const double SafetyMaxMoveMm = 5.0;
+
+    private static double RoundStep(double mm) => UnitConv.Round5Mm(mm);
+
+    private static bool OnStep(double mm, double tolMm = GeomOkMm) =>
+        Math.Abs(mm - RoundStep(mm)) <= tolMm;
 
     public static int CreateFromBatch(Document doc, View view, JsonElement batchData)
     {
@@ -44,7 +63,9 @@ internal static class ModelRevitAxisDimensions
         }
 
         var grids = ids.Count == 0 ? new List<GridSeg>() : CollectGrids(doc, view);
-        DSSTech.Revit.DssTechLog.Write($"axis snap: view={view.Name} ids={ids.Count} gridSegs={grids.Count}");
+        var existing = ids.Count == 0 ? new List<ElementId>() : ExistingInView(doc, view, new HashSet<ElementId>(ids));
+        DSSTech.Revit.DssTechLog.Write(
+            $"axis snap: view={view.Name} ids={ids.Count} existing={existing.Count} gridSegs={grids.Count}");
         if (ids.Count == 0 || grids.Count == 0)
             return 0;
 
@@ -53,22 +74,12 @@ internal static class ModelRevitAxisDimensions
             snapTx.Start();
             try
             {
-                foreach (var id in ids)
-                {
-                    var element = doc.GetElement(id);
-                    switch (element)
-                    {
-                        case FamilyInstance column when IsStructuralColumn(column):
-                            SnapColumnToGridWholeMm(doc, column, grids);
-                            break;
-                        case FamilyInstance beam when IsStructuralFraming(beam):
-                            SnapBeamToGridWholeMm(doc, beam, grids);
-                            break;
-                        case Wall wall:
-                            SnapWallToGridWholeMm(doc, wall, grids);
-                            break;
-                    }
-                }
+                // Sweep 1: new batch (rebuild allowed). Sweep 2 re-measures after a full regenerate (moves of
+                // joined neighbours) and also snaps elements from earlier runs: translate-only, ≤ half step.
+                // Existing dims follow their references, so they are neither deleted nor duplicated.
+                SnapAll(doc, ids, grids, allowRebuild: true);
+                doc.Regenerate();
+                SnapAll(doc, ids.Concat(existing), grids, allowRebuild: false);
 
                 var status = snapTx.Commit();
                 DSSTech.Revit.DssTechLog.Write($"axis snap commit={status}");
@@ -96,6 +107,9 @@ internal static class ModelRevitAxisDimensions
                     case FamilyInstance column when IsStructuralColumn(column):
                         created += DimensionColumn(doc, view, column, grids);
                         break;
+                    case FamilyInstance pile when IsStructuralFoundation(pile) && IsCircularPileLike(pile):
+                        created += DimensionPile(doc, view, pile, grids);
+                        break;
                     case FamilyInstance beam when IsStructuralFraming(beam):
                         created += DimensionBeam(doc, view, beam, grids);
                         break;
@@ -105,8 +119,10 @@ internal static class ModelRevitAxisDimensions
                 }
             }
 
+            created -= DeleteOffStepDimensions(doc, view, ids);
             var dimStatus = tx.Commit();
             DSSTech.Revit.DssTechLog.Write($"axis dims commit={dimStatus} created={created}");
+            LogOffStepDimensions(doc, view);
             if (dimStatus != TransactionStatus.Committed)
                 created = 0;
         }
@@ -119,6 +135,58 @@ internal static class ModelRevitAxisDimensions
         }
 
         return created;
+    }
+
+    private static void SnapAll(Document doc, IEnumerable<ElementId> ids, List<GridSeg> grids, bool allowRebuild)
+    {
+        foreach (var id in ids)
+        {
+            switch (doc.GetElement(id))
+            {
+                case FamilyInstance column when IsStructuralColumn(column):
+                    SnapColumnToGridWholeMm(doc, column, grids);
+                    break;
+                // Circular piles only — rectangular đài/footing Width≠diameter; MovesWithGrids +
+                // face-as-rim was jumping hundreds of mm off the CAD centroid (log ~500 mm).
+                case FamilyInstance pile when IsStructuralFoundation(pile) && IsCircularPileLike(pile):
+                    SnapPileToGridWholeMm(doc, pile, grids);
+                    break;
+                case FamilyInstance beam when IsStructuralFraming(beam):
+                    SnapBeamToGridWholeMm(doc, beam, grids, allowRebuild);
+                    break;
+                case Wall wall:
+                    SnapWallToGridWholeMm(doc, wall, grids, allowRebuild);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>Structural columns / framing / walls / foundations visible in the plan, not pinned, not in groups.</summary>
+    private static List<ElementId> ExistingInView(Document doc, View view, HashSet<ElementId> skip)
+    {
+        var filter = new ElementMulticategoryFilter(new[]
+        {
+            BuiltInCategory.OST_StructuralColumns, BuiltInCategory.OST_StructuralFraming,
+            BuiltInCategory.OST_Walls, BuiltInCategory.OST_StructuralFoundation
+        });
+        var list = new List<ElementId>();
+        foreach (var e in new FilteredElementCollector(doc, view.Id).WherePasses(filter).WhereElementIsNotElementType())
+        {
+            if (skip.Contains(e.Id) || e.Pinned || e.GroupId != ElementId.InvalidElementId)
+                continue;
+            if (e is Wall wall && wall.get_Parameter(BuiltInParameter.WALL_STRUCTURAL_SIGNIFICANT)?.AsInteger() != 1)
+                continue;
+            // Point foundations / piles only (strip foundations use LocationCurve).
+            if (e is FamilyInstance fi
+                && fi.Category?.BuiltInCategory == BuiltInCategory.OST_StructuralFoundation
+                && fi.Location is not LocationPoint)
+                continue;
+            if (e is not (FamilyInstance or Wall))
+                continue;
+            list.Add(e.Id);
+        }
+
+        return list;
     }
 
     private sealed class GridSeg
@@ -173,64 +241,127 @@ internal static class ModelRevitAxisDimensions
     private static bool IsStructuralFraming(FamilyInstance beam) =>
         beam.Category?.BuiltInCategory == BuiltInCategory.OST_StructuralFraming;
 
+    private static bool IsStructuralFoundation(FamilyInstance fi) =>
+        fi.Category?.BuiltInCategory == BuiltInCategory.OST_StructuralFoundation
+        && fi.Location is LocationPoint;
+
+    /// <summary>
+    /// True piles (D### / equal round section). False for đài/footing where Width is a side length —
+    /// using it as radius made MeasurePile face-snap pull instances toward grids.
+    /// </summary>
+    private static bool IsCircularPileLike(FamilyInstance fi)
+    {
+        if (fi.Symbol is not { } symbol)
+            return false;
+        foreach (var name in new[] { "Diameter", "diameter", "Đường kính", "Dia" })
+        {
+            var p = symbol.LookupParameter(name);
+            if (p is { StorageType: StorageType.Double } && p.AsDouble() > 0)
+                return true;
+        }
+
+        var typeName = symbol.Name ?? "";
+        if (System.Text.RegularExpressions.Regex.IsMatch(typeName, @"[Dd]\s*\d{2,4}\b"))
+            return true;
+
+        // Equal b×h and name looks round — treat as pile section.
+        var w = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
+        var h = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_HEIGHT);
+        if (w is { StorageType: StorageType.Double } && h is { StorageType: StorageType.Double }
+            && w.AsDouble() > 0 && Math.Abs(w.AsDouble() - h.AsDouble()) < 1e-9
+            && (typeName.Contains("PHC", StringComparison.OrdinalIgnoreCase)
+                || typeName.Contains("pile", StringComparison.OrdinalIgnoreCase)
+                || typeName.Contains("cọc", StringComparison.OrdinalIgnoreCase)))
+            return true;
+
+        return false;
+    }
+
     private readonly record struct ColumnOffset(GridSeg Grid, string Anchor, double SignedInternal)
     {
         public double Mm => UnitConv.ToMm(SignedInternal);
     }
 
     /// <summary>
-    /// Snap column so offsets to grids are whole mm. Near a grid → face; mid-bay → center.
+    /// Snap column so offsets to grids are 5 mm steps. Near a grid → face; mid-bay → center.
     /// Absolute world rounding is wrong when grids themselves sit on fractional mm.
     /// Only two grid directions are solved together: a third (diagonal) grid would pull
-    /// the first two off whole mm again.
+    /// the first two off the 5 mm step again.
     /// </summary>
-    private static void SnapColumnToGridWholeMm(Document doc, FamilyInstance column, List<GridSeg> grids)
+    private static void SnapColumnToGridWholeMm(Document doc, FamilyInstance column, List<GridSeg> grids) =>
+        SnapPointFamilyToGrid(doc, column, grids, MeasureColumn, "col");
+
+    /// <summary>
+    /// Point piles / isolated foundations: LocationPoint + type diameter (not solid faces — cylinders
+    /// are unreliable). Near a grid → rim; mid-bay → center. Same 5 mm exactMm move as columns.
+    /// </summary>
+    private static void SnapPileToGridWholeMm(Document doc, FamilyInstance pile, List<GridSeg> grids) =>
+        SnapPointFamilyToGrid(doc, pile, grids, MeasurePile, "pile");
+
+    private static void SnapPointFamilyToGrid(
+        Document doc,
+        FamilyInstance instance,
+        List<GridSeg> grids,
+        Func<FamilyInstance, GridSeg, ColumnOffset> measure,
+        string tag)
     {
-        var snapGrids = ColumnSnapGrids(column, grids);
+        var snapGrids = PointSnapGrids(instance, grids);
         if (snapGrids.Count == 0)
             return;
-        var before = snapGrids.Select(g => MeasureColumn(column, g)).ToList();
+        var before = snapGrids.Select(g => measure(instance, g)).ToList();
         var after = before;
         for (var pass = 0; pass < 2; pass++)
         {
             var move = WholeMmMove(after);
-            if (move.GetLength() < 1e-12)
+            var moveMm = UnitConv.ToMm(move.GetLength());
+            if (moveMm < 1e-15)
                 break;
-            if (pass == 1)
-                ReleaseMovesWithGrids(column);
+            var stationResidual = after.Max(o => Math.Abs(o.Mm - RoundStep(o.Mm)));
+            if (!AllowSnapMove(moveMm, stationResidual))
+            {
+                DSSTech.Revit.DssTechLog.Write(
+                    $"axis snap {tag}={instance.Id.Value} skip moveMm={moveMm:0.000} stationResidual={stationResidual:0.000}");
+                break;
+            }
+
+            // Release before the first nudge — MovesWithGrids can amplify a ≤2.5 mm snap into a grid jump.
+            ReleaseMovesWithGrids(instance);
             try
             {
-                ElementTransformUtils.MoveElement(doc, column.Id, move);
+                ElementTransformUtils.MoveElement(doc, instance.Id, move);
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException ex)
             {
-                DSSTech.Revit.DssTechLog.Write($"axis snap col={column.Id.Value} move failed: {ex.Message}");
+                DSSTech.Revit.DssTechLog.Write($"axis snap {tag}={instance.Id.Value} move failed: {ex.Message}");
                 break;
             }
 
             doc.Regenerate();
-            after = snapGrids.Select(g => MeasureColumn(column, g)).ToList();
+            after = snapGrids.Select(g => measure(instance, g)).ToList();
+            if (after.All(o => OnStep(o.Mm)))
+                break;
         }
 
         for (var i = 0; i < before.Count; i++)
             DSSTech.Revit.DssTechLog.Write(
-                $"axis snap col={column.Id.Value} grid={before[i].Grid.Grid.Name} anchor={after[i].Anchor} " +
+                $"axis snap {tag}={instance.Id.Value} grid={before[i].Grid.Grid.Name} anchor={after[i].Anchor} " +
                 $"before={before[i].Mm:0.00000000} after={after[i].Mm:0.00000000}");
     }
 
-    private static List<GridSeg> ColumnSnapGrids(FamilyInstance column, List<GridSeg> grids)
+    private static List<GridSeg> PointSnapGrids(FamilyInstance instance, List<GridSeg> grids)
     {
-        if (column.Location is not LocationPoint lp)
+        if (instance.Location is not LocationPoint lp)
             return new List<GridSeg>();
         var center = lp.Point;
-        var faces = VerticalFaces(column);
+        var faces = VerticalFaces(instance);
         var candidates = new List<(GridSeg Grid, bool Aligned, double AbsMm)>();
         foreach (var axis in DistinctAxes(grids))
         {
             var nearest = NearestGrid(center, axis.Normal, grids, SnapSearchMm);
             if (nearest is null)
                 continue;
-            var aligned = faces.Any(f => Math.Abs(f.FaceNormal.DotProduct(nearest.Normal)) >= ParallelCos);
+            var aligned = faces.Any(f => Math.Abs(f.FaceNormal.DotProduct(nearest.Normal)) >= ParallelCos)
+                || HalfPileRadiusInternal(instance) is > 0;
             var absMm = Math.Abs(UnitConv.ToMm((center - nearest.Origin).DotProduct(nearest.Normal)));
             candidates.Add((nearest, aligned, absMm));
         }
@@ -253,14 +384,66 @@ internal static class ModelRevitAxisDimensions
             (anchor - grid.Origin).DotProduct(grid.Normal));
     }
 
-    /// <summary>Move that puts every offset on whole mm; two grid normals solved exactly even when not 90°.</summary>
+    /// <summary>
+    /// Pile offset from LocationPoint ± type radius (D400 → 200). Avoids cylinder solid faces.
+    /// </summary>
+    private static ColumnOffset MeasurePile(FamilyInstance pile, GridSeg grid)
+    {
+        var center = ((LocationPoint)pile.Location).Point;
+        var midOff = (center - grid.Origin).DotProduct(grid.Normal);
+        if (HalfPileRadiusInternal(pile) is double half && half > 0)
+        {
+            var midMm = UnitConv.ToMm(midOff);
+            if (Math.Abs(midMm) > ExactTolMm)
+            {
+                var faceOff = midOff - Math.Sign(midMm) * half;
+                if (Math.Abs(UnitConv.ToMm(faceOff)) <= NearFaceSnapMm)
+                    return new ColumnOffset(grid, "face", faceOff);
+            }
+        }
+
+        return new ColumnOffset(grid, "center", midOff);
+    }
+
+    /// <summary>Half diameter from type Diameter / D / b / Width, or parse D400 from type name.</summary>
+    private static double? HalfPileRadiusInternal(FamilyInstance pile)
+    {
+        if (pile.Symbol is not { } symbol)
+            return null;
+        foreach (var name in PileDiameterParamNames)
+        {
+            var p = symbol.LookupParameter(name);
+            if (p is { StorageType: StorageType.Double } && p.AsDouble() > 0)
+                return p.AsDouble() / 2;
+        }
+
+        var width = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
+        if (width is { StorageType: StorageType.Double } && width.AsDouble() > 0)
+            return width.AsDouble() / 2;
+
+        var typeName = symbol.Name ?? "";
+        var m = System.Text.RegularExpressions.Regex.Match(typeName, @"[Dd]\s*(\d{2,4})\b");
+        if (m.Success && int.TryParse(m.Groups[1].Value, out var diaMm) && diaMm > 0)
+            return UnitConv.MmToInternal(diaMm) / 2;
+        return null;
+    }
+
+    private static readonly string[] PileDiameterParamNames =
+    {
+        "Diameter", "diameter", "D", "b", "B", "Width", "width", "Đường kính", "Dia"
+    };
+
+    /// <summary>
+    /// Move that puts every offset on a 5 mm step via exact MmToInternal(Round5(mm)) − current.
+    /// Tiny float residuals are always applied (no WholeMmTol short-circuit).
+    /// </summary>
     private static XYZ WholeMmMove(List<ColumnOffset> offsets)
     {
         var d = offsets
             .Select(o =>
             {
-                var target = UnitConv.RoundWholeMm(o.Mm);
-                return Math.Abs(target - o.Mm) < WholeMmTol ? 0 : UnitConv.MmToInternal(target) - o.SignedInternal;
+                var targetInternal = UnitConv.MmToInternal(RoundStep(o.Mm));
+                return targetInternal - o.SignedInternal;
             })
             .ToList();
         var n1 = offsets[0].Grid.Normal;
@@ -283,14 +466,14 @@ internal static class ModelRevitAxisDimensions
         DSSTech.Revit.DssTechLog.Write($"axis snap col={column.Id.Value} movesWithGrids off");
     }
 
-    private static void SnapWallToGridWholeMm(Document doc, Wall wall, List<GridSeg> grids)
+    private static void SnapWallToGridWholeMm(Document doc, Wall wall, List<GridSeg> grids, bool allowRebuild)
     {
-        if (wall.Location is not LocationCurve { Curve: Line line })
+        if (wall.Location is not LocationCurve { Curve: Line })
             return;
-        SnapLocationCurveToGrid(doc, wall, line, grids, "wall");
+        SnapLocationCurveToGrid(doc, wall, grids, "wall", allowRebuild);
     }
 
-    private static void SnapBeamToGridWholeMm(Document doc, FamilyInstance beam, List<GridSeg> grids)
+    private static void SnapBeamToGridWholeMm(Document doc, FamilyInstance beam, List<GridSeg> grids, bool allowRebuild)
     {
         if (beam.Location is not LocationCurve { Curve: Line line })
             return;
@@ -301,7 +484,7 @@ internal static class ModelRevitAxisDimensions
         double? keep1 = end1 is { IsReadOnly: false } ? end1.AsDouble() : null;
         var z0 = line.GetEndPoint(0).Z;
         var z1 = line.GetEndPoint(1).Z;
-        SnapLocationCurveToGrid(doc, beam, line, grids, "beam");
+        SnapLocationCurveToGrid(doc, beam, grids, "beam", allowRebuild);
         if (beam.Location is LocationCurve { Curve: Line after })
         {
             var a0 = after.GetEndPoint(0);
@@ -333,45 +516,130 @@ internal static class ModelRevitAxisDimensions
         }
     }
 
-    private static void SnapLocationCurveToGrid(Document doc, Element element, Line line, List<GridSeg> grids, string kind)
+    private readonly record struct CurveAnchor(Line Line, GridSeg Grid, XYZ Anchor, double AnchorOff, double MidOff);
+
+    /// <summary>
+    /// Nearest parallel grid to the location-line mid and the anchor snapped to it: the face nearer the grid
+    /// at location line ± b/2 (type width / wall width), else the location line. Solid faces from get_Geometry
+    /// are not used — they read clean while the beam's Left/Right references stayed 0.2386 mm off.
+    /// </summary>
+    private static CurveAnchor? MeasureCurveAnchor(Element element, List<GridSeg> grids)
     {
+        if (element.Location is not LocationCurve { Curve: Line line })
+            return null;
         var mid = line.Evaluate(0.5, true);
         var dir = line.Direction.Normalize();
         var normal = new XYZ(-dir.Y, dir.X, 0).Normalize();
         var nearest = NearestGrid(mid, normal, grids, SnapSearchMm);
         if (nearest is null)
-            return;
-        var faces = VerticalFaces(element);
-        var face = FaceTowardGrid(faces, mid, nearest, NearFaceSnapMm)
-                   ?? faces.FirstOrDefault(f => Math.Abs(f.FaceNormal.DotProduct(normal)) >= ParallelCos);
-        var anchor = face is not null ? FacePoint(face, mid) : mid;
-        if (face is null || Math.Abs(UnitConv.ToMm((anchor - nearest.Origin).DotProduct(nearest.Normal))) > NearFaceSnapMm)
-            anchor = mid;
-        if (TryRebuildLocationCurveOnGrids(element, line, anchor, nearest, grids, kind))
-            return;
-        var delta = WholeMmDelta(anchor, nearest);
-        // Horizontal members: never move Z (grid normals are XY, but keep this explicit).
-        delta = new XYZ(delta.X, delta.Y, 0);
-        DSSTech.Revit.DssTechLog.Write(
-            $"axis snap {kind}={element.Id.Value} grid={nearest.Grid.Name} " +
-            $"before={UnitConv.ToMm((anchor - nearest.Origin).DotProduct(nearest.Normal)):0.00000000} " +
-            $"moveMm={UnitConv.ToMm(delta.DotProduct(nearest.Normal)):0.00000000}");
-        if (delta.GetLength() < 1e-12)
-            return;
-        try
+            return null;
+        var midOff = (mid - nearest.Origin).DotProduct(nearest.Normal);
+        var anchorOff = midOff;
+        if (HalfWidthInternal(element) is double half && half > 0)
         {
-            ElementTransformUtils.MoveElement(doc, element.Id, delta);
+            var face = midOff - Math.Sign(midOff) * half;
+            if (Math.Abs(UnitConv.ToMm(face)) <= NearFaceSnapMm)
+                anchorOff = face;
         }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
+
+        return new CurveAnchor(line, nearest, mid + nearest.Normal * (anchorOff - midOff), anchorOff, midOff);
+    }
+
+    /// <summary>Half of the beam type width b / wall width (internal units).</summary>
+    private static double? HalfWidthInternal(Element element)
+    {
+        if (element is Wall wall)
+            return wall.Width / 2;
+        if (element is not FamilyInstance { Symbol: { } symbol })
+            return null;
+        var p = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
+        if (p is not { StorageType: StorageType.Double } || p.AsDouble() <= 0)
+            p = BeamWidthParamNames.Select(symbol.LookupParameter)
+                .FirstOrDefault(x => x is { StorageType: StorageType.Double } && x.AsDouble() > 0);
+        return p is null ? null : p.AsDouble() / 2;
+    }
+
+    private static readonly string[] BeamWidthParamNames = { "b", "B", "Width", "width", "W", "Rộng", "Chiều rộng" };
+
+    /// <summary>
+    /// Target location-line offset is fixed once from the location line (+ b/2); every check reads only the
+    /// location curve, so there is no face re-query to lag behind a move.
+    /// </summary>
+    private static void SnapLocationCurveToGrid(Document doc, Element element, List<GridSeg> grids, string kind, bool allowRebuild)
+    {
+        if (MeasureCurveAnchor(element, grids) is not CurveAnchor m)
+            return;
+        var beforeMm = UnitConv.ToMm(m.AnchorOff);
+        var stationResidual = Math.Abs(beforeMm - RoundStep(beforeMm));
+        if (stationResidual <= ExactTolMm)
+            return;
+        var targetMid = m.MidOff + (UnitConv.MmToInternal(RoundStep(beforeMm)) - m.AnchorOff);
+
+        // Rebuild (parallel + 5 mm ends) only for newly created, visibly off-step elements.
+        // Clean geometry is never rebuilt: end-rounding re-introduced .761 CAD residue before.
+        if (allowRebuild && stationResidual > GeomOkMm &&
+            TryRebuildLocationCurveOnGrids(element, m.Line, m.Anchor, m.Grid, grids, kind))
+            doc.Regenerate();
+
+        for (var pass = 0; pass < 2; pass++)
         {
-            // Keep element if locked.
+            if (element.Location is not LocationCurve { Curve: Line now })
+                return;
+            var d = targetMid - (now.Evaluate(0.5, true) - m.Grid.Origin).DotProduct(m.Grid.Normal);
+            var moveMm = Math.Abs(UnitConv.ToMm(d));
+            DSSTech.Revit.DssTechLog.Write(
+                $"axis snap {kind}={element.Id.Value} grid={m.Grid.Grid.Name} " +
+                $"before={beforeMm:0.00000000} moveMm={UnitConv.ToMm(d):0.00000000} pass={pass}");
+            if (moveMm <= ExactTolMm)
+                return;
+            if (!AllowSnapMove(moveMm, stationResidual) || (!allowRebuild && moveMm > HalfStepMm + TinyNudgeMm))
+            {
+                DSSTech.Revit.DssTechLog.Write(
+                    $"axis snap {kind}={element.Id.Value} skip moveMm={moveMm:0.000} stationResidual={stationResidual:0.000}");
+                return;
+            }
+
+            try
+            {
+                // Revit drops sub-tolerance moves (1e-7 mm stayed 249.9999999): go out 1 mm and back instead.
+                if (moveMm < GeomOkMm)
+                {
+                    var detour = UnitConv.MmToInternal(1);
+                    ElementTransformUtils.MoveElement(doc, element.Id, m.Grid.Normal * (d + detour));
+                    ElementTransformUtils.MoveElement(doc, element.Id, m.Grid.Normal * -detour);
+                }
+                else
+                {
+                    ElementTransformUtils.MoveElement(doc, element.Id, m.Grid.Normal * d);
+                }
+
+                doc.Regenerate();
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException ex)
+            {
+                DSSTech.Revit.DssTechLog.Write($"axis snap {kind}={element.Id.Value} move failed: {ex.Message}");
+                return;
+            }
         }
     }
 
     /// <summary>
+    /// Allow snap when residual to nearest 5 mm station ≤ half-step (always for nearest).
+    /// Refuse only when station residual &gt; 3 mm or move exceeds safety cap.
+    /// </summary>
+    private static bool AllowSnapMove(double moveMm, double stationResidualMm)
+    {
+        if (stationResidualMm <= HalfStepMm || moveMm <= TinyNudgeMm)
+            return moveMm <= SafetyMaxMoveMm;
+        if (stationResidualMm > 3.0)
+            return false;
+        return moveMm <= SafetyMaxMoveMm;
+    }
+
+    /// <summary>
     /// Rotate-aware wall snap: make the location line exactly parallel to the grid, put the face/center
-    /// offset on whole mm, and put both ends on whole mm from the nearest perpendicular grid (else keep
-    /// a whole-mm length). Skipped when any end would move more than <see cref="WallMaxMoveMm"/>.
+    /// offset on a 5 mm step, and put both ends on 5 mm steps from the nearest perpendicular grid (else along
+    /// the parallel grid). Skipped when any end would move more than <see cref="SafetyMaxMoveMm"/>.
     /// </summary>
     private static bool TryRebuildLocationCurveOnGrids(
         Element element, Line line, XYZ anchor, GridSeg parallel, List<GridSeg> grids, string kind)
@@ -381,9 +649,11 @@ internal static class ModelRevitAxisDimensions
         var n = parallel.Normal;
         var u = parallel.Direction.DotProduct(line.Direction) >= 0 ? parallel.Direction : parallel.Direction.Negate();
         var anchorOff = (anchor - parallel.Origin).DotProduct(n);
-        var shift = UnitConv.MmToInternal(UnitConv.RoundWholeMm(UnitConv.ToMm(anchorOff))) - anchorOff;
+        var targetAcross = UnitConv.MmToInternal(RoundStep(UnitConv.ToMm(anchorOff)));
         var mid = line.Evaluate(0.5, true);
-        var across = (mid - parallel.Origin).DotProduct(n) + shift;
+        // Keep mid→face offset: shift centerline so the measured anchor lands on exact targetInternal.
+        var midOff = (mid - parallel.Origin).DotProduct(n);
+        var across = midOff + (targetAcross - anchorOff);
 
         var perp = NearestGrid(mid, u, grids, SnapSearchMm);
         XYZ origin;
@@ -408,13 +678,18 @@ internal static class ModelRevitAxisDimensions
             return false;
         var move0 = UnitConv.ToMm(q0.DistanceTo(p0));
         var move1 = UnitConv.ToMm(q1.DistanceTo(p1));
+        var acrossResidual = Math.Abs(UnitConv.ToMm(anchorOff) - RoundStep(UnitConv.ToMm(anchorOff)));
         DSSTech.Revit.DssTechLog.Write(
             $"axis snap {kind}={element.Id.Value} grid={parallel.Grid.Name} perp={perp?.Grid.Name ?? "-"} " +
             $"across={UnitConv.ToMm(anchorOff):0.00000000} ends=({s0:0.###},{s1:0.###}) moveMm=({move0:0.000},{move1:0.000})");
-        if (move0 > WallMaxMoveMm || move1 > WallMaxMoveMm)
+        // Prefer across snap: allow end moves up to safety when across needs a ≤half-step fix.
+        if (move0 > SafetyMaxMoveMm || move1 > SafetyMaxMoveMm)
             return false;
-        if (move0 < 1e-6 && move1 < 1e-6)
-            return true;
+        if (acrossResidual > HalfStepMm && (move0 > HalfStepMm || move1 > HalfStepMm) &&
+            !AllowSnapMove(Math.Max(move0, move1), acrossResidual))
+            return false;
+        if (move0 < 1e-9 && move1 < 1e-9)
+            return acrossResidual <= GeomOkMm;
         if (element.Location is not LocationCurve location)
             return false;
         try
@@ -430,20 +705,8 @@ internal static class ModelRevitAxisDimensions
         return true;
     }
 
-    /// <summary>Whole-mm length; the end nearer a 5 mm station keeps its whole-mm offset.</summary>
-    private static (double Start, double End) WholeMmSpan(double s0, double s1)
-    {
-        var len = UnitConv.RoundWholeMm(s1 - s0);
-        static double Off5(double v) => Math.Abs(v - Math.Round(v / 5.0, MidpointRounding.AwayFromZero) * 5.0);
-        if (Off5(s1) < Off5(s0))
-        {
-            var end = UnitConv.RoundWholeMm(s1);
-            return (end - len, end);
-        }
-
-        var start = UnitConv.RoundWholeMm(s0);
-        return (start, start + len);
-    }
+    /// <summary>Both ends on 5 mm stations from the perpendicular grid, so the length is a 5 mm multiple too.</summary>
+    private static (double Start, double End) WholeMmSpan(double s0, double s1) => (RoundStep(s0), RoundStep(s1));
 
     /// <summary>Plan point with offset <paramref name="a"/> along <paramref name="n"/> from o1 and <paramref name="b"/> along <paramref name="m"/> from o2.</summary>
     private static XYZ? OnGrids(XYZ o1, XYZ n, double a, XYZ o2, XYZ m, double b, double z)
@@ -454,16 +717,6 @@ internal static class ModelRevitAxisDimensions
         var c1 = a + o1.X * n.X + o1.Y * n.Y;
         var c2 = b + o2.X * m.X + o2.Y * m.Y;
         return new XYZ((c1 * m.Y - c2 * n.Y) / det, (n.X * c2 - m.X * c1) / det, z);
-    }
-
-    private static XYZ WholeMmDelta(XYZ point, GridSeg grid)
-    {
-        var signedInternal = (point - grid.Origin).DotProduct(grid.Normal);
-        var distMm = UnitConv.ToMm(signedInternal);
-        var targetMm = UnitConv.RoundWholeMm(distMm);
-        if (Math.Abs(targetMm - distMm) < WholeMmTol)
-            return XYZ.Zero;
-        return grid.Normal * (UnitConv.MmToInternal(targetMm) - signedInternal);
     }
 
     private static PlanarFace? FaceTowardGrid(List<PlanarFace> faces, XYZ center, GridSeg grid, double maxAbsMm)
@@ -504,13 +757,75 @@ internal static class ModelRevitAxisDimensions
             var offsetMm = Math.Abs(UnitConv.ToMm((facePt - nearest.Origin).DotProduct(nearest.Normal)));
             if (offsetMm < 1 || offsetMm > MaxDimOffsetMm)
                 continue;
-            if (Math.Abs(offsetMm - UnitConv.RoundWholeMm(offsetMm)) > 0.05)
+            // Only auto-dim when geometry is already on a 5 mm station (after snap).
+            if (!OnStep(offsetMm, TinyNudgeMm))
                 continue;
             if (TryNewDimension(doc, view, nearest.Grid, faceToward.Reference, facePt, faceToward.FaceNormal))
                 count++;
         }
 
         return count;
+    }
+
+    /// <summary>
+    /// Pile dims: prefer planar faces when present; else dim grid → instance strong reference at
+    /// the snapped rim/center (type diameter), same 5 mm gate as columns.
+    /// </summary>
+    private static int DimensionPile(Document doc, View view, FamilyInstance pile, List<GridSeg> grids)
+    {
+        var faces = VerticalFaces(pile);
+        if (faces.Count > 0)
+            return DimensionColumn(doc, view, pile, grids);
+
+        if (pile.Location is not LocationPoint lp)
+            return 0;
+        var center = lp.Point;
+        var count = 0;
+        foreach (var axis in DistinctAxes(grids))
+        {
+            var nearest = NearestGrid(center, axis.Normal, grids, MaxDimOffsetMm);
+            if (nearest is null)
+                continue;
+            var measured = MeasurePile(pile, nearest);
+            var offsetMm = Math.Abs(measured.Mm);
+            if (offsetMm < 1 || offsetMm > MaxDimOffsetMm || !OnStep(offsetMm, TinyNudgeMm))
+                continue;
+            var facePt = center + nearest.Normal * (measured.SignedInternal
+                - (center - nearest.Origin).DotProduct(nearest.Normal));
+            if (!TryPileReference(pile, out var pileRef))
+                continue;
+            if (TryNewDimension(doc, view, nearest.Grid, pileRef, facePt, nearest.Normal))
+                count++;
+        }
+
+        return count;
+    }
+
+    private static bool TryPileReference(FamilyInstance pile, out Reference reference)
+    {
+        reference = null!;
+        try
+        {
+            foreach (var kind in new[]
+                     {
+                         FamilyInstanceReferenceType.CenterLeftRight,
+                         FamilyInstanceReferenceType.CenterFrontBack,
+                         FamilyInstanceReferenceType.StrongReference
+                     })
+            {
+                var refs = pile.GetReferences(kind);
+                if (refs is null || refs.Count == 0)
+                    continue;
+                reference = refs[0];
+                return true;
+            }
+        }
+        catch
+        {
+            // Family has no strong refs — skip auto-dim (snap still applied).
+        }
+
+        return false;
     }
 
     private static int DimensionWall(Document doc, View view, Wall wall, List<GridSeg> grids) =>
@@ -526,20 +841,18 @@ internal static class ModelRevitAxisDimensions
         var mid = line.Evaluate(0.5, true);
         var dir = line.Direction.Normalize();
         var normal = new XYZ(-dir.Y, dir.X, 0).Normalize();
-        var faces = VerticalFaces(element);
-        PlanarFace? face = faces
-            .OrderByDescending(f => Math.Abs(f.FaceNormal.DotProduct(normal)))
-            .FirstOrDefault(f => f.Reference is not null && Math.Abs(f.FaceNormal.DotProduct(normal)) >= ParallelCos);
-        if (face?.Reference is null)
-            return 0;
         var nearest = NearestGrid(mid, normal, grids, MaxDimOffsetMm);
         if (nearest is null)
+            return 0;
+        // Same face the snap anchored: the far face carries width noise (e.g. 699.99999998 on rotated beams).
+        var face = FaceTowardGrid(VerticalFaces(element), mid, nearest, MaxDimOffsetMm);
+        if (face?.Reference is null)
             return 0;
         var facePt = FacePoint(face, mid);
         var offsetMm = Math.Abs(UnitConv.ToMm((facePt - nearest.Origin).DotProduct(nearest.Normal)));
         if (offsetMm < 1 || offsetMm > MaxDimOffsetMm)
             return 0;
-        if (Math.Abs(offsetMm - UnitConv.RoundWholeMm(offsetMm)) > 0.05)
+        if (!OnStep(offsetMm, TinyNudgeMm))
             return 0;
         return TryNewDimension(doc, view, nearest.Grid, face.Reference, facePt, face.FaceNormal) ? 1 : 0;
     }
@@ -560,18 +873,7 @@ internal static class ModelRevitAxisDimensions
         refs.Append(faceRef);
         try
         {
-            var dim = doc.Create.NewDimension(view, dimLine, refs);
-            // Refuse fractional measured values (grid not on whole mm, bad ref, etc.).
-            if (dim.Value is double feet)
-            {
-                var mm = Math.Abs(UnitConv.ToMm(feet));
-                if (Math.Abs(mm - UnitConv.RoundWholeMm(mm)) > 0.05)
-                {
-                    doc.Delete(dim.Id);
-                    return false;
-                }
-            }
-
+            doc.Create.NewDimension(view, dimLine, refs);
             return true;
         }
         catch (Autodesk.Revit.Exceptions.ArgumentException)
@@ -582,6 +884,80 @@ internal static class ModelRevitAxisDimensions
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// Diagnostic: linear dims left off the 5 mm step in the view and what they reference. A dim to an
+    /// ImportInstance (CAD link line under the beam) keeps the CAD residue whatever the snap does.
+    /// </summary>
+    private static void LogOffStepDimensions(Document doc, View view)
+    {
+        var logged = 0;
+        foreach (var dim in new FilteredElementCollector(doc, view.Id).OfClass(typeof(Dimension)).Cast<Dimension>())
+        {
+            if (logged >= 40)
+                break;
+            try
+            {
+                if (dim.Value is not double feet)
+                    continue;
+                var mm = Math.Abs(UnitConv.ToMm(feet));
+                if (Math.Abs(mm - RoundStep(mm)) <= DimDisplayTolMm)
+                    continue;
+                var refs = new List<string>();
+                for (var i = 0; i < dim.References.Size; i++)
+                {
+                    var el = doc.GetElement(dim.References.get_Item(i));
+                    refs.Add(el is null ? "?" : $"{el.GetType().Name}:{el.Category?.Name}:{el.Id.Value}");
+                }
+
+                DSSTech.Revit.DssTechLog.Write(
+                    $"axis dim offstep id={dim.Id.Value} mm={mm:0.00000000} refs={string.Join(" | ", refs)}");
+                logged++;
+            }
+            catch
+            {
+                // Dims we cannot inspect.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Refuse auto dims off the 5 mm step. Values are read after one regenerate: right after NewDimension
+    /// Value can still be the 1 ft placeholder (304.8 mm). Dims referencing the batch were deleted before
+    /// creation, so every dim found here is one of ours.
+    /// </summary>
+    private static int DeleteOffStepDimensions(Document doc, View view, List<ElementId> elementIds)
+    {
+        doc.Regenerate();
+        var set = new HashSet<ElementId>(elementIds);
+        var noisy = new List<ElementId>();
+        foreach (var dim in new FilteredElementCollector(doc, view.Id).OfClass(typeof(Dimension)).Cast<Dimension>())
+        {
+            try
+            {
+                if (dim.Value is not double feet)
+                    continue;
+                var ours = false;
+                for (var i = 0; i < dim.References.Size && !ours; i++)
+                    ours = doc.GetElement(dim.References.get_Item(i)) is { } el && set.Contains(el.Id);
+                if (!ours)
+                    continue;
+                var mm = Math.Abs(UnitConv.ToMm(feet));
+                if (Math.Abs(mm - RoundStep(mm)) <= DimDisplayTolMm)
+                    continue;
+                DSSTech.Revit.DssTechLog.Write($"axis dim delete noisy mm={mm:0.0000000000}");
+                noisy.Add(dim.Id);
+            }
+            catch
+            {
+                // Dims we cannot inspect.
+            }
+        }
+
+        if (noisy.Count > 0)
+            doc.Delete(noisy);
+        return noisy.Count;
     }
 
     private static void DeleteDimensionsReferencing(Document doc, View view, List<ElementId> elementIds)

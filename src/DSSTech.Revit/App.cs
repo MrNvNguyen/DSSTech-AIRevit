@@ -67,6 +67,7 @@ public sealed class App : IExternalApplication
             LargeImage = RibbonIcons.Load("icon-wizard", 32),
             Image = RibbonIcons.Load("icon-wizard", 16)
         };
+        RibbonState.IconById[wizardData.Name] = "icon-wizard";
         SetHelp(wizardData, "dung-theo-lo");
         if (cad.AddItem(wizardData) is PulldownButton wizard)
         {
@@ -121,6 +122,17 @@ public sealed class App : IExternalApplication
         // Refresh either way so the AI toggle shows Off after a failed start.
         RibbonState.RefreshAi();
 
+        // Giao diện sáng / tối của Revit (2024+): đổi bộ icon cho hợp nền, kể cả khi người dùng đổi theme lúc đang mở.
+        RibbonState.Application = application;
+        try
+        {
+            application.ThemeChanged += (_, _) => RibbonState.RefreshTheme();
+        }
+        catch (Exception ex)
+        {
+            DssTechLog.Write($"ribbon theme hook: {ex.Message}");
+        }
+
         return Result.Succeeded;
     }
 
@@ -146,6 +158,7 @@ public sealed class App : IExternalApplication
     private static PushButtonData Build(string asm, string id, string label, Type command, string icon,
         string tipVi, string tipEn, string helpAnchor)
     {
+        RibbonState.IconById[id] = icon;
         var data = new PushButtonData(id, label, asm, command.FullName!)
         {
             LargeImage = RibbonIcons.Load(icon, 32),

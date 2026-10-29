@@ -17,6 +17,13 @@ public static class UnitConv
     public static double RoundWholeMm(double mm) =>
         Math.Round(mm, MidpointRounding.AwayFromZero);
 
+    /// <summary>5 mm stations (xxx0 / xxx5). Float dust within 0.01 mm coalesces onto the station.</summary>
+    public const double SnapStepMm = 5.0;
+
+    /// <summary>219.761→220, 49.761→50, 699.99999998→700, 500.007→500.</summary>
+    public static double Round5Mm(double mm) =>
+        Math.Round(mm / SnapStepMm, MidpointRounding.AwayFromZero) * SnapStepMm;
+
     public static XYZ XyzFromMm(double[] mm) =>
         new(
             MmToInternal(RoundWholeMm(mm[0])),

@@ -6,7 +6,7 @@ using System.IO;
 namespace Dss.Cad2Bim.Core;
 
 /// <summary>
-/// Minimal ASCII DXF reader for LINE / LWPOLYLINE / CIRCLE / INSERT / TEXT + INSUNITS.
+/// Minimal ASCII DXF reader for LINE / LWPOLYLINE / MLINE / CIRCLE / INSERT / TEXT + INSUNITS.
 /// </summary>
 public static class DxfParser
 {
@@ -60,6 +60,9 @@ public static class DxfParser
                     break;
                 case "LWPOLYLINE":
                     i = ReadLwPolyline(pairs, i, geom);
+                    break;
+                case "MLINE":
+                    i = ReadMLine(pairs, i, geom);
                     break;
                 case "INSERT":
                     i = ReadInsert(pairs, i, geom);
@@ -152,6 +155,84 @@ public static class DxfParser
         }
 
         geom.Entities.Add(e);
+        return i - 1;
+    }
+
+    /// <summary>
+    /// Explode MLINE via vertex (11/21) + miter (13/23) + element parameters (41).
+    /// When parameters exist, emit parallel face lines; otherwise a centerline (DWG/ACadSharp
+    /// path also expands MLINESTYLE offsets).
+    /// </summary>
+    private static int ReadMLine(List<(int Code, string Value)> pairs, int i, CadGeometry geom)
+    {
+        var layer = "0";
+        var scale = 1.0;
+        var closed = false;
+        var positions = new List<(double X, double Y)>();
+        var miters = new List<(double X, double Y)>();
+        var parameters = new List<List<double>>();
+        double? pendingVertX = null;
+        double? pendingMiterX = null;
+        List<double>? currentParams = null;
+        i++;
+        while (i < pairs.Count && pairs[i].Code != 0)
+        {
+            switch (pairs[i].Code)
+            {
+                case 8:
+                    layer = pairs[i].Value;
+                    break;
+                case 40:
+                    scale = D(pairs[i].Value);
+                    break;
+                case 71:
+                    if (int.TryParse(pairs[i].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var flags))
+                        closed = (flags & 2) != 0;
+                    break;
+                case 11:
+                    pendingVertX = D(pairs[i].Value);
+                    break;
+                case 21:
+                    if (pendingVertX.HasValue)
+                    {
+                        positions.Add((pendingVertX.Value, D(pairs[i].Value)));
+                        miters.Add((0, 1));
+                        currentParams = new List<double>();
+                        parameters.Add(currentParams);
+                        pendingVertX = null;
+                    }
+                    break;
+                case 13:
+                    pendingMiterX = D(pairs[i].Value);
+                    break;
+                case 23:
+                    if (pendingMiterX.HasValue && miters.Count > 0)
+                    {
+                        miters[miters.Count - 1] = (pendingMiterX.Value, D(pairs[i].Value));
+                        pendingMiterX = null;
+                    }
+                    break;
+                case 41:
+                    currentParams?.Add(D(pairs[i].Value));
+                    break;
+            }
+            i++;
+        }
+
+        var anyParams = parameters.Exists(p => p.Count > 0);
+        List<CadLine> faces;
+        if (anyParams)
+        {
+            faces = MlineFaceReader.ToFaceLinesFromParameters(
+                layer, positions, miters, parameters.ConvertAll(p => (IReadOnlyList<double>)p), closed);
+        }
+        else
+        {
+            // No element parameters / style in this minimal reader → centerline (±0) so CadLine fallback works.
+            faces = MlineFaceReader.ToFaceLines(layer, positions, miters, new[] { 0.0 }, scale, closed);
+        }
+
+        geom.Entities.AddRange(faces);
         return i - 1;
     }
 

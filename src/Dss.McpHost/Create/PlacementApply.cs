@@ -26,7 +26,9 @@ internal static class PlacementApply
             SetMm(element, BuiltInParameter.WALL_BASE_OFFSET, Num(fields, "baseOffsetMm"), units);
             SetMm(element, BuiltInParameter.WALL_TOP_OFFSET, topOff, units);
             SetMm(element, BuiltInParameter.FLOOR_HEIGHTABOVELEVEL_PARAM, Num(fields, "baseOffsetMm"), units);
-            SetMm(element, BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM, topOff ?? freeOff, units);
+            // Foundations / free-hosted: Offset from Level. Prefer offsetMm, else top, else base.
+            SetMm(element, BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM,
+                freeOff ?? topOff ?? Num(fields, "baseOffsetMm"), units);
         }
         SetMm(element, BuiltInParameter.CEILING_HEIGHTABOVELEVEL_PARAM, Num(fields, "offsetMm"), units);
         SetMm(element, BuiltInParameter.RBS_OFFSET_PARAM, Num(fields, "offsetMm"), units);

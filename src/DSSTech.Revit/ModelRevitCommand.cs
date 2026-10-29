@@ -84,10 +84,15 @@ public sealed class ModelRevitCommand : IExternalCommand
 
             var geom = ImportInstanceGeometryReader.Read(import, view);
             AnnotationSize size;
-            if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam)
+            if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall
+                or ModelRevitPartKind.Beam or ModelRevitPartKind.Pile
+                or ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
+                or ModelRevitPartKind.StripFoundation or ModelRevitPartKind.RaftFoundation)
             {
                 // Linked CAD text is strokes in the Revit view; Cad2Bim reads CadText from the DWG.
                 // Columns/walls size from outline; beams parse Mark/size from CadText on/near the layer.
+                // Piles/isolated: section from CAD footprint; Mark from CadText; UI type = family.
+                // Pile caps: Type Mark = CAD label; size from pre-setup Type (no WxH invent).
                 size = new AnnotationSize(null, null, null, "");
             }
             else
@@ -107,7 +112,9 @@ public sealed class ModelRevitCommand : IExternalCommand
                 size = new AnnotationSize(thick, size.HeightMm ?? thick, size.DiameterMm, size.Raw);
 
             IReadOnlyList<CadPoint2>? grids = part is ModelRevitPartKind.Column
-                or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam
+                or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam or ModelRevitPartKind.Pile
+                or ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
+                or ModelRevitPartKind.StripFoundation or ModelRevitPartKind.RaftFoundation
                 ? ModelRevitGrids.Intersections(doc, view)
                 : null;
             IReadOnlyList<double>? gridAngles = part is ModelRevitPartKind.Column
@@ -128,7 +135,16 @@ public sealed class ModelRevitCommand : IExternalCommand
                 AssignMark = choice.AssignMark,
                 SystemName = choice.SystemName,
                 SectionShape = choice.SectionShape,
-                Function = choice.Function
+                Function = choice.Function,
+                LengthMm = part == ModelRevitPartKind.Pile && choice.ThicknessMm is double pileLen && pileLen > 0
+                    ? pileLen
+                    : 0,
+                EmbedMm = choice.EmbedMm,
+                CapBottomOffsetMm = choice.PileFromCapBottom ? choice.BaseOffsetMm : null,
+                FoundationTypeMarks = part == ModelRevitPartKind.PileCap
+                    ? catalog.FoundationTypeMarks
+                    : null,
+                Log = part == ModelRevitPartKind.PileCap ? DssTechLog.Write : null
             };
             var supportColumns = 0;
             var supportWalls = 0;
@@ -164,6 +180,13 @@ public sealed class ModelRevitCommand : IExternalCommand
                         "Không thấy cặp nét song song của vách (bề dày 80–1200 mm, L/b > 4). Bao ngắn (L/b ≤ 4) là cột — chọn phần Cột.",
                     ModelRevitPartKind.Beam =>
                         "Không thấy cặp nét song song của dầm (hoặc nét tim) trên layer. Chữ Mark/kích thước đọc từ CadText DWG (vd. D1Y19-40x60, 30x60).",
+                    ModelRevitPartKind.Pile =>
+                        "Không thấy vòng tròn / block / polyline kín của cọc trên layer này (cạnh ≥ 80 mm).",
+                    ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
+                        or ModelRevitPartKind.RaftFoundation =>
+                        "Không thấy polyline kín / block của móng trên layer (cạnh ≥ 200 mm).",
+                    ModelRevitPartKind.StripFoundation =>
+                        "Không thấy đường thẳng CadLine của móng băng trên layer.",
                     _ => "Kiểm tra nét/block trên layer."
                 };
                 TaskDialog.Show("DSSTech",
@@ -189,7 +212,7 @@ public sealed class ModelRevitCommand : IExternalCommand
             {
                 summary.AppendLine($"Family gốc: {columnFamily}");
                 summary.AppendLine("Tiết diện đo từ outline trên layer, gồm cột vát góc và cột xoay theo grid.");
-                summary.AppendLine("Tâm cột chỉ bỏ phần thập phân, 2175,4 thành 2175. Không kéo về hàng 5 hay hàng chục.");
+                summary.AppendLine("Tâm cột làm tròn 5 mm tính từ trục (2172,4 → 2170; 2173 → 2175). Không kéo về hàng chục.");
                 if (choice.AssignMark)
                     summary.AppendLine(DescribeMarks(geom, ops));
             }
@@ -208,27 +231,90 @@ public sealed class ModelRevitCommand : IExternalCommand
                 summary.AppendLine(supportColumns + supportWalls > 0
                     ? $"Gối đỡ lấy từ model: {supportColumns} cột, {supportWalls} vách kết cấu tại level dầm."
                     : "Model chưa có cột/vách kết cấu tại level dầm → gối đỡ lấy từ CAD (outline cột mọi layer, cặp nét vách layer khác).");
-                summary.AppendLine("Dầm chính: mặt gối → mặt gối (cột/vách), liên tục qua dầm phụ. Dầm phụ: cắt tại mặt dầm chính.");
-                summary.AppendLine("Mark/kích thước từ CadText DWG: D1Y19-40x60 → Mark D1Y19, 400×600 mm; 30x140 → 300×1400; 300x600 → mm.");
-                summary.AppendLine("Chữ nằm trên/cạnh đoạn dầm (≤ max(b, 600) mm, song song ±10°) thắng; đoạn không có chữ → đoạn có chữ gần nhất cùng trục.");
+                summary.AppendLine("Dầm chính: tim gối → tim gối (cột/vách), liên tục qua dầm phụ. Dầm phụ (không qua cột): cắt tại tim dầm chính.");
+                summary.AppendLine("Nhịp gối→gối bị dầm chính khác cắt ngang giữa nhịp (không có gối tại đó) → dầm hẹp hơn (bằng nhau: dài hơn) thành dầm phụ, cắt tại tim dầm kia. Hai dầm phụ giao nhau: dầm hẹp hơn (bằng nhau: trục ngắn hơn) bị cắt.");
+                summary.AppendLine("Mark/kích thước từ CadText DWG sau khi cắt đoạn: D1Y19-40x60 / D1O1-200x500 → Mark + tiết diện trên đúng đoạn; không lấy chữ ngoài đoạn.");
+                summary.AppendLine("Chữ có hình chiếu trên đoạn (cách mặt dầm ≤ 600 mm, song song ±10°), mỗi chữ chỉ gán cho đoạn gần nhất; ưu tiên Mark-WxH. Đoạn không chữ trên cùng trục kế thừa tiết diện từ đoạn có Mark-WxH gần nhất; Mark trống kế thừa Mark cùng trục (Mark duy nhất hoặc đoạn gần nhất).");
+                summary.AppendLine("Đoạn cùng tiết diện WxH thẳng hàng, không gối thật giữa chúng, được gộp thành một dầm gối→gối.");
                 summary.AppendLine(DescribeBeamMarks(ops));
             }
-            if (part == ModelRevitPartKind.Beam)
-                summary.AppendLine($"Level: {placement.TopLevelName} (offset {placement.TopOffsetMm:0} mm)");
+            else if (part == ModelRevitPartKind.Pile)
+            {
+                summary.AppendLine($"Type gốc (family): {choice.TypeName}");
+                if (!string.IsNullOrWhiteSpace(choice.PileSubtype))
+                    summary.AppendLine($"Loại cọc (lọc type): {choice.PileSubtype}");
+                var pileTop = placement.EffectivePileTopOffsetMm();
+                if (choice.PileFromCapBottom)
+                {
+                    summary.AppendLine(
+                        $"Cọc theo đáy đài: Level {placement.BaseLevelName}; " +
+                        $"đáy đài offset {choice.BaseOffsetMm:0} mm + ngàm {choice.EmbedMm:0} mm → " +
+                        $"đỉnh cọc offset {pileTop:0} mm; chiều sâu {placement.LengthMm:0} mm.");
+                    summary.AppendLine(
+                        "Công thức: offset_đỉnh_cọc = offset_đáy_đài + ngàm (cùng Level; ngàm dương lên trong đài).");
+                }
+                else
+                {
+                    summary.AppendLine(
+                        $"Cọc: đỉnh tại Level {placement.BaseLevelName} (offset {pileTop:0} mm); " +
+                        $"chiều sâu {placement.LengthMm:0} mm (đáy = đỉnh − chiều sâu).");
+                }
+
+                summary.AppendLine(
+                    "Tiết diện từ outline CAD tại mỗi vị trí: cọc tròn → ĐK lớn nhất (vòng đồng tâm); " +
+                    "cọc vuông → bxh lớn nhất; nhân/tạo type Dxxx hoặc WxH trong family đã chọn.");
+                summary.AppendLine("Tâm cọc làm tròn 5 mm tính từ trục (xxx0/xxx5), giống cột.");
+                if (choice.AssignMark)
+                    summary.AppendLine(DescribePileMarks(ops));
+            }
+            else if (part is ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
+                     or ModelRevitPartKind.RaftFoundation or ModelRevitPartKind.StripFoundation)
+            {
+                summary.AppendLine($"Type gốc: {choice.TypeName}");
+                summary.AppendLine(part switch
+                {
+                    ModelRevitPartKind.PileCap =>
+                        "Đài cọc: tâm từ polyline kín / block; type theo Type Mark hoặc tên type (Đ4A…); ưu tiên chữ Đ*; xoay theo cạnh dài CAD; kích thước = Type đã setup (không nhân WxH từ CAD). Không khớp → bỏ qua. UI type chỉ khi không có chữ CAD gần outline.",
+                    ModelRevitPartKind.IsolatedFoundation =>
+                        "Móng đơn: tâm từ outline CAD; tiết diện bxh từ CAD; nhân type WxH.",
+                    ModelRevitPartKind.RaftFoundation =>
+                        "Móng bè: đặt tại tâm polyline kín; giữ nguyên type đã chọn (không nhân WxH từ CAD).",
+                    _ =>
+                        "Móng băng: điểm giữa mỗi CadLine, xoay theo hướng nét; type đã chọn (point footing)."
+                });
+                summary.AppendLine("Tâm làm tròn 5 mm tính từ trục (xxx0/xxx5), giống cột/cọc.");
+                if (part == ModelRevitPartKind.PileCap)
+                    summary.AppendLine(DescribePileCapTypeMarks(ops));
+                else if (choice.AssignMark)
+                    summary.AppendLine(DescribePileMarks(ops));
+            }
+            if (part is ModelRevitPartKind.Beam or ModelRevitPartKind.Pile)
+                summary.AppendLine(
+                    $"Level: {placement.BaseLevelName} (offset {placement.EffectivePileTopOffsetMm():0} mm)");
+            else if (part is ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
+                     or ModelRevitPartKind.RaftFoundation or ModelRevitPartKind.StripFoundation)
+                summary.AppendLine($"Level: {placement.BaseLevelName} (offset {placement.BaseOffsetMm:0} mm)");
             else
                 summary.AppendLine($"Level đáy: {placement.BaseLevelName} (offset {placement.BaseOffsetMm:0} mm) → đỉnh: {placement.TopLevelName} (offset {placement.TopOffsetMm:0} mm)");
             summary.AppendLine($"Tạo {ops.Count} cấu kiện (Undo một lần hoàn tác batch).");
             if (part == ModelRevitPartKind.Column)
                 AppendColumnBatchSummary(summary, result.Data);
-            else if (part is not (ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam))
+            else if (part == ModelRevitPartKind.PileCap)
+                AppendFoundationBatchSummary(summary, result.Data);
+            else if (part is not (ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam or ModelRevitPartKind.Pile
+                         or ModelRevitPartKind.IsolatedFoundation
+                         or ModelRevitPartKind.RaftFoundation or ModelRevitPartKind.StripFoundation))
                 summary.AppendLine(result.Data.GetRawText());
 
-            if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam)
+            if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall
+                or ModelRevitPartKind.Beam or ModelRevitPartKind.Pile
+                or ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
+                or ModelRevitPartKind.RaftFoundation or ModelRevitPartKind.StripFoundation)
             {
                 var dimCount = ModelRevitAxisDimensions.CreateFromBatch(doc, view, result.Data);
                 summary.AppendLine(
                     dimCount > 0
-                        ? $"Dimension tới trục: {dimCount} (offset làm tròn mm nguyên, dạng xxxx.000)."
+                        ? $"Dimension tới trục: {dimCount} (offset làm tròn 5 mm, dạng xxx0/xxx5)."
                         : "Dimension tới trục: 0 (không có grid song song trong tầm hoặc view không phải plan).");
             }
 
@@ -292,6 +378,48 @@ public sealed class ModelRevitCommand : IExternalCommand
         }
 
         return $"Mark từ CadText: {marked}/{ops.Count}; tiết diện WxH: {sized}/{ops.Count}.";
+    }
+
+    private static string DescribePileMarks(IReadOnlyList<CreateOperation> ops)
+    {
+        var marked = 0;
+        var sized = 0;
+        foreach (var op in ops)
+        {
+            if (op.Fields.ValueKind != JsonValueKind.Object)
+                continue;
+            if (op.Fields.TryGetProperty("mark", out var mark) &&
+                mark.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(mark.GetString()))
+                marked++;
+            if ((op.Fields.TryGetProperty("diameterMm", out var dia) && dia.ValueKind == JsonValueKind.Number && dia.GetInt32() > 0) ||
+                (op.Fields.TryGetProperty("widthMm", out var w) && w.ValueKind == JsonValueKind.Number && w.GetInt32() > 0))
+                sized++;
+        }
+
+        return $"Mark từ CadText gần cọc (vd. K1): {marked}/{ops.Count}; tiết diện CAD: {sized}/{ops.Count}.";
+    }
+
+    private static string DescribePileCapTypeMarks(IReadOnlyList<CreateOperation> ops)
+    {
+        var byMark = 0;
+        var uiFallback = 0;
+        var instanceMark = 0;
+        foreach (var op in ops)
+        {
+            if (op.Fields.ValueKind != JsonValueKind.Object)
+                continue;
+            if (op.Fields.TryGetProperty("resolveByTypeMark", out var r) && r.ValueKind == JsonValueKind.True)
+                byMark++;
+            else
+                uiFallback++;
+            if (op.Fields.TryGetProperty("mark", out var mark) &&
+                mark.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(mark.GetString()))
+                instanceMark++;
+        }
+
+        return $"Type Mark từ CAD: {byMark}/{ops.Count}; fallback UI type (không chữ): {uiFallback}; instance Mark: {instanceMark}.";
     }
 
     private static string FirstNonEmpty(params string?[] values)
@@ -379,5 +507,45 @@ public sealed class ModelRevitCommand : IExternalCommand
             summary.AppendLine(
                 $"Bỏ qua do đã có cột cùng type, cùng level tại vị trí — Id: {string.Join(", ", skippedIds.Take(10))} " +
                 "(Manage → Select by ID để kiểm tra).");
+    }
+
+    private static void AppendFoundationBatchSummary(StringBuilder summary, JsonElement data)
+    {
+        if (data.ValueKind != JsonValueKind.Object ||
+            !data.TryGetProperty("results", out var results) ||
+            results.ValueKind != JsonValueKind.Array)
+        {
+            summary.AppendLine("Kết quả: (không đọc được batch).");
+            return;
+        }
+
+        var created = 0;
+        var skipped = 0;
+        var failed = 0;
+        var failReasons = new Dictionary<string, int>();
+        foreach (var item in results.EnumerateArray())
+        {
+            var status = item.TryGetProperty("status", out var st) ? st.GetString() : null;
+            var reason = item.TryGetProperty("reason", out var reasonEl) && reasonEl.ValueKind == JsonValueKind.String
+                ? reasonEl.GetString() ?? ""
+                : "";
+            switch (status)
+            {
+                case "created":
+                    created++;
+                    break;
+                case "skipped":
+                    skipped++;
+                    break;
+                case "failed":
+                    failed++;
+                    failReasons[reason] = failReasons.TryGetValue(reason, out var n) ? n + 1 : 1;
+                    break;
+            }
+        }
+
+        summary.AppendLine($"Kết quả: tạo {created} | bỏ qua (đã có) {skipped} | lỗi {failed}");
+        foreach (var pair in failReasons.OrderByDescending(p => p.Value).Take(5))
+            summary.AppendLine($"Lỗi ({pair.Value}): {pair.Key}");
     }
 }

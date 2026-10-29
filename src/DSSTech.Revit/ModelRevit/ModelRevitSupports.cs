@@ -12,48 +12,95 @@ internal static class ModelRevitSupports
 {
     /// <summary>An element supports the beam when it occupies the zone this far under the beam top.</summary>
     private const double SupportZoneMm = 300;
+    /// <summary>Also accept columns whose top sits this far above the beam top (slab thickness / tolerance).</summary>
+    private const double SupportZoneAboveMm = 1500;
 
     public static List<SectionFootprint> Collect(Document doc, Level level, double offsetMm, out int columns, out int walls)
     {
-        columns = 0;
-        walls = 0;
+        var columnCount = 0;
+        var wallCount = 0;
         var result = new List<SectionFootprint>();
-        var zone = level.Elevation + UnitConv.MmToInternal(offsetMm - SupportZoneMm);
+        var beamTop = level.Elevation + UnitConv.MmToInternal(offsetMm);
+        var zoneLo = beamTop - UnitConv.MmToInternal(SupportZoneMm);
+        var zoneHi = beamTop + UnitConv.MmToInternal(SupportZoneAboveMm);
+        var seen = new HashSet<ElementId>();
+
+        void TryAddColumn(FamilyInstance column)
+        {
+            if (!seen.Add(column.Id))
+                return;
+            if (!ColumnSupportsLevel(column, level, zoneLo, zoneHi))
+                return;
+            var axis = column.GetTransform().BasisX;
+            if (!TryFootprint(column, axis.X, axis.Y, out var footprint))
+                return;
+            result.Add(footprint);
+            columnCount++;
+        }
 
         foreach (var column in new FilteredElementCollector(doc)
                      .OfCategory(BuiltInCategory.OST_StructuralColumns)
                      .WhereElementIsNotElementType()
                      .OfType<FamilyInstance>())
-        {
-            if (!InZone(column, zone))
-                continue;
-            var axis = column.GetTransform().BasisX;
-            if (TryFootprint(column, axis.X, axis.Y, out var footprint))
-            {
-                result.Add(footprint);
-                columns++;
-            }
-        }
+            TryAddColumn(column);
+
+        // Architectural columns often carry beams when the model has no Structural Column category yet.
+        foreach (var column in new FilteredElementCollector(doc)
+                     .OfCategory(BuiltInCategory.OST_Columns)
+                     .WhereElementIsNotElementType()
+                     .OfType<FamilyInstance>())
+            TryAddColumn(column);
 
         foreach (var wall in new FilteredElementCollector(doc).OfClass(typeof(Wall)).Cast<Wall>())
         {
-            if (!IsStructural(wall) || wall.Location is not LocationCurve { Curve: Line line } || !InZone(wall, zone))
+            if (!IsStructural(wall) || wall.Location is not LocationCurve { Curve: Line line } ||
+                !InZone(wall, zoneLo, zoneHi))
                 continue;
             var dir = line.Direction;
             if (TryFootprint(wall, dir.X, dir.Y, out var footprint))
             {
                 result.Add(footprint);
-                walls++;
+                wallCount++;
             }
         }
 
+        columns = columnCount;
+        walls = wallCount;
         return result;
     }
 
-    private static bool InZone(Element element, double z)
+    /// <summary>
+    /// Column supports the beam level when its bbox meets the Z zone, or when Base/Top Level
+    /// parameters straddle the beam level (bbox can miss when the column sits on a linked level).
+    /// </summary>
+    private static bool ColumnSupportsLevel(FamilyInstance column, Level level, double zoneLo, double zoneHi)
+    {
+        if (InZone(column, zoneLo, zoneHi))
+            return true;
+
+        var baseId = column.get_Parameter(BuiltInParameter.FAMILY_BASE_LEVEL_PARAM)?.AsElementId()
+                     ?? column.get_Parameter(BuiltInParameter.SCHEDULE_BASE_LEVEL_PARAM)?.AsElementId();
+        var topId = column.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM)?.AsElementId()
+                    ?? column.get_Parameter(BuiltInParameter.SCHEDULE_TOP_LEVEL_PARAM)?.AsElementId();
+        if (baseId is null || topId is null)
+            return false;
+        if (baseId == level.Id || topId == level.Id)
+            return true;
+
+        var doc = column.Document;
+        var baseLevel = baseId != ElementId.InvalidElementId ? doc.GetElement(baseId) as Level : null;
+        var topLevel = topId != ElementId.InvalidElementId ? doc.GetElement(topId) as Level : null;
+        if (baseLevel is null || topLevel is null)
+            return false;
+        var lo = Math.Min(baseLevel.Elevation, topLevel.Elevation);
+        var hi = Math.Max(baseLevel.Elevation, topLevel.Elevation);
+        return lo <= level.Elevation + 1e-6 && hi >= level.Elevation - 1e-6;
+    }
+
+    private static bool InZone(Element element, double zLo, double zHi)
     {
         var box = element.get_BoundingBox(null);
-        return box is not null && box.Min.Z <= z && box.Max.Z >= z;
+        return box is not null && box.Min.Z <= zHi && box.Max.Z >= zLo;
     }
 
     private static bool IsStructural(Wall wall)

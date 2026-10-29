@@ -118,6 +118,10 @@ internal static class CatalogCreate
 
         if (skip)
         {
+            // Match by centerline proximity (not end-point equality): prior runs may have face-trimmed
+            // ends while the plan uses support centers — still the same physical bay.
+            FamilyInstance? match = null;
+            var bestMm = double.MaxValue;
             foreach (var fi in new FilteredElementCollector(doc)
                          .OfCategory(BuiltInCategory.OST_StructuralFraming)
                          .WhereElementIsNotElementType()
@@ -125,18 +129,48 @@ internal static class CatalogCreate
             {
                 if (!SameBeamReferenceLevel(fi, level))
                     continue;
-                if (fi.Location is not LocationCurve lc || lc.Curve is not Line line ||
-                    !LinesNear(line, start, end))
+                if (fi.Location is not LocationCurve lc || lc.Curve is not Line line)
                     continue;
-                if (fi.Symbol.Id == symbol.Id ||
-                    (!string.IsNullOrWhiteSpace(sourceFamily) &&
-                     string.Equals(fi.Symbol.FamilyName, sourceFamily, StringComparison.OrdinalIgnoreCase)))
+                if (!BeamCurvesNear(line, start, end, out var distMm))
+                    continue;
+                if (distMm >= bestMm)
+                    continue;
+                bestMm = distMm;
+                match = fi;
+            }
+
+            if (match is not null)
+            {
+                if (!dryRun)
                 {
-                    // Rematch: correct sticky Y/Z + level offsets left by prior creates.
-                    PlacementApply.Apply(fi, op.Fields, units);
-                    EnsureBeamReferenceLevel(fi, level);
-                    return Skip(op, fi.Id.Value.ToString(), "skipIfExists");
+                    try
+                    {
+                        if (match.Symbol.Id != symbol.Id)
+                        {
+                            EnsureSymbolActive(doc, symbol);
+                            match.ChangeTypeId(symbol.Id);
+                        }
+
+                        if (match.Location is LocationCurve loc)
+                        {
+                            var z0 = loc.Curve.GetEndPoint(0).Z;
+                            var z1 = loc.Curve.GetEndPoint(1).Z;
+                            loc.Curve = Line.CreateBound(
+                                new XYZ(start.X, start.Y, z0),
+                                new XYZ(end.X, end.Y, z1));
+                        }
+
+                        PlacementApply.Apply(match, op.Fields, units);
+                        EnsureBeamReferenceLevel(match, level);
+                        PlacementApply.ApplyBeamJustificationDefaults(match);
+                    }
+                    catch (Autodesk.Revit.Exceptions.ApplicationException)
+                    {
+                        // Keep the existing beam when pinned/locked; still report skip.
+                    }
                 }
+
+                return Skip(op, match.Id.Value.ToString(), "skipIfExists");
             }
         }
 
@@ -153,6 +187,45 @@ internal static class CatalogCreate
         PlacementApply.ApplyBeamJustificationDefaults(created);
         var reason = createdNewType ? "newType" : null;
         return Created(op, created.Id.Value.ToString(), reason);
+    }
+
+    /// <summary>
+    /// Same physical bay: parallel within ~2°, planned midpoint within 100 mm of the existing curve,
+    /// and along-axis overlap of at least 50% of the shorter length.
+    /// </summary>
+    private static bool BeamCurvesNear(Line existing, XYZ start, XYZ end, out double midDistMm)
+    {
+        midDistMm = double.MaxValue;
+        var a0 = existing.GetEndPoint(0);
+        var a1 = existing.GetEndPoint(1);
+        var aLen = a0.DistanceTo(a1);
+        var bLen = start.DistanceTo(end);
+        if (aLen < 1e-9 || bLen < 1e-9)
+            return false;
+
+        var au = (a1 - a0).Normalize();
+        var bu = (end - start).Normalize();
+        var angle = au.AngleTo(bu) * 180.0 / Math.PI;
+        if (angle > 90)
+            angle = 180 - angle;
+        if (angle > 2.0)
+            return false;
+
+        var mid = start + (end - start) / 2;
+        var projected = a0 + au * (mid - a0).DotProduct(au);
+        // Drop Z so level-offset differences do not break plan match.
+        var midXy = new XYZ(mid.X, mid.Y, 0);
+        var projXy = new XYZ(projected.X, projected.Y, 0);
+        midDistMm = UnitConv.ToMm(midXy.DistanceTo(projXy));
+        if (midDistMm > 100)
+            return false;
+
+        var t0 = (a0 - start).DotProduct(bu);
+        var t1 = (a1 - start).DotProduct(bu);
+        var lo = Math.Max(0, Math.Min(t0, t1));
+        var hi = Math.Min(bLen, Math.Max(t0, t1));
+        var overlap = hi - lo;
+        return UnitConv.ToMm(overlap) >= UnitConv.ToMm(Math.Min(aLen, bLen)) * 0.5;
     }
 
     private static bool SameBeamReferenceLevel(FamilyInstance fi, Level level)
@@ -443,9 +516,68 @@ internal static class CatalogCreate
         if (typeName is null)
             return Fail(op, "type_unresolved", "fields.familyType required.");
 
-        var symbol = FindSymbol(doc, BuiltInCategory.OST_StructuralFoundation, typeName);
-        if (symbol is null)
-            return Fail(op, "type_unresolved", $"Foundation '{typeName}' not found.");
+        var sourceFamily = ReqString(op.Fields, "sourceFamily");
+        var kind = ReqString(op.Fields, "kind");
+        var typeMark = ReqString(op.Fields, "typeMark");
+        var isPileCap = string.Equals(kind, "PileCap", StringComparison.OrdinalIgnoreCase);
+        var resolveByTypeMark = ReqBool(op.Fields, "resolveByTypeMark") == true
+                                || (!string.IsNullOrWhiteSpace(typeMark) && isPileCap);
+
+        FamilySymbol? symbol = null;
+
+        // Đài cọc: place the pre-setup Type whose Type Mark matches CAD label — never invent WxH.
+        if (resolveByTypeMark || isPileCap)
+        {
+            var markKey = !string.IsNullOrWhiteSpace(typeMark) ? typeMark : null;
+            if (markKey is not null)
+            {
+                symbol = FindFoundationByTypeMark(doc, markKey, sourceFamily);
+                if (symbol is null)
+                    return Fail(op, "type_unresolved",
+                        $"Đài cọc: không có Structural Foundation Type Mark khớp '{markKey.Trim()}' (bỏ qua; không nhân WxH từ CAD).");
+            }
+            else
+            {
+                // No CAD label: UI type fallback only.
+                symbol = FindSymbol(doc, BuiltInCategory.OST_StructuralFoundation, typeName);
+                if (symbol is null && !string.IsNullOrWhiteSpace(sourceFamily))
+                {
+                    symbol = FoundationSymbols(doc)
+                        .FirstOrDefault(s =>
+                            string.Equals(s.FamilyName, sourceFamily, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (symbol is null)
+                    return Fail(op, "type_unresolved", $"Foundation '{typeName}' not found.");
+            }
+        }
+        else
+        {
+            var widthMm = ReqInt(op.Fields, "widthMm");
+            var depthMm = ReqInt(op.Fields, "depthMm");
+            var diameterMm = ReqInt(op.Fields, "diameterMm");
+            var circular = diameterMm is > 0
+                           || (widthMm is > 0 && depthMm is > 0 && widthMm == depthMm
+                               && LooksCircularFoundationType(typeName, sourceFamily));
+
+            // CAD footprint size wins over the UI-selected type leaf (UI still supplies the family).
+            var resolvedDia = diameterMm ?? widthMm;
+            if (circular && resolvedDia is > 0)
+                symbol = ResolveFoundationSymbol(doc, resolvedDia.Value, resolvedDia.Value, sourceFamily, typeName, circular: true, out _);
+            else if (widthMm is > 0 && depthMm is > 0)
+                symbol = ResolveFoundationSymbol(doc, widthMm.Value, depthMm.Value, sourceFamily, typeName, circular: false, out _);
+
+            symbol ??= FindSymbol(doc, BuiltInCategory.OST_StructuralFoundation, typeName);
+            if (symbol is null && !string.IsNullOrWhiteSpace(sourceFamily))
+            {
+                // familyType may be "D500" after CAD sizing — fall back to any type in the UI family.
+                symbol = FoundationSymbols(doc)
+                    .FirstOrDefault(s => string.Equals(s.FamilyName, sourceFamily, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (symbol is null)
+                return Fail(op, "type_unresolved", $"Foundation '{typeName}' not found.");
+        }
 
         var level = FindLevel(doc, ReqString(op.Fields, "level"));
         if (level is null)
@@ -454,16 +586,445 @@ internal static class CatalogCreate
         if (!TryXyz(op.Fields, "xyzMm", "xyz", units, out var xyz))
             return Fail(op, "missing_field", "fields.xyzMm required for isolated footing/pile.");
 
-        if (skip && TryExistingAtPoint(doc, BuiltInCategory.OST_StructuralFoundation, symbol.Id, xyz) is { } existingFooting)
-            return Skip(op, existingFooting, "skipIfExists");
+        if (skip && TryExistingFoundationAtPoint(doc, symbol.Id, xyz, out var existingFi) && existingFi is not null)
+        {
+            var markFilled = PlacementApply.TrySetMark(existingFi, ReqString(op.Fields, "mark"));
+            return Skip(op, existingFi.Id.Value.ToString(), markFilled ? "skipIfExists,mark" : "skipIfExists");
+        }
 
         if (dryRun)
             return Created(op, null, "dryRun");
 
         EnsureSymbolActive(doc, symbol);
         var created = doc.Create.NewFamilyInstance(xyz, symbol, level, StructuralType.Footing);
+        // Foundations use INSTANCE_FREE_HOST_OFFSET_PARAM (not column base/top). Length = chiều sâu cọc.
+        PlacementApply.Apply(created, op.Fields, units);
+        ApplyFoundationOffset(created, op.Fields, units);
+        ApplyFoundationLength(created, op.Fields, units);
+        // Planner rotationDeg = CAD long-edge angle (world +X = 0°). Family width→+X, depth→+Y.
+        // When depth > width the long side is +Y → RevitRot = cad − 90° (else CAD horizontal reads vertical).
+        var cadRot = ReqDouble(op.Fields, "rotationDeg") ?? 0;
+        var rot = cadRot;
+        if (TryGetFoundationSectionMm(symbol, out var famB, out var famH) && famH > famB)
+            rot = cadRot - 90.0;
+        if (Math.Abs(rot) > 0.01)
+        {
+            var axis = Line.CreateBound(xyz, xyz + XYZ.BasisZ);
+            ElementTransformUtils.RotateElement(doc, created.Id, axis, rot * Math.PI / 180.0);
+        }
+
         return Created(op, created.Id.Value.ToString());
     }
+
+    private static readonly string[] FoundationDiameterNames =
+    {
+        "Diameter", "diameter", "Đường kính", "Dia", "D", "b", "B", "Width", "width"
+    };
+
+    private static readonly string[] FoundationWidthNames =
+    {
+        "b", "B", "Width", "width", "W", "Rộng", "Chiều rộng"
+    };
+
+    private static readonly string[] FoundationDepthNames =
+    {
+        "h", "H", "Depth", "depth", "Height", "height", "Cao", "Chiều cao"
+    };
+
+    /// <summary>
+    /// Find or duplicate a Structural Foundation type for CAD pile size.
+    /// Circular → type name D{dia}; rectangular → {w}x{d}. UI family is the template source.
+    /// </summary>
+    private static FamilySymbol? ResolveFoundationSymbol(
+        Document doc,
+        int widthMm,
+        int depthMm,
+        string? sourceFamily,
+        string? typeHint,
+        bool circular,
+        out bool createdNewType)
+    {
+        createdNewType = false;
+        var symbols = FoundationSymbols(doc);
+        if (!string.IsNullOrWhiteSpace(sourceFamily))
+        {
+            symbols = symbols
+                .Where(s => string.Equals(s.FamilyName, sourceFamily, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+        else if (!string.IsNullOrWhiteSpace(typeHint))
+        {
+            var hint = FindSymbol(doc, BuiltInCategory.OST_StructuralFoundation, typeHint);
+            if (hint is not null)
+            {
+                symbols = symbols
+                    .Where(s => string.Equals(s.FamilyName, hint.FamilyName, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                sourceFamily = hint.FamilyName;
+            }
+        }
+
+        if (symbols.Count == 0)
+            return null;
+
+        foreach (var symbol in symbols)
+        {
+            if (circular)
+            {
+                if (TryGetFoundationDiameterMm(symbol, out var dia) && dia == widthMm)
+                    return symbol;
+                if (TypeNameMatchesDiameter(symbol.Name, widthMm))
+                    return symbol;
+            }
+            else if (TryGetFoundationSectionMm(symbol, out var b, out var h) && b == widthMm && h == depthMm)
+            {
+                return symbol;
+            }
+        }
+
+        var wantedName = circular ? $"D{widthMm}" : $"{widthMm}x{depthMm}";
+        var existing = symbols.FirstOrDefault(s =>
+            string.Equals(s.Name, wantedName, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null)
+        {
+            if (circular && TrySetFoundationDiameterMm(existing, widthMm))
+            {
+                doc.Regenerate();
+                return existing;
+            }
+
+            if (!circular && TrySetFoundationSectionMm(existing, widthMm, depthMm))
+            {
+                doc.Regenerate();
+                return existing;
+            }
+
+            return existing;
+        }
+
+        var template = symbols.FirstOrDefault(s =>
+            circular ? TryGetFoundationDiameterMm(s, out _) || TypeNameLooksDiameter(s.Name)
+                     : TryGetFoundationSectionMm(s, out _, out _))
+                      ?? symbols[0];
+
+        FamilySymbol? duplicate;
+        try
+        {
+            duplicate = template.Duplicate(wantedName) as FamilySymbol;
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (duplicate is null)
+            return null;
+
+        if (circular)
+        {
+            if (!TrySetFoundationDiameterMm(duplicate, widthMm) && !TypeNameMatchesDiameter(duplicate.Name, widthMm))
+                return duplicate; // name encodes size even if params are locked
+        }
+        else if (!TrySetFoundationSectionMm(duplicate, widthMm, depthMm))
+        {
+            return duplicate;
+        }
+
+        doc.Regenerate();
+        createdNewType = true;
+        return duplicate;
+    }
+
+    private static List<FamilySymbol> FoundationSymbols(Document doc) =>
+        new FilteredElementCollector(doc)
+            .OfClass(typeof(FamilySymbol))
+            .OfCategory(BuiltInCategory.OST_StructuralFoundation)
+            .Cast<FamilySymbol>()
+            .ToList();
+
+    /// <summary>
+    /// Match Structural Foundation by Type Mark (trim + case-insensitive; Đ preserved),
+    /// or by type-name pile-cap id prefix when Type Mark is empty (<c>Đ4A-…</c>).
+    /// Prefer UI sourceFamily when set, then any foundation with that mark.
+    /// </summary>
+    private static FamilySymbol? FindFoundationByTypeMark(Document doc, string typeMark, string? sourceFamily)
+    {
+        var want = NormalizeTypeMark(typeMark);
+        if (want.Length == 0)
+            return null;
+
+        var all = FoundationSymbols(doc);
+        if (!string.IsNullOrWhiteSpace(sourceFamily))
+        {
+            var inFamily = all
+                .Where(s => string.Equals(s.FamilyName, sourceFamily, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            var hit = inFamily.FirstOrDefault(s => FoundationSymbolMatchesMark(s, want));
+            if (hit is not null)
+                return hit;
+        }
+
+        // Prefer exact Type Mark over type-name token across the whole catalog.
+        return all.FirstOrDefault(s => TypeMarkEquals(ReadTypeMark(s), want))
+               ?? all.FirstOrDefault(s => FoundationSymbolMatchesMark(s, want));
+    }
+
+    private static bool FoundationSymbolMatchesMark(FamilySymbol symbol, string normalizedWant)
+    {
+        if (TypeMarkEquals(ReadTypeMark(symbol), normalizedWant))
+            return true;
+        return TypeNameLeafMatchesMark(symbol.Name, normalizedWant);
+    }
+
+    /// <summary>
+    /// Type name leaf encodes mark: <c>Đ4A</c> or <c>Đ4A-2500x2500x1100mm</c> (Đ4 ≠ Đ4A).
+    /// </summary>
+    private static bool TypeNameLeafMatchesMark(string? typeName, string normalizedWant)
+    {
+        if (string.IsNullOrWhiteSpace(typeName) || normalizedWant.Length == 0)
+            return false;
+        var leaf = typeName.Trim();
+        var colon = leaf.LastIndexOf(':');
+        if (colon >= 0 && colon + 1 < leaf.Length)
+            leaf = leaf.Substring(colon + 1).Trim();
+        var norm = NormalizeTypeMark(leaf);
+        if (norm == normalizedWant)
+            return true;
+        return norm.StartsWith(normalizedWant + "-", StringComparison.Ordinal)
+               || norm.StartsWith(normalizedWant + "_", StringComparison.Ordinal)
+               || norm.StartsWith(normalizedWant + " ", StringComparison.Ordinal);
+    }
+
+    private static string? ReadTypeMark(FamilySymbol symbol)
+    {
+        try
+        {
+            return symbol.get_Parameter(BuiltInParameter.ALL_MODEL_TYPE_MARK)?.AsString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string NormalizeTypeMark(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "" : value.Trim().ToUpperInvariant();
+
+    private static bool TypeMarkEquals(string? mark, string normalizedWant) =>
+        NormalizeTypeMark(mark) == normalizedWant;
+
+    private static bool LooksCircularFoundationType(string? typeName, string? sourceFamily)
+    {
+        var s = $"{sourceFamily} {typeName}";
+        return s.IndexOf("Cir", StringComparison.OrdinalIgnoreCase) >= 0
+               || System.Text.RegularExpressions.Regex.IsMatch(s, @"\bD\s*\d{2,4}\b",
+                   System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+
+    private static bool TypeNameLooksDiameter(string? name) =>
+        !string.IsNullOrWhiteSpace(name) &&
+        System.Text.RegularExpressions.Regex.IsMatch(name, @"^[Dd]\s*\d{2,4}\b");
+
+    private static bool TypeNameMatchesDiameter(string? name, int diaMm) =>
+        !string.IsNullOrWhiteSpace(name) &&
+        System.Text.RegularExpressions.Regex.IsMatch(name, $@"^[Dd]\s*{diaMm}\b");
+
+    private static bool TryGetFoundationDiameterMm(FamilySymbol symbol, out int diaMm)
+    {
+        diaMm = 0;
+        foreach (var name in FoundationDiameterNames)
+        {
+            var p = symbol.LookupParameter(name);
+            if (p is not { StorageType: StorageType.Double } || p.AsDouble() <= 0)
+                continue;
+            diaMm = (int)Math.Round(UnitConv.ToMm(p.AsDouble()));
+            if (diaMm > 0)
+                return true;
+        }
+
+        var w = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
+        if (w is { StorageType: StorageType.Double } && w.AsDouble() > 0)
+        {
+            diaMm = (int)Math.Round(UnitConv.ToMm(w.AsDouble()));
+            return diaMm > 0;
+        }
+
+        return false;
+    }
+
+    private static bool TrySetFoundationDiameterMm(FamilySymbol symbol, int diaMm)
+    {
+        var wrote = false;
+        var internalLen = UnitConv.MmToInternal(diaMm);
+        foreach (var name in FoundationDiameterNames)
+        {
+            var p = symbol.LookupParameter(name);
+            if (p is null || p.IsReadOnly || p.StorageType != StorageType.Double)
+                continue;
+            p.Set(internalLen);
+            wrote = true;
+        }
+
+        var w = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
+        if (w is { IsReadOnly: false, StorageType: StorageType.Double })
+        {
+            w.Set(internalLen);
+            wrote = true;
+        }
+
+        var h = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_HEIGHT);
+        if (h is { IsReadOnly: false, StorageType: StorageType.Double })
+        {
+            h.Set(internalLen);
+            wrote = true;
+        }
+
+        return wrote;
+    }
+
+    private static bool TryGetFoundationSectionMm(FamilySymbol symbol, out int bMm, out int hMm)
+    {
+        bMm = hMm = 0;
+        var w = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
+        var d = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_HEIGHT);
+        if (w is { StorageType: StorageType.Double } && d is { StorageType: StorageType.Double }
+            && w.AsDouble() > 0 && d.AsDouble() > 0)
+        {
+            bMm = (int)Math.Round(UnitConv.ToMm(w.AsDouble()));
+            hMm = (int)Math.Round(UnitConv.ToMm(d.AsDouble()));
+            return bMm > 0 && hMm > 0;
+        }
+
+        Parameter? pw = null, ph = null;
+        foreach (var name in FoundationWidthNames)
+        {
+            var p = symbol.LookupParameter(name);
+            if (p is { StorageType: StorageType.Double } && p.AsDouble() > 0)
+            {
+                pw = p;
+                break;
+            }
+        }
+
+        foreach (var name in FoundationDepthNames)
+        {
+            var p = symbol.LookupParameter(name);
+            if (p is { StorageType: StorageType.Double } && p.AsDouble() > 0)
+            {
+                ph = p;
+                break;
+            }
+        }
+
+        if (pw is null || ph is null)
+            return false;
+        bMm = (int)Math.Round(UnitConv.ToMm(pw.AsDouble()));
+        hMm = (int)Math.Round(UnitConv.ToMm(ph.AsDouble()));
+        return bMm > 0 && hMm > 0;
+    }
+
+    private static bool TrySetFoundationSectionMm(FamilySymbol symbol, int widthMm, int depthMm)
+    {
+        var wrote = false;
+        var wi = UnitConv.MmToInternal(widthMm);
+        var di = UnitConv.MmToInternal(depthMm);
+        var w = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
+        var h = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_HEIGHT);
+        if (w is { IsReadOnly: false, StorageType: StorageType.Double })
+        {
+            w.Set(wi);
+            wrote = true;
+        }
+
+        if (h is { IsReadOnly: false, StorageType: StorageType.Double })
+        {
+            h.Set(di);
+            wrote = true;
+        }
+
+        foreach (var name in FoundationWidthNames)
+        {
+            var p = symbol.LookupParameter(name);
+            if (p is null || p.IsReadOnly || p.StorageType != StorageType.Double)
+                continue;
+            p.Set(wi);
+            wrote = true;
+        }
+
+        foreach (var name in FoundationDepthNames)
+        {
+            var p = symbol.LookupParameter(name);
+            if (p is null || p.IsReadOnly || p.StorageType != StorageType.Double)
+                continue;
+            p.Set(di);
+            wrote = true;
+        }
+
+        return wrote;
+    }
+
+    private static void ApplyFoundationOffset(FamilyInstance created, JsonElement fields, string? units)
+    {
+        var mm = ReqDouble(fields, "offsetMm") ?? ReqDouble(fields, "baseOffsetMm");
+        if (mm is null)
+            return;
+        try
+        {
+            var p = created.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM);
+            if (p is null || p.IsReadOnly || p.StorageType != StorageType.Double)
+                return;
+            p.Set(UnitConv.MmToInternal(UnitConv.ScaleToMm(mm.Value, units)));
+        }
+        catch (Exception)
+        {
+            // Offset is optional when the family template omits free-host params.
+        }
+    }
+
+    /// <summary>
+    /// Set pile Length on the instance from lengthMm / depthMm / heightMm.
+    /// Type Length is left alone (mutating the type would resize every pile of that type).
+    /// </summary>
+    private static void ApplyFoundationLength(FamilyInstance created, JsonElement fields, string? units)
+    {
+        var mm = ReqDouble(fields, "lengthMm") ?? ReqDouble(fields, "depthMm") ?? ReqDouble(fields, "heightMm");
+        if (mm is null || mm.Value <= 0)
+            return;
+        var internalLen = UnitConv.MmToInternal(UnitConv.ScaleToMm(mm.Value, units));
+        foreach (var name in FoundationLengthNames)
+        {
+            try
+            {
+                var p = created.LookupParameter(name);
+                if (p is null || p.IsReadOnly || p.StorageType != StorageType.Double)
+                    continue;
+                // Skip type-bound parameters exposed via LookupParameter on the instance.
+                var onType = false;
+                foreach (Parameter tp in created.Symbol.Parameters)
+                {
+                    if (tp.Id == p.Id)
+                    {
+                        onType = true;
+                        break;
+                    }
+                }
+
+                if (onType)
+                    continue;
+                p.Set(internalLen);
+                return;
+            }
+            catch (Exception)
+            {
+                // Try next name.
+            }
+        }
+    }
+
+    private static readonly string[] FoundationLengthNames =
+    {
+        "Length", "length", "L", "Chiều dài", "Chiều sâu", "Depth", "depth", "Pile Length", "PileDepth"
+    };
 
     private static List<CurveLoop> BuildLoops(List<List<XYZ>> loops)
     {
@@ -555,7 +1116,10 @@ internal static class CatalogCreate
         var scaled = arr.Select(v => UnitConv.ScaleToMm(v, units)).ToArray();
         if (scaled.Length == 2)
             scaled = new[] { scaled[0], scaled[1], 0 };
-        xyz = UnitConv.XyzFromMm(scaled);
+        // Planner offsets are 5 mm from grids on fractional world mm; world rounding would undo that.
+        xyz = ReqBool(fields, "exactMm") == true || ReqBool(fields, "rotatedFrame") == true
+            ? new XYZ(UnitConv.MmToInternal(scaled[0]), UnitConv.MmToInternal(scaled[1]), UnitConv.MmToInternal(scaled[2]))
+            : UnitConv.XyzFromMm(scaled);
         return true;
     }
 
@@ -574,6 +1138,13 @@ internal static class CatalogCreate
         if (fields.ValueKind != JsonValueKind.Object || !fields.TryGetProperty(key, out var el))
             return null;
         return el.ValueKind == JsonValueKind.String ? el.GetString() : null;
+    }
+
+    private static bool? ReqBool(JsonElement fields, string key)
+    {
+        if (fields.ValueKind != JsonValueKind.Object || !fields.TryGetProperty(key, out var el))
+            return null;
+        return el.ValueKind is JsonValueKind.True or JsonValueKind.False ? el.GetBoolean() : null;
     }
 
     private static double? ReqDouble(JsonElement fields, string key)
@@ -597,6 +1168,27 @@ internal static class CatalogCreate
         }
 
         return null;
+    }
+
+    private static bool TryExistingFoundationAtPoint(
+        Document doc, ElementId symbolId, XYZ xyz, out FamilyInstance? existing)
+    {
+        existing = null;
+        foreach (var fi in new FilteredElementCollector(doc)
+                     .OfCategory(BuiltInCategory.OST_StructuralFoundation)
+                     .WhereElementIsNotElementType()
+                     .OfType<FamilyInstance>())
+        {
+            if (fi.Symbol.Id != symbolId)
+                continue;
+            if (fi.Location is LocationPoint lp && PointNear(lp.Point, xyz))
+            {
+                existing = fi;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool PointNear(XYZ a, XYZ b) =>
