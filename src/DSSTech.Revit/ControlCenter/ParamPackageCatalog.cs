@@ -13,7 +13,8 @@ internal static class ParamPackageCatalog
     public static readonly (string Label, ModelRevitPartKind Kind)[] Parts =
     {
         ("Cột", ModelRevitPartKind.Column),
-        ("Tường", ModelRevitPartKind.StructuralWall),
+        ("Tường kết cấu", ModelRevitPartKind.StructuralWall),
+        ("Tường kiến trúc", ModelRevitPartKind.ArchitecturalWall),
         ("Dầm", ModelRevitPartKind.Beam),
         ("Sàn", ModelRevitPartKind.Floor),
         ("Đài cọc", ModelRevitPartKind.PileCap),
@@ -42,6 +43,7 @@ internal static class ParamPackageCatalog
     {
         [ModelRevitPartKind.Column] = ["QS_ElementType", "QS_ConcreteGrade", "QS_ConstructionHeight", "QS_SteelGrade", "QS_FormworkArea", "QS_FormworkSide", "QS_RebarDiameter"],
         [ModelRevitPartKind.StructuralWall] = ["QS_ElementType", "QS_ConcreteGrade", "QS_WallThickness", "QS_Thickness", "QS_ConstructionHeight", "QS_BrickType", "QS_FormworkArea"],
+        [ModelRevitPartKind.ArchitecturalWall] = ["QS_ElementType", "QS_WallThickness", "QS_Thickness", "QS_ConstructionHeight", "QS_BrickType"],
         [ModelRevitPartKind.Beam] = ["QS_ElementType", "QS_ConcreteGrade", "QS_SteelGrade", "QS_ConstructionHeight", "QS_FormworkArea", "QS_FormworkSide"],
         [ModelRevitPartKind.Floor] = ["QS_ElementType", "QS_ConcreteGrade", "QS_Thickness", "QS_ConstructionHeight", "QS_FormworkArea", "QS_FormworkBottom"],
         [ModelRevitPartKind.FloorOpening] = ["QS_ElementType", "QS_Thickness"],
@@ -64,6 +66,7 @@ internal static class ParamPackageCatalog
     {
         [ModelRevitPartKind.Column] = [BuiltInCategory.OST_StructuralColumns],
         [ModelRevitPartKind.StructuralWall] = [BuiltInCategory.OST_Walls],
+        [ModelRevitPartKind.ArchitecturalWall] = [BuiltInCategory.OST_Walls],
         [ModelRevitPartKind.Beam] = [BuiltInCategory.OST_StructuralFraming],
         [ModelRevitPartKind.Floor] = [BuiltInCategory.OST_Floors],
         [ModelRevitPartKind.FloorOpening] = [BuiltInCategory.OST_Floors],
@@ -91,7 +94,7 @@ internal static class ParamPackageCatalog
 
     private static readonly ModelRevitPartKind[] ArchitectureParts =
     [
-        ModelRevitPartKind.StructuralWall, ModelRevitPartKind.Floor, ModelRevitPartKind.Door,
+        ModelRevitPartKind.ArchitecturalWall, ModelRevitPartKind.Floor, ModelRevitPartKind.Door,
         ModelRevitPartKind.Window, ModelRevitPartKind.Room, ModelRevitPartKind.Ceiling
     ];
 

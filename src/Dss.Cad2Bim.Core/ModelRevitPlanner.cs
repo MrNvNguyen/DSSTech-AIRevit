@@ -26,7 +26,8 @@ public enum ModelRevitPartKind
     Pipe,
     Duct,
     CableTray,
-    Equipment
+    Equipment,
+    ArchitecturalWall
 }
 
 /// <summary>
@@ -67,6 +68,8 @@ public sealed class ModelRevitPlacement
     public Action<string>? Log { get; set; }
     /// <summary>Filled by the planner: layer of each column taken from outside the picked layer.</summary>
     public List<string> OtherLayerColumns { get; } = new();
+    /// <summary>Filled by the planner: layer of each wall taken from outside the picked layer.</summary>
+    public List<string> OtherLayerWalls { get; } = new();
 
     /// <summary>Effective free-host offset for piles (đỉnh cọc relative to Level).</summary>
     public double EffectivePileTopOffsetMm()
@@ -110,6 +113,8 @@ public static class ModelRevitPlanner
             ModelRevitPartKind.Column => PlanColumns(geom, entities, baseLevel, topLevel, size, gridPoints, family, place, gridAnglesDeg),
             ModelRevitPartKind.StructuralWall => PlanWallsSharedLayer(
                 geom, entities, baseLevel, topLevel, size, gridPoints, family, place, gridAnglesDeg),
+            ModelRevitPartKind.ArchitecturalWall => PlanArchitecturalWalls(
+                geom, entities, baseLevel, topLevel, size, gridPoints, place, gridAnglesDeg),
             // Beams sit on the user-picked level (UI "Level" / TopLevelName). Fall back to base when blank.
             ModelRevitPartKind.Beam => PlanBeams(
                 geom, entities,
@@ -156,12 +161,89 @@ public static class ModelRevitPlanner
         IReadOnlyList<double>? gridAnglesDeg)
     {
         var ops = new List<CreateOperation>();
-        var runs = WallCenterlineReader.FromEntities(entities);
+        var runs = WallRunsWithOtherLayers(geom, entities, place);
         ops.AddRange(PlanWalls(runs, baseLevel, topLevel, size, structural: true, place, gridPoints, gridAnglesDeg));
         if (!string.IsNullOrWhiteSpace(columnFamily) || !string.IsNullOrWhiteSpace(place.FamilyName))
             ops.AddRange(PlanColumns(geom, entities, baseLevel, topLevel, size, gridPoints, columnFamily, place, gridAnglesDeg, runs));
         return ops;
     }
+
+    /// <summary>Architectural walls: own part, so their elevation rules stay apart from structural walls.</summary>
+    private static IReadOnlyList<CreateOperation> PlanArchitecturalWalls(
+        CadGeometry geom,
+        List<CadEntity> entities,
+        string baseLevel,
+        string topLevel,
+        AnnotationSize size,
+        IReadOnlyList<CadPoint2>? gridPoints,
+        ModelRevitPlacement place,
+        IReadOnlyList<double>? gridAnglesDeg) =>
+        PlanWalls(
+            WallRunsWithOtherLayers(geom, entities, place), baseLevel, topLevel, size, structural: false, place,
+            gridPoints, gridAnglesDeg);
+
+    /// <summary>
+    /// Walls drawn on other layers join the picked ones, wherever the layer lives (host drawing or xref): their faces
+    /// are read together, so stubs and faces split between layers still pair. A layer whose pairs carry WxH labels
+    /// is a beam layer, and door or window layers stay out; nothing thicker than the picked walls is taken.
+    /// </summary>
+    private static List<WallRun> WallRunsWithOtherLayers(CadGeometry geom, List<CadEntity> entities, ModelRevitPlacement place)
+    {
+        var picked = WallCenterlineReader.FromEntities(entities);
+        if (picked.Count == 0)
+            return picked;
+        var texts = BeamTexts(geom);
+        var pickedLayer = FlatLayer(entities[0].Layer);
+        var joined = new List<(string Layer, List<CadEntity> Curves)>();
+        foreach (var group in AllCurves(geom).GroupBy(e => FlatLayer(e.Layer), StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.Equals(group.Key, pickedLayer, StringComparison.OrdinalIgnoreCase) ||
+                Regex.IsMatch(group.Key, @"(^|[$ _.-])(CUA|DOOR|WINDOW|KINH|GLASS|FURN)[^$]*$", RegexOptions.IgnoreCase))
+                continue;
+            var curves = group.ToList();
+            var runs = WallCenterlineReader.FromEntities(curves);
+            if (runs.Count > 0 && runs.Count(r => PairHasOwnLabel(texts, r)) * BeamLayerLabelShare <= runs.Count)
+                joined.Add((group.Key, curves));
+        }
+
+        if (joined.Count == 0)
+            return picked;
+        var thickest = picked.Max(r => r.ThicknessMm) + WallThicknessTolMm;
+        var result = WallCenterlineReader.FromEntities(entities.Concat(joined.SelectMany(j => j.Curves)).ToList())
+            .Where(r => r.ThicknessMm <= thickest)
+            .ToList();
+        result.AddRange(picked.Where(p => !result.Any(r => SameWall(r, p))).ToList());
+        foreach (var run in result.Where(r => !picked.Any(p => SameWall(p, r))))
+        {
+            var layer = joined.OrderByDescending(j => BeamCenterlineReader.FaceLengthOnRun(run, j.Curves)).First().Layer;
+            place.Log?.Invoke($"wall other layer {layer} ({run.X0:0},{run.Y0:0})-({run.X1:0},{run.Y1:0}) t={run.ThicknessMm:0}");
+            place.OtherLayerWalls.Add(layer);
+        }
+
+        return result;
+    }
+
+    private static bool SameWall(WallRun a, WallRun b)
+    {
+        var len = RunLength(a);
+        var other = RunLength(b);
+        if (len < 1 || other < 1)
+            return false;
+        var ux = (a.X1 - a.X0) / len;
+        var uy = (a.Y1 - a.Y0) / len;
+        if (Math.Abs((b.X1 - b.X0) * ux + (b.Y1 - b.Y0) * uy) / other < 0.95)
+            return false;
+        var across = Math.Abs(((b.X0 + b.X1) / 2 - a.X0) * -uy + ((b.Y0 + b.Y1) / 2 - a.Y0) * ux);
+        if (across > (a.ThicknessMm + b.ThicknessMm) / 2)
+            return false;
+        var s0 = (b.X0 - a.X0) * ux + (b.Y0 - a.Y0) * uy;
+        var s1 = (b.X1 - a.X0) * ux + (b.Y1 - a.Y0) * uy;
+        return Math.Min(Math.Max(s0, s1), len) - Math.Max(Math.Min(s0, s1), 0) >= Math.Min(len, other) / 2;
+    }
+
+    private const double WallThicknessTolMm = 20;
+    /// <summary>One labelled pair in this many makes a layer a beam layer.</summary>
+    private const int BeamLayerLabelShare = 5;
 
     private static IReadOnlyList<CreateOperation> PlanColumns(
         CadGeometry geom,
@@ -244,7 +326,7 @@ public static class ModelRevitPlanner
             StringComparer.OrdinalIgnoreCase);
         var found = new List<SectionFootprint>(picked);
         var pickedLayer = FlatLayer(entities[0].Layer);
-        foreach (var group in SameDrawing(geom, entities).GroupBy(e => FlatLayer(e.Layer), StringComparer.OrdinalIgnoreCase))
+        foreach (var group in AllCurves(geom).GroupBy(e => FlatLayer(e.Layer), StringComparer.OrdinalIgnoreCase))
         {
             if (string.Equals(group.Key, pickedLayer, StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -1870,9 +1952,17 @@ public static class ModelRevitPlanner
         var prefix = cut > 0 ? layer.Substring(0, cut) : "";
         return geom.Entities
             .Where(e => e is CadLine or CadPolyline && (e.Layer ?? "").StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-                        !Regex.IsMatch(e.Layer ?? "", @"(^|[$ .-])(TRUC|AXIS|GRID|DIM)[^$]*$", RegexOptions.IgnoreCase))
+                        !Regex.IsMatch(e.Layer ?? "", AxisLayerPattern, RegexOptions.IgnoreCase))
             .ToList();
     }
+
+    /// <summary>Curves of every layer of the host drawing and its xrefs, without axis and dimension layers.</summary>
+    private static List<CadEntity> AllCurves(CadGeometry geom) =>
+        geom.Entities
+            .Where(e => e is CadLine or CadPolyline && !Regex.IsMatch(e.Layer ?? "", AxisLayerPattern, RegexOptions.IgnoreCase))
+            .ToList();
+
+    private const string AxisLayerPattern = @"(^|[$ .-])(TRUC|AXIS|GRID|DIM)[^$]*$";
 
     /// <summary>An unlabelled secondary leg of a U/L beam takes Mark-WxH from the same-width labelled beam at its corner.</summary>
     private static void InheritCornerLabels(

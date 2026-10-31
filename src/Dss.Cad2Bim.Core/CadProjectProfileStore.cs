@@ -86,7 +86,7 @@ public static class CadProjectProfileStore
         entry.RevitTypeHint = part switch
         {
             ModelRevitPartKind.Column => AnnotationSizeParser.ColumnFamilyTypeHint(size),
-            ModelRevitPartKind.StructuralWall => AnnotationSizeParser.WallTypeHint(size),
+            ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall => AnnotationSizeParser.WallTypeHint(size),
             ModelRevitPartKind.Floor => AnnotationSizeParser.FloorTypeHint(size),
             ModelRevitPartKind.Beam => AnnotationSizeParser.BeamFamilyTypeHint(size),
             _ => size.Raw
