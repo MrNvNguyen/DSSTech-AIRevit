@@ -60,6 +60,10 @@ public static class BeamCenterlineReader
     public const double MaxBridgeMm = 12000;
     /// <summary>A CAD face belongs to the beam band when it lies within half width + this.</summary>
     private const double FaceBandTolMm = 30;
+    private const double DrawnFaceSnapMm = 5;
+    private const double DrawnFaceMinCover = 0.6;
+    /// <summary>Drawn pair and label may differ this much and still be the same beam (D1Y16: 300 against 400).</summary>
+    private const double DrawnWidthTolMm = 100;
     /// <summary>Crossing counts when the intersection lies within this past a run end.</summary>
     private const double CrossingPadMm = 50;
     /// <summary>Midlines further apart than this are two drawn stretches of one axis, not one line.</summary>
@@ -72,6 +76,8 @@ public static class BeamCenterlineReader
     private const int OneFacePasses = 30;
     /// <summary>A partner face counts when its distance is within this of the label width.</summary>
     private const double PartnerWidthTolMm = 25;
+    /// <summary>Longest wall treated as a lift or stair shaft side; longer ones are perimeter walls carrying a wall-top beam.</summary>
+    private const double ShaftWallMaxMm = 6000;
     /// <summary>Shortest beam-layer face that may stand for a wall-top beam drawn with one face only.</summary>
     private const double WallTopMinFaceMm = 2000;
 
@@ -147,7 +153,8 @@ public static class BeamCenterlineReader
     public static List<BeamSegment> PrepareRuns(
         IReadOnlyList<WallRun> runs,
         IReadOnlyList<SectionFootprint> supports,
-        IReadOnlyList<CadEntity>? layerEntities = null)
+        IReadOnlyList<CadEntity>? layerEntities = null,
+        IReadOnlyList<CadEntity>? drawingEntities = null)
     {
         var result = new List<BeamSegment>();
         if (runs == null || runs.Count == 0)
@@ -155,12 +162,13 @@ public static class BeamCenterlineReader
         supports ??= Array.Empty<SectionFootprint>();
         var oriented = MergeNearDuplicateCenterlines(OrientAll(runs.ToList()));
         var faces = FaceLines(layerEntities);
-        var axes = MergeAxes(oriented, supports, faces);
+        var edges = FaceLines(drawingEntities ?? layerEntities);
+        var axes = MergeAxes(oriented, supports, faces, edges);
 
         var main = new List<WallRun>();
         var secondary = new List<WallRun>();
         foreach (var axis in axes)
-            ClassifyAxis(axis, supports, oriented, faces, main, secondary);
+            ClassifyAxis(axis, supports, oriented, faces, edges, main, secondary);
         DemoteCrossedMains(main, secondary);
 
         foreach (var run in main)
@@ -603,7 +611,8 @@ public static class BeamCenterlineReader
             (run.X0 + run.X1) / 2, (run.Y0 + run.Y1) / 2, len, Math.Max(run.ThicknessMm, 100), angle);
     }
 
-    private static List<WallRun> MergeAxes(List<WallRun> runs, IReadOnlyList<SectionFootprint> supports, List<WallRun> faces)
+    private static List<WallRun> MergeAxes(
+        List<WallRun> runs, IReadOnlyList<SectionFootprint> supports, List<WallRun> faces, List<WallRun> edges)
     {
         var axes = new List<List<WallRun>>();
         foreach (var run in runs.OrderByDescending(Length))
@@ -646,7 +655,7 @@ public static class BeamCenterlineReader
                 // stretch keeps its own drawn midline; only a short nick follows the stretch it touches.
                 var stepped = s.Lo >= hi - 1 && Length(s.Run) >= LateralNickMm &&
                     Math.Abs(Lateral(s.Run) - DominantLateral(rep, ux, uy, members)) > LateralStepMm;
-                if (!stepped && (s.Lo <= hi + 1 || GapCovered(rep, ux, uy, hi, s.Lo, runs, supports, faces)))
+                if (!stepped && (s.Lo <= hi + 1 || GapCovered(rep, ux, uy, hi, s.Lo, runs, supports, faces, edges)))
                 {
                     hi = Math.Max(hi, s.Hi);
                     members.Add(s.Run);
@@ -723,9 +732,9 @@ public static class BeamCenterlineReader
     /// </summary>
     private static bool GapCovered(
         WallRun axis, double ux, double uy, double g0, double g1,
-        List<WallRun> runs, IReadOnlyList<SectionFootprint> supports, List<WallRun> faces)
+        List<WallRun> runs, IReadOnlyList<SectionFootprint> supports, List<WallRun> faces, List<WallRun> edges)
     {
-        if (g1 - g0 > MaxBridgeMm)
+        if (g1 - g0 > MaxBridgeMm || OpenWallStretch(axis, ux, uy, g0, g1, supports, edges))
             return false;
         if (g1 - g0 <= MergeGapMm)
             return true;
@@ -740,7 +749,9 @@ public static class BeamCenterlineReader
 
         foreach (var support in supports)
         {
-            if (SupportInterval(axis, ux, uy, support, out var enter, out var exit))
+            // A wall along the axis does not join two beams: past it the plan shows no beam (lift core walls).
+            if (!(IsElongated(support) && SupportAlong(support, ux, uy)) &&
+                SupportInterval(axis, ux, uy, support, out var enter, out var exit))
                 cover.Add((enter, exit));
         }
 
@@ -757,6 +768,7 @@ public static class BeamCenterlineReader
         IReadOnlyList<SectionFootprint> supports,
         List<WallRun> runs,
         List<WallRun> faces,
+        List<WallRun> edges,
         List<WallRun> main,
         List<WallRun> secondary)
     {
@@ -778,9 +790,9 @@ public static class BeamCenterlineReader
                 }
 
                 // Reachable measures the open stretch; a deep support adds its own half on top.
-                if (t > len + 1 && t <= len + 2 * ExtendMaxMm && Reachable(axis, ux, uy, len, t, runs, faces, supports))
+                if (t > len + 1 && t <= len + 2 * ExtendMaxMm && Reachable(axis, ux, uy, len, t, runs, faces, supports, edges))
                     near.Add(t);
-                else if (t < -1 && t >= -2 * ExtendMaxMm && Reachable(axis, ux, uy, t, 0, runs, faces, supports))
+                else if (t < -1 && t >= -2 * ExtendMaxMm && Reachable(axis, ux, uy, t, 0, runs, faces, supports, edges))
                     near.Add(t);
             }
         }
@@ -791,7 +803,7 @@ public static class BeamCenterlineReader
             return;
         }
 
-        var extended = ExtendToSupportCenters(axis, supports, runs, faces);
+        var extended = ExtendToSupportCenters(axis, supports, runs, faces, edges);
         var elen = Length(extended);
         if (elen < MinLengthMm)
             return;
@@ -1114,6 +1126,61 @@ public static class BeamCenterlineReader
         return null;
     }
 
+    /// <summary>
+    /// A span labelled off the width of its axis lies on its own CAD lines, which may be on another layer of the
+    /// drawing (D1Y16-40X60 on the 500 axis, its lines 300 apart on 3MBKC and 7MBKC): the run moves onto the drawn
+    /// pair nearest the label, flush with the line the axis keeps from its neighbours, else on the pair's midline.
+    /// No such pair leaves the run where it is.
+    /// </summary>
+    public static WallRun CenterOnDrawnFaces(WallRun run, double widthMm, IReadOnlyList<CadEntity> drawingEntities)
+    {
+        var len = Length(run);
+        if (len < 1)
+            return run;
+        var ux = (run.X1 - run.X0) / len;
+        var uy = (run.Y1 - run.Y0) / len;
+        var reach = Math.Max(run.ThicknessMm, widthMm) / 2 + FaceBandTolMm;
+        var drawn = new Dictionary<double, double>();
+        foreach (var f in FaceLines(drawingEntities))
+        {
+            if (!Parallel(f, run))
+                continue;
+            var across = (f.X0 - run.X0) * -uy + (f.Y0 - run.Y0) * ux;
+            if (Math.Abs(across) > reach)
+                continue;
+            var key = Math.Round(across / DrawnFaceSnapMm) * DrawnFaceSnapMm;
+            drawn.TryGetValue(key, out var covered);
+            drawn[key] = covered + Math.Max(0, Overlap(run, ux, uy, len, f));
+        }
+
+        var lines = drawn.Where(d => d.Value >= DrawnFaceMinCover * len).Select(d => d.Key).OrderBy(c => c).ToList();
+        // Both faces of the run are drawn on this span: it already lies on its own lines.
+        if (lines.Any(c => Math.Abs(c - run.ThicknessMm / 2) <= FaceBandTolMm) &&
+            lines.Any(c => Math.Abs(c + run.ThicknessMm / 2) <= FaceBandTolMm))
+            return run;
+        var half = run.ThicknessMm / 2;
+        var pairs = new List<(double Off, double Mid)>();
+        for (var a = 0; a < lines.Count; a++)
+        {
+            for (var b = a + 1; b < lines.Count; b++)
+            {
+                var off = Math.Abs(lines[b] - lines[a] - widthMm);
+                if (off > DrawnWidthTolMm)
+                    continue;
+                var mid = Math.Abs(lines[a] + half) <= FaceBandTolMm ? lines[a] + widthMm / 2
+                    : Math.Abs(lines[b] - half) <= FaceBandTolMm ? lines[b] - widthMm / 2
+                    : (lines[a] + lines[b]) / 2;
+                pairs.Add((off, mid));
+            }
+        }
+
+        if (pairs.Count == 0)
+            return run;
+        var pair = pairs.OrderBy(p => p.Off).ThenBy(p => Math.Abs(p.Mid)).First();
+        return new WallRun(
+            run.X0 - uy * pair.Mid, run.Y0 + ux * pair.Mid, run.X1 - uy * pair.Mid, run.Y1 + ux * pair.Mid, run.ThicknessMm);
+    }
+
     /// <summary>Length of the curves of <paramref name="entities"/> lying in the band of <paramref name="run"/>.</summary>
     public static double FaceLengthOnRun(WallRun run, IReadOnlyList<CadEntity> entities)
     {
@@ -1152,7 +1219,7 @@ public static class BeamCenterlineReader
     /// and the stretch not covered by this beam's CAD faces is ≤ <see cref="ExtendMaxMm"/>.
     /// </summary>
     private static WallRun ExtendToSupportCenters(
-        WallRun run, IReadOnlyList<SectionFootprint> supports, List<WallRun> runs, List<WallRun> faces)
+        WallRun run, IReadOnlyList<SectionFootprint> supports, List<WallRun> runs, List<WallRun> faces, List<WallRun> edges)
     {
         if (supports.Count == 0)
             return run;
@@ -1186,9 +1253,9 @@ public static class BeamCenterlineReader
 
         var t0 = 0.0;
         var t1 = len;
-        if (!touchEnd && ahead < double.MaxValue && Reachable(run, ux, uy, len, ahead, runs, faces, supports))
+        if (!touchEnd && ahead < double.MaxValue && Reachable(run, ux, uy, len, ahead, runs, faces, supports, edges))
             t1 = PastAdjacentColumn(run, ux, uy, ahead, 1, supports);
-        if (!touchStart && behind > double.MinValue && Reachable(run, ux, uy, behind, 0, runs, faces, supports))
+        if (!touchStart && behind > double.MinValue && Reachable(run, ux, uy, behind, 0, runs, faces, supports, edges))
             t0 = PastAdjacentColumn(run, ux, uy, behind, -1, supports);
         if (Math.Abs(t0) < 1e-9 && Math.Abs(t1 - len) < 1e-9)
             return run;
@@ -1219,8 +1286,10 @@ public static class BeamCenterlineReader
 
     private static bool Reachable(
         WallRun run, double ux, double uy, double g0, double g1, List<WallRun> runs, List<WallRun> faces,
-        IReadOnlyList<SectionFootprint>? supports = null)
+        IReadOnlyList<SectionFootprint>? supports = null, List<WallRun>? edges = null)
     {
+        if (supports != null && OpenWallStretch(run, ux, uy, g0, g1, supports, edges ?? faces))
+            return false;
         // Wholly inside supports nothing can stop the beam: a crossing edge beam sits on the same wall.
         if (supports != null && InsideSupports(run, ux, uy, g0, g1, supports))
             return true;
@@ -1422,7 +1491,35 @@ public static class BeamCenterlineReader
         return exit > enter;
     }
 
-    private static List<(double Lo, double Hi)> FaceIntervals(WallRun axis, double ux, double uy, List<WallRun> faces)
+    /// <summary>
+    /// A stretch along a wall where no line of the drawing marks one beam edge is no beam: the other line is the
+    /// wall or core edge, and a beam there would stand out into the shaft (lift core walls). A wall-top beam
+    /// with its outer edge on another layer (slab border) keeps both edges.
+    /// </summary>
+    private static bool OpenWallStretch(
+        WallRun axis, double ux, double uy, double g0, double g1, IReadOnlyList<SectionFootprint> supports, List<WallRun> edges)
+    {
+        foreach (var support in supports)
+        {
+            if (!IsElongated(support) || Math.Max(support.WidthMm, support.DepthMm) > ShaftWallMaxMm ||
+                !SupportAlong(support, ux, uy) ||
+                !SupportInterval(axis, ux, uy, support, out var enter, out var exit))
+                continue;
+            var lo = Math.Max(g0, enter);
+            var hi = Math.Min(g1, exit);
+            if (hi - lo < LateralNickMm)
+                continue;
+            foreach (var side in new[] { -1, 1 })
+            {
+                if (MaxUncovered(lo, hi, FaceIntervals(axis, ux, uy, edges, side)) >= hi - lo - 1)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static List<(double Lo, double Hi)> FaceIntervals(WallRun axis, double ux, double uy, List<WallRun> faces, int side = 0)
     {
         var result = new List<(double Lo, double Hi)>();
         var band = Math.Max(axis.ThicknessMm / 2, 50) + FaceBandTolMm;
@@ -1432,7 +1529,10 @@ public static class BeamCenterlineReader
                 continue;
             var c0 = (f.X0 - axis.X0) * -uy + (f.Y0 - axis.Y0) * ux;
             var c1 = (f.X1 - axis.X0) * -uy + (f.Y1 - axis.Y0) * ux;
-            if (Math.Abs(c0) > band || Math.Abs(c1) > band)
+            if (Math.Abs(c0) > band || Math.Abs(c1) > band || c0 * side < 0)
+                continue;
+            // One-sided: only a line at the beam edge counts, not a wall face inside the beam.
+            if (side != 0 && Math.Abs(c0) < axis.ThicknessMm / 2 - FaceBandTolMm)
                 continue;
             var a0 = (f.X0 - axis.X0) * ux + (f.Y0 - axis.Y0) * uy;
             var a1 = (f.X1 - axis.X0) * ux + (f.Y1 - axis.Y0) * uy;

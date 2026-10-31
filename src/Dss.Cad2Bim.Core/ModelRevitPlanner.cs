@@ -783,7 +783,7 @@ public static class ModelRevitPlanner
         foreach (var f in oneFace)
             place.Log?.Invoke($"beam one-face ({f.X0:0},{f.Y0:0})-({f.X1:0},{f.Y1:0}) t={f.ThicknessMm:0}");
         runs.AddRange(oneFace);
-        var planned = BeamCenterlineReader.PrepareRuns(runs, supports, entities).ToList();
+        var planned = BeamCenterlineReader.PrepareRuns(runs, supports, entities, SameDrawing(geom, entities)).ToList();
         if (planned.Count == 0)
             return Array.Empty<CreateOperation>();
         place.Log?.Invoke(
@@ -802,6 +802,7 @@ public static class ModelRevitPlanner
         InheritAxisMarks(planned, labels, sources, layers, place.Log);
         InheritCornerLabels(planned, labels, sources, place.Log);
         KeepCadWidthOverForeignLabel(planned, labels, sources, place.Log);
+        CenterOwnLabelsOnDrawnFaces(planned, labels, sources, SameDrawing(geom, entities), place.Log);
         MergeSameSectionCollinear(planned, ref labels, ref sources, supports, fromModel, place.Log);
 
         // Drop ultra-short junk, then collapse near-coincident parallel bays to one segment.
@@ -1104,7 +1105,7 @@ public static class ModelRevitPlanner
                         continue;
                     labels[i] = new BeamLabel(mark, labels[i].WidthMm, labels[i].DepthMm,
                         string.IsNullOrEmpty(labels[i].Raw) ? mark : labels[i].Raw + "+" + mark);
-                    sources[i] = $"axisMark={mark}";
+                    sources[i] = AxisMarkSource(sources[i], $"axisMark={mark}");
                     log?.Invoke($"beam axis-mark seg {i} ← {mark} (unique on axis)");
                 }
 
@@ -1139,7 +1140,7 @@ public static class ModelRevitPlanner
                 var mark = labels[best].Mark!;
                 labels[i] = new BeamLabel(mark, labels[i].WidthMm, labels[i].DepthMm,
                     string.IsNullOrEmpty(labels[i].Raw) ? mark : labels[i].Raw + "+" + mark);
-                sources[i] = $"axisMark={mark}@seg{best}";
+                sources[i] = AxisMarkSource(sources[i], $"axisMark={mark}@seg{best}");
                 log?.Invoke($"beam axis-mark seg {i} ← seg {best} {mark} gap={bestGap:0}");
             }
         }
@@ -1637,6 +1638,13 @@ public static class ModelRevitPlanner
         return best;
     }
 
+    /// <summary>Where the size came from (own text or a neighbour) survives when only the Mark comes from the axis.</summary>
+    private static string AxisMarkSource(string source, string axisMark) =>
+        source.StartsWith("inherit=", StringComparison.Ordinal) ||
+        (source.StartsWith("cands=", StringComparison.Ordinal) && !source.StartsWith("cands=0", StringComparison.Ordinal))
+            ? $"{source} {axisMark}"
+            : axisMark;
+
     /// <summary>
     /// Layer holding most of each segment's faces. Beam groups live on their own layers (D1… on 3MBKC, DG… on 4MBKC),
     /// so a Mark or section only travels along an axis within one layer. "" = no face found (one-face or wall-top run).
@@ -1697,6 +1705,26 @@ public static class ModelRevitPlanner
     }
 
     private const double ForeignLabelWidthRatio = 1.5;
+
+    /// <summary>A span with its own label off the axis width follows its own CAD lines, the width stays the label's.</summary>
+    private static void CenterOwnLabelsOnDrawnFaces(
+        List<BeamSegment> planned, BeamLabel[] labels, string[] sources, List<CadEntity> drawing, Action<string>? log)
+    {
+        for (var i = 0; i < planned.Count; i++)
+        {
+            var run = planned[i].Run;
+            if (!labels[i].HasSize || Math.Abs(labels[i].WidthMm!.Value - run.ThicknessMm) < 1 ||
+                !sources[i].StartsWith("cands=", StringComparison.Ordinal) ||
+                sources[i].StartsWith("cands=0", StringComparison.Ordinal))
+                continue;
+            var moved = BeamCenterlineReader.CenterOnDrawnFaces(run, labels[i].WidthMm!.Value, drawing);
+            var shift = Math.Sqrt((moved.X0 - run.X0) * (moved.X0 - run.X0) + (moved.Y0 - run.Y0) * (moved.Y0 - run.Y0));
+            if (shift < 1)
+                continue;
+            log?.Invoke($"beam drawn faces seg {i} moved {shift:0} ({labels[i].Raw})");
+            planned[i] = new BeamSegment(moved, planned[i].Kind);
+        }
+    }
 
     /// <summary>A sized label within reach matches this pair width, so the pair is one real beam.</summary>
     private static bool PairHasOwnLabel(List<BeamText> texts, WallRun run) =>

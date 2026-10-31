@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Dss.Cad2Bim.Core;
 
@@ -118,6 +119,8 @@ public static class WallCenterlineReader
 
         // Label-matching beam pairs before unlabeled / mismatched; then nearest faces (thinner first)
         // so a wall's own faces beat the gap to the next wall. Closed-outline solid side breaks ties.
+        if (!wallFilter)
+            YieldToLabelledPairs(pairs);
         pairs.Sort(static (a, b) =>
         {
             var side = a.Conflicts.CompareTo(b.Conflicts);
@@ -149,26 +152,51 @@ public static class WallCenterlineReader
                 blocked.Add((Math.Min(s0, s1), Math.Max(s0, s1)));
             }
 
-            if (!LongestFree(pair.Lo, pair.Hi, blocked, out var lo, out var hi) || hi - lo < MinOverlapMm)
-                continue;
-            used[pair.I].Add((lo, hi));
-            var t0 = off + lo * c;
-            var t1 = off + hi * c;
-            used[pair.J].Add((Math.Min(t0, t1), Math.Max(t0, t1)));
-            // Beam double-outlines: consume parallel ghost faces within GhostFacePadMm of either face.
-            if (!wallFilter)
-                BlockGhostFaces(faces, used, pair.I, pair.J, a, lo, hi, pair.Thickness);
+            // Every free span of the pair, not only the longest: a thin pair may hold the middle of a long face.
+            while (LongestFree(pair.Lo, pair.Hi, blocked, out var lo, out var hi) && hi - lo >= MinOverlapMm)
+            {
+                blocked.Add((lo, hi));
+                used[pair.I].Add((lo, hi));
+                var t0 = off + lo * c;
+                var t1 = off + hi * c;
+                used[pair.J].Add((Math.Min(t0, t1), Math.Max(t0, t1)));
+                // Beam double-outlines: consume parallel ghost faces within GhostFacePadMm of either face.
+                if (!wallFilter)
+                    BlockGhostFaces(faces, used, pair.I, pair.J, a, lo, hi, pair.Thickness);
 
-            var halfX = pair.Nx * pair.Thickness / 2;
-            var halfY = pair.Ny * pair.Thickness / 2;
-            runs.Add(new WallRun(
-                a.X0 + a.Ux * lo + halfX, a.Y0 + a.Uy * lo + halfY,
-                a.X0 + a.Ux * hi + halfX, a.Y0 + a.Uy * hi + halfY,
-                Round10(pair.Thickness), pair.Nx, pair.Ny));
+                var halfX = pair.Nx * pair.Thickness / 2;
+                var halfY = pair.Ny * pair.Thickness / 2;
+                runs.Add(new WallRun(
+                    a.X0 + a.Ux * lo + halfX, a.Y0 + a.Uy * lo + halfY,
+                    a.X0 + a.Ux * hi + halfX, a.Y0 + a.Uy * hi + halfY,
+                    Round10(pair.Thickness), pair.Nx, pair.Ny));
+            }
         }
 
         var merged = MergeRuns(runs);
         return MeetAtCorners(wallFilter ? KeepWalls(merged) : KeepElongated(merged, 1.5));
+    }
+
+    /// <summary>
+    /// A thin unlabelled pair made with an opening outline (45188/45388 inside the labelled 45188/45488) goes after
+    /// the labelled pair sharing its face, whatever the closed-outline side says.
+    /// </summary>
+    private static void YieldToLabelledPairs(List<Pair> pairs)
+    {
+        const int unlabelled = 500_000;
+        const int yieldConflicts = 10;
+        var labelled = pairs.Where(p => p.Mismatch < unlabelled).ToList();
+        for (var k = 0; k < pairs.Count; k++)
+        {
+            var p = pairs[k];
+            if (p.Mismatch < unlabelled)
+                continue;
+            if (labelled.Any(q => q.Thickness > p.Thickness &&
+                                  (q.I == p.I || q.I == p.J || q.J == p.I || q.J == p.J)))
+            {
+                pairs[k] = new Pair(p.I, p.J, p.Thickness, p.Overlap, p.Nx, p.Ny, p.Lo, p.Hi, p.Conflicts + yieldConflicts, p.Mismatch);
+            }
+        }
     }
 
     /// <summary>

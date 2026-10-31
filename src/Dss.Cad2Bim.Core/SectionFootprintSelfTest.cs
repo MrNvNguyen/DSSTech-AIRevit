@@ -2940,6 +2940,36 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // A span labelled off its axis width follows its own lines, one of them on another layer.
+        var drawnSpan = BeamCenterlineReader.CenterOnDrawnFaces(
+            new WallRun(0, 0, 0, 6500, 500), 400,
+            new CadEntity[]
+            {
+                new CadLine { Layer = "A", X0 = -250, Y0 = 250, X1 = -250, Y1 = 6250 },
+                new CadLine { Layer = "A", X0 = 50, Y0 = 4200, X1 = 50, Y1 = 6250 },
+                new CadLine { Layer = "B", X0 = 50, Y0 = 250, X1 = 50, Y1 = 3900 }
+            });
+        if (Math.Abs(drawnSpan.X0 + 50) > 1 || Math.Abs(drawnSpan.X1 - drawnSpan.X0) > 1)
+        {
+            message = $"drawn span: expected flush with the axis face at x=-50, got x={drawnSpan.X0:0}";
+            return false;
+        }
+
+        // A beam stops at a lift shaft: along its wall only one CAD edge goes on, and that is the wall's.
+        var shaft = BeamCenterlineReader.PrepareRuns(
+            new[] { new WallRun(300, 0, 3700, 0, 400) },
+            new[] { Col(0, 0), Col(4000, 0), Col(8000, 0), new SectionFootprint(6000, -75, 3400, 250) },
+            new CadEntity[]
+            {
+                new CadLine { Layer = "BEAM", X0 = 300, Y0 = -200, X1 = 7700, Y1 = -200 },
+                new CadLine { Layer = "BEAM", X0 = 300, Y0 = 200, X1 = 3700, Y1 = 200 }
+            });
+        if (shaft.Count != 1 || !Has(shaft, BeamSpanKind.Main, 0, 0, 4000, 0))
+        {
+            message = $"beam at lift shaft: expected main 0..4000 only, got {Describe(shaft)}";
+            return false;
+        }
+
         // Wall-top beam with one face on the beam layer: labelled width, on the wall side of the face.
         var oneFace = new CadGeometry();
         oneFace.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = -500, X1 = 16000, Y1 = -500 });
