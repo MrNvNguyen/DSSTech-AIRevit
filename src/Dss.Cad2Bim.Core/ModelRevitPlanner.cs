@@ -65,6 +65,8 @@ public sealed class ModelRevitPlacement
     /// </summary>
     public IReadOnlyList<string>? FoundationTypeMarks { get; set; }
     public Action<string>? Log { get; set; }
+    /// <summary>Filled by the planner: layer of each column taken from outside the picked layer.</summary>
+    public List<string> OtherLayerColumns { get; } = new();
 
     /// <summary>Effective free-host offset for piles (đỉnh cọc relative to Level).</summary>
     public double EffectivePileTopOffsetMm()
@@ -174,7 +176,10 @@ public static class ModelRevitPlanner
         IReadOnlyList<WallRun>? walls = null)
     {
         var ops = new List<CreateOperation>();
-        foreach (var footprint in SectionFootprintReader.FromEntities(entities))
+        var footprints = SectionFootprintReader.FromEntities(entities);
+        if (walls is null)
+            footprints.AddRange(ColumnsOnOtherLayers(geom, entities, footprints, gridPoints, place));
+        foreach (var footprint in footprints)
         {
             if (walls is not null && InsideWalls(footprint, walls))
                 continue;
@@ -216,6 +221,66 @@ public static class ModelRevitPlanner
 
         return ops;
     }
+
+    /// <summary>
+    /// A column drawn on another layer of the drawing joins the picked ones: same size range as them, not on an
+    /// outline already found, and at a grid intersection (with no grids in the view: beside a mark they carry).
+    /// </summary>
+    private static List<SectionFootprint> ColumnsOnOtherLayers(
+        CadGeometry geom,
+        List<CadEntity> entities,
+        List<SectionFootprint> picked,
+        IReadOnlyList<CadPoint2>? gridPoints,
+        ModelRevitPlacement place)
+    {
+        var result = new List<SectionFootprint>();
+        if (picked.Count == 0)
+            return result;
+        var smallest = picked.Min(f => Math.Min(f.WidthMm, f.DepthMm)) - ColumnSizeTolMm;
+        var largest = picked.Max(f => Math.Max(f.WidthMm, f.DepthMm)) + ColumnSizeTolMm;
+        var hasGrids = gridPoints is { Count: > 0 };
+        var marks = new HashSet<string>(
+            hasGrids ? Enumerable.Empty<string>() : picked.Select(f => NearestMark(geom, f.CenterX, f.CenterY)).Where(m => m.Length > 0),
+            StringComparer.OrdinalIgnoreCase);
+        var found = new List<SectionFootprint>(picked);
+        var pickedLayer = FlatLayer(entities[0].Layer);
+        foreach (var group in SameDrawing(geom, entities).GroupBy(e => FlatLayer(e.Layer), StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.Equals(group.Key, pickedLayer, StringComparison.OrdinalIgnoreCase))
+                continue;
+            foreach (var f in SectionFootprintReader.FromEntities(group))
+            {
+                if (Math.Min(f.WidthMm, f.DepthMm) < smallest || Math.Max(f.WidthMm, f.DepthMm) > largest ||
+                    found.Any(c => InFootprint(c, f.CenterX, f.CenterY) || InFootprint(f, c.CenterX, c.CenterY)))
+                    continue;
+                bool atColumnPlace;
+                if (hasGrids)
+                {
+                    var (gx, gy) = NearestGridPoint(f.CenterX, f.CenterY, gridPoints);
+                    var dx = gx - f.CenterX;
+                    var dy = gy - f.CenterY;
+                    atColumnPlace = dx * dx + dy * dy <= ColumnGridReachMm * ColumnGridReachMm;
+                }
+                else
+                {
+                    atColumnPlace = marks.Contains(NearestMark(geom, f.CenterX, f.CenterY));
+                }
+
+                if (!atColumnPlace)
+                    continue;
+                place.Log?.Invoke($"column other layer {group.Key} ({f.CenterX:0},{f.CenterY:0}) {f.WidthMm:0}x{f.DepthMm:0}");
+                place.OtherLayerColumns.Add(group.Key);
+                found.Add(f);
+                result.Add(f);
+            }
+        }
+
+        return result;
+    }
+
+    private const double ColumnSizeTolMm = 50;
+    /// <summary>Column center to grid intersection: offset columns sit a few hundred mm off the crossing.</summary>
+    private const double ColumnGridReachMm = 500;
 
     private static void ColumnSection(SectionFootprint footprint, AnnotationSize size, string? shape, out int width, out int depth)
     {
