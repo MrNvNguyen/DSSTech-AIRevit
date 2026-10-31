@@ -476,7 +476,7 @@ public static class WallCenterlineReader
                     continue;
                 for (var j = 0; j < runs.Count; j++)
                 {
-                    if (!keep[j] || !Attached(runs[i], runs[j]))
+                    if (!keep[j] || (!Attached(runs[i], runs[j]) && !InLineAcrossOpening(runs[i], runs[j])))
                         continue;
                     keep[i] = true;
                     changed = true;
@@ -494,6 +494,30 @@ public static class WallCenterlineReader
 
         return result;
     }
+
+    /// <summary>
+    /// A short pier of a lift core (1350x350 between door openings) is free-standing but on the line of a core wall,
+    /// as thick as it: a wall, not a column.
+    /// </summary>
+    private static bool InLineAcrossOpening(WallRun pier, WallRun wall)
+    {
+        if (Math.Abs(pier.ThicknessMm - wall.ThicknessMm) > PierThicknessTolMm)
+            return false;
+        var wl = Length(wall);
+        var pl = Length(pier);
+        var wux = (wall.X1 - wall.X0) / wl;
+        var wuy = (wall.Y1 - wall.Y0) / wl;
+        if (Math.Abs((pier.X1 - pier.X0) / pl * wux + (pier.Y1 - pier.Y0) / pl * wuy) < 0.9986)
+            return false;
+        if (Math.Abs((pier.X0 - wall.X0) * -wuy + (pier.Y0 - wall.Y0) * wux) > PierThicknessTolMm)
+            return false;
+        var s0 = (pier.X0 - wall.X0) * wux + (pier.Y0 - wall.Y0) * wuy;
+        var s1 = (pier.X1 - wall.X0) * wux + (pier.Y1 - wall.Y0) * wuy;
+        return Math.Min(s0, s1) <= wl + MaxCoreOpeningMm && Math.Max(s0, s1) >= -MaxCoreOpeningMm;
+    }
+
+    private const double PierThicknessTolMm = 20;
+    private const double MaxCoreOpeningMm = 3000;
 
     private static bool Attached(WallRun stub, WallRun wall)
     {

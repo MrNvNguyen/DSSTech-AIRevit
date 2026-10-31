@@ -85,6 +85,7 @@ public sealed class ModelRevitCommand : IExternalCommand
             var geom = ImportInstanceGeometryReader.Read(import, view);
             AnnotationSize size;
             if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall
+                or ModelRevitPartKind.ArchitecturalWall
                 or ModelRevitPartKind.Beam or ModelRevitPartKind.Pile
                 or ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
                 or ModelRevitPartKind.StripFoundation or ModelRevitPartKind.RaftFoundation)
@@ -112,13 +113,14 @@ public sealed class ModelRevitCommand : IExternalCommand
                 size = new AnnotationSize(thick, size.HeightMm ?? thick, size.DiameterMm, size.Raw);
 
             IReadOnlyList<CadPoint2>? grids = part is ModelRevitPartKind.Column
-                or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam or ModelRevitPartKind.Pile
+                or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall
+                or ModelRevitPartKind.Beam or ModelRevitPartKind.Pile
                 or ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
                 or ModelRevitPartKind.StripFoundation or ModelRevitPartKind.RaftFoundation
                 ? ModelRevitGrids.Intersections(doc, view)
                 : null;
             IReadOnlyList<double>? gridAngles = part is ModelRevitPartKind.Column
-                or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam
+                or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall or ModelRevitPartKind.Beam
                 ? ModelRevitGrids.Angles(doc, view)
                 : null;
             var placement = new ModelRevitPlacement
@@ -144,7 +146,10 @@ public sealed class ModelRevitCommand : IExternalCommand
                 FoundationTypeMarks = part == ModelRevitPartKind.PileCap
                     ? catalog.FoundationTypeMarks
                     : null,
-                Log = part is ModelRevitPartKind.PileCap or ModelRevitPartKind.Column ? DssTechLog.Write : null
+                Log = part is ModelRevitPartKind.PileCap or ModelRevitPartKind.Column
+                    or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall
+                    ? DssTechLog.Write
+                    : null
             };
             var supportColumns = 0;
             var supportWalls = 0;
@@ -170,19 +175,20 @@ public sealed class ModelRevitCommand : IExternalCommand
                 }
             }
 
-            if (part == ModelRevitPartKind.Column)
+            if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall)
             {
-                // Planner input for checking columns found on other layers. Must not break the command.
+                // Planner input for checking parts found on other layers. Must not break the command.
                 try
                 {
                     var capturePath = System.IO.Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DSSTech", "column-capture.json");
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DSSTech",
+                        part == ModelRevitPartKind.Column ? "column-capture.json" : "wall-capture.json");
                     PlanCapture.From(geom, layerName, part, placement.BaseLevelName, placement.TopLevelName,
                         size, placement, grids, gridAngles).Save(capturePath);
                 }
                 catch (Exception ex)
                 {
-                    DssTechLog.Write($"column capture failed: {ex.Message}");
+                    DssTechLog.Write($"{part} capture failed: {ex.Message}");
                 }
             }
 
@@ -207,6 +213,8 @@ public sealed class ModelRevitCommand : IExternalCommand
                         "Không thấy cụm nét cột (L/b ≤ 4, cạnh 80–2500 mm) trên layer này. Bao dài hơn (L/b > 4) là vách — chọn phần Tường kết cấu.",
                     ModelRevitPartKind.StructuralWall =>
                         "Không thấy cặp nét song song của vách (bề dày 80–1200 mm, L/b > 4). Bao ngắn (L/b ≤ 4) là cột — chọn phần Cột.",
+                    ModelRevitPartKind.ArchitecturalWall =>
+                        "Không thấy cặp nét song song của tường (bề dày 80–1200 mm, L/b > 4) trên layer này.",
                     ModelRevitPartKind.Beam =>
                         "Không thấy cặp nét song song của dầm (hoặc nét tim) trên layer. Chữ Mark/kích thước đọc từ CadText DWG (vd. D1Y19-40x60, 30x60).",
                     ModelRevitPartKind.Pile =>
@@ -258,6 +266,14 @@ public sealed class ModelRevitCommand : IExternalCommand
                 summary.AppendLine("Layer chung cột/vách: vách khi L/b > 4; cột khi L/b ≤ 4 (nếu đã chọn family cột).");
                 summary.AppendLine("Tường kết cấu: Function = CoreShaft, Location Line = Wall Centerline (tim CAD). Exterior/Interior chỉ dùng cho tường kiến trúc.");
                 summary.AppendLine("Đầu tường kéo tới tim tường vuông góc để góc L/T join khít.");
+                AppendOtherLayerWalls(summary, placement);
+            }
+            else if (part == ModelRevitPartKind.ArchitecturalWall)
+            {
+                summary.AppendLine($"Type gốc: {choice.TypeName}");
+                summary.AppendLine("Bề dày đo từ hai nét song song, làm tròn 10 mm, nhân type tường theo bề dày.");
+                summary.AppendLine("Tường kiến trúc: không tính chịu lực; Exterior/Interior và Location Line theo vòng bao tường.");
+                AppendOtherLayerWalls(summary, placement);
             }
             else if (part == ModelRevitPartKind.Beam)
             {
@@ -336,12 +352,14 @@ public sealed class ModelRevitCommand : IExternalCommand
                 AppendColumnBatchSummary(summary, result.Data);
             else if (part == ModelRevitPartKind.PileCap)
                 AppendFoundationBatchSummary(summary, result.Data);
-            else if (part is not (ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam or ModelRevitPartKind.Pile
+            else if (part is not (ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall
+                         or ModelRevitPartKind.Beam or ModelRevitPartKind.Pile
                          or ModelRevitPartKind.IsolatedFoundation
                          or ModelRevitPartKind.RaftFoundation or ModelRevitPartKind.StripFoundation))
                 summary.AppendLine(result.Data.GetRawText());
 
             if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall
+                or ModelRevitPartKind.ArchitecturalWall
                 or ModelRevitPartKind.Beam or ModelRevitPartKind.Pile
                 or ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
                 or ModelRevitPartKind.RaftFoundation or ModelRevitPartKind.StripFoundation)
@@ -366,6 +384,14 @@ public sealed class ModelRevitCommand : IExternalCommand
             TaskDialog.Show("DSSTech", $"Lỗi Model Revit: {ex.Message}");
             return Result.Failed;
         }
+    }
+
+    private static void AppendOtherLayerWalls(StringBuilder summary, ModelRevitPlacement placement)
+    {
+        if (placement.OtherLayerWalls.Count == 0)
+            return;
+        var layers = placement.OtherLayerWalls.GroupBy(l => l).Select(g => $"{g.Key} ({g.Count()})");
+        summary.AppendLine($"Tường ở layer khác: {placement.OtherLayerWalls.Count} — {string.Join(", ", layers)}");
     }
 
     private static string DescribeMarks(CadGeometry geom, IReadOnlyList<CreateOperation> ops)

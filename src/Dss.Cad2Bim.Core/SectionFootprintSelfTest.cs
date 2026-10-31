@@ -2984,6 +2984,59 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // Piers of a lift core on the line of a core wall are walls; a column off that line is not.
+        var core = new CadGeometry();
+        core.Entities.Add(Outline("VACH", 0, 0, 350, 3000));
+        core.Entities.Add(Outline("VACH", 0, 2875, 350, 1350));
+        core.Entities.Add(Outline("VACH", 0, 5125, 350, 1275));
+        core.Entities.Add(Outline("VACH", 2000, 2875, 350, 1350));
+        var coreOps = ModelRevitPlanner.Plan(
+            core, "VACH", ModelRevitPartKind.StructuralWall, "L1", "L2", new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { TypeName = "W" });
+        if (coreOps.Count(op => op.Category == "Walls") != 3)
+        {
+            message = $"lift core piers: expected 3 walls, got {coreOps.Count(op => op.Category == "Walls")}";
+            return false;
+        }
+
+        // Walls on other layers join, also as open polylines; layers with WxH labels are beams, thicker pairs stay out.
+        var mixedWalls = new CadGeometry();
+        mixedWalls.Entities.Add(Outline("VACH", 2500, 0, 5000, 300));
+        mixedWalls.Entities.Add(Outline("VACH MOI", 2500, 5000, 5000, 300));
+        mixedWalls.Entities.Add(Outline("VACH MOI", 2500, 0, 5000, 300));
+        mixedWalls.Entities.Add(Outline("VACH DAY", 2500, 9000, 5000, 900));
+        mixedWalls.Entities.Add(Outline("CUA", 2500, 12000, 2000, 300));
+        mixedWalls.Entities.Add(new CadLine { Layer = "DAM", X0 = 0, Y0 = 15000, X1 = 6000, Y1 = 15000 });
+        mixedWalls.Entities.Add(new CadText { Layer = "ANN", Value = "D1-30X60", X = 3000, Y = 15150, CenterX = 3000, CenterY = 15150 });
+        var openWall = new CadPolyline { Layer = "3" };
+        openWall.Points.Add(new CadPoint2(0, 20000));
+        openWall.Points.Add(new CadPoint2(5000, 20000));
+        openWall.Points.Add(new CadPoint2(5000, 20200));
+        openWall.Points.Add(new CadPoint2(0, 20200));
+        mixedWalls.Entities.Add(openWall);
+        mixedWalls.Entities.Add(new CadLine { Layer = "DAM", X0 = 0, Y0 = 15300, X1 = 6000, Y1 = 15300 });
+        var wallPlace = new ModelRevitPlacement { TypeName = "W" };
+        var wallMixOps = ModelRevitPlanner.Plan(
+            mixedWalls, "VACH", ModelRevitPartKind.StructuralWall, "L1", "L2", new AnnotationSize(null, null, null, ""),
+            placement: wallPlace);
+        if (wallMixOps.Count != 3 || wallPlace.OtherLayerWalls.Count != 2)
+        {
+            message = $"walls on other layers: expected 3 with 2 joined, got {wallMixOps.Count} ({string.Join(",", wallPlace.OtherLayerWalls)})";
+            return false;
+        }
+
+        // Architectural walls are a part of their own: not structural, function from the envelope.
+        var archOps = ModelRevitPlanner.Plan(
+            mixedWalls, "VACH", ModelRevitPartKind.ArchitecturalWall, "L1", "L2", new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { TypeName = "W" });
+        if (archOps.Count != 3 || archOps.Any(op =>
+                op.Category != "Walls" || op.Fields.GetProperty("structural").GetBoolean() ||
+                op.Fields.GetProperty("function").GetString() is not ("Exterior" or "Interior")))
+        {
+            message = $"architectural walls: expected 3 non-structural Exterior/Interior walls, got {archOps.Count}";
+            return false;
+        }
+
         // A beam stops at a lift shaft: along its wall only one CAD edge goes on, and that is the wall's.
         var shaft = BeamCenterlineReader.PrepareRuns(
             new[] { new WallRun(300, 0, 3700, 0, 400) },

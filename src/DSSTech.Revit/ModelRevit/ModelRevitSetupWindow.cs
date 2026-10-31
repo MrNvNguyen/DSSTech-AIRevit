@@ -389,14 +389,15 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             or ModelRevitPartKind.IsolatedFoundation)
             _mark.IsChecked = true;
         Show(_materialRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall
-            or ModelRevitPartKind.Beam or ModelRevitPartKind.Floor or ModelRevitPartKind.IsolatedFoundation
+            or ModelRevitPartKind.ArchitecturalWall or ModelRevitPartKind.Beam or ModelRevitPartKind.Floor or ModelRevitPartKind.IsolatedFoundation
             or ModelRevitPartKind.PileCap or ModelRevitPartKind.RaftFoundation
             or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation);
         Show(_functionRow, kind == ModelRevitPartKind.StructuralWall);
-        Show(_thickRow, kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Floor
+        Show(_thickRow, kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall or ModelRevitPartKind.Floor
             or ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.PileCap
             or ModelRevitPartKind.RaftFoundation or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation);
-        Show(_typeRow, kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam or ModelRevitPartKind.Floor
+        Show(_typeRow, kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall
+            or ModelRevitPartKind.Beam or ModelRevitPartKind.Floor
             or ModelRevitPartKind.IsolatedFoundation or ModelRevitPartKind.PileCap or ModelRevitPartKind.RaftFoundation
             or ModelRevitPartKind.Pile or ModelRevitPartKind.StripFoundation
             or ModelRevitPartKind.Ceiling or ModelRevitPartKind.Pipe or ModelRevitPartKind.Duct
@@ -406,7 +407,8 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         Show(_fromCapRow, kind == ModelRevitPartKind.Pile);
         Show(_embedRow, kind == ModelRevitPartKind.Pile && _fromCapBottom.IsChecked == true);
 
-        var bothLevels = kind is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall;
+        var bothLevels = kind is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall
+            or ModelRevitPartKind.ArchitecturalWall;
         // Beams + piles: one reference level (= open-plan GenLevel by default) + one offset.
         var levelOnly = kind is ModelRevitPartKind.Beam or ModelRevitPartKind.Pile;
         Show(_baseRow, !levelOnly);
@@ -472,7 +474,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         {
             IReadOnlyList<string> types = kind switch
             {
-                ModelRevitPartKind.StructuralWall => _catalog.WallTypes,
+                ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall => _catalog.WallTypes,
                 ModelRevitPartKind.Floor => _catalog.FloorTypes,
                 ModelRevitPartKind.Pile => FoundationCatalogFilter.FilterPileTypes(
                     _catalog.FoundationTypes, SelectedPileSubtype()),
@@ -585,7 +587,8 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             return;
         }
 
-        if (kind == ModelRevitPartKind.StructuralWall && string.IsNullOrWhiteSpace(BlankToEmpty(DssTheme.ComboValue(_type))))
+        if (kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall &&
+            string.IsNullOrWhiteSpace(BlankToEmpty(DssTheme.ComboValue(_type))))
         {
             MessageBox.Show(this,
                 "Chọn type tường gốc (ví dụ S-WALL-RFC400). Bề dày đo từ nét vẽ sẽ nhân type này.",
@@ -673,7 +676,8 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             HeightParam = DssTheme.ComboValue(_heightParam),
             Material = BlankToEmpty(DssTheme.ComboValue(_material)),
             AssignMark = _mark.IsChecked == true,
-            Function = DssTheme.ComboValue(_function) switch
+            // Architectural walls: Exterior / Interior comes from the envelope in the planner.
+            Function = kind == ModelRevitPartKind.ArchitecturalWall ? "" : DssTheme.ComboValue(_function) switch
             {
                 "Nội thất" => "Interior",
                 "Ngoại thất" => "Exterior",
@@ -719,7 +723,8 @@ internal sealed class ModelRevitSetupWindow : DssDialog
     private static string Verb(ModelRevitPartKind kind) => kind switch
     {
         ModelRevitPartKind.Column => "Dựng cột",
-        ModelRevitPartKind.StructuralWall => "Dựng tường",
+        ModelRevitPartKind.StructuralWall => "Dựng tường kết cấu",
+        ModelRevitPartKind.ArchitecturalWall => "Dựng tường kiến trúc",
         ModelRevitPartKind.Beam => "Dựng dầm",
         ModelRevitPartKind.Floor => "Dựng sàn",
         ModelRevitPartKind.IsolatedFoundation => "Dựng móng đơn",
