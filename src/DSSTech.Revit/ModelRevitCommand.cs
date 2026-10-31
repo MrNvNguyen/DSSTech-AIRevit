@@ -35,6 +35,13 @@ public sealed class ModelRevitCommand : IExternalCommand
             return Result.Cancelled;
         }
 
+        var noUpperLevel = topLevel.Id == baseLevel.Id;
+        if (noUpperLevel && presetPart is ModelRevitPartKind preset && ModelRevitLevelContext.NeedsTopLevel(preset))
+        {
+            TaskDialog.Show("DSSTech — ModelRevit", ModelRevitLevelContext.NoUpperLevelMessage(baseLevel));
+            return Result.Cancelled;
+        }
+
         if (ensurePackage && !ParamSetupRunner.EnsureChosen(uiApp))
             return Result.Cancelled;
 
@@ -47,6 +54,12 @@ public sealed class ModelRevitCommand : IExternalCommand
             return Result.Cancelled;
 
         var part = choice.Part;
+        if (noUpperLevel && ModelRevitLevelContext.NeedsTopLevel(part))
+        {
+            TaskDialog.Show("DSSTech — ModelRevit", ModelRevitLevelContext.NoUpperLevelMessage(baseLevel));
+            return Result.Cancelled;
+        }
+
         var columnFamily = choice.Family;
         var projectKey = ProjectKeys.For(doc);
 

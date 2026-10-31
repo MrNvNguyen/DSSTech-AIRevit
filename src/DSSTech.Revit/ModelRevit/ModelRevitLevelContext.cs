@@ -1,4 +1,5 @@
 using Autodesk.Revit.DB;
+using Dss.Cad2Bim.Core;
 
 namespace DSSTech.Revit.ModelRevit;
 
@@ -32,17 +33,17 @@ internal static class ModelRevitLevelContext
             .OrderBy(l => l.Elevation)
             .ToList();
 
-        topLevel = levels.FirstOrDefault(l => l.Elevation > gen.Elevation + ElevationTolFt);
-        if (topLevel is null)
-        {
-            errorVi =
-                $"Level «{gen.Name}» của mặt bằng đang mở không có Level kế tiếp phía trên.\n" +
-                "Thêm Level tầng trên trong model rồi gọi lại ModelRevit.";
-            return false;
-        }
-
+        // Only columns and walls run up to the level above; beams, floors and the rest stay on the plan's level.
+        topLevel = levels.FirstOrDefault(l => l.Elevation > gen.Elevation + ElevationTolFt) ?? gen;
         return true;
     }
+
+    public static bool NeedsTopLevel(ModelRevitPartKind part) =>
+        part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall;
+
+    public static string NoUpperLevelMessage(Level level) =>
+        $"Level «{level.Name}» của mặt bằng đang mở không có Level kế tiếp phía trên.\n" +
+        "Thêm Level tầng trên trong model rồi gọi lại ModelRevit.";
 
     private static bool IsModelRevitPlanView(View view) =>
         view.ViewType is ViewType.FloorPlan or ViewType.EngineeringPlan;
