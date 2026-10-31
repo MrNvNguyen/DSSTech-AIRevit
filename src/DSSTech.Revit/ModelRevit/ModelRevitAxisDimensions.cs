@@ -14,6 +14,10 @@ internal static class ModelRevitAxisDimensions
     private const double SnapStepMm = UnitConv.SnapStepMm;
     /// <summary>Auto-dim only when face/center is this close to a grid.</summary>
     private const double MaxDimOffsetMm = 3000;
+    /// <summary>Columns are located from their grids even mid-bay (face 3700 from the grid in an 8 m bay).</summary>
+    private const double MaxColumnDimOffsetMm = 5000;
+    /// <summary>A grid counts for a point this far past its drawn ends: grid lines may stop short of the last element.</summary>
+    private const double GridReachPastEndMm = 1000;
     /// <summary>Snap search — mid-bay columns are often 4–8 m from grids.</summary>
     private const double SnapSearchMm = 25000;
     /// <summary>Within this, snap the FACE (e.g. 250 from grid); beyond, snap CENTER.</summary>
@@ -195,6 +199,16 @@ internal static class ModelRevitAxisDimensions
         public required XYZ Origin { get; init; }
         public required XYZ Direction { get; init; }
         public required XYZ Normal { get; init; }
+        public required double Start { get; init; }
+        public required double End { get; init; }
+
+        /// <summary>The point lies along the drawn grid line, not just near its endless extension.</summary>
+        public bool Reaches(XYZ point)
+        {
+            var along = (point - Origin).DotProduct(Direction);
+            var reach = UnitConv.MmToInternal(GridReachPastEndMm);
+            return along >= Start - reach && along <= End + reach;
+        }
     }
 
     private static List<GridSeg> CollectGrids(Document doc, View view)
@@ -224,7 +238,13 @@ internal static class ModelRevitAxisDimensions
                     if (Math.Abs(dir.Z) > 0.1)
                         continue;
                     var normal = new XYZ(-dir.Y, dir.X, 0).Normalize();
-                    list.Add(new GridSeg { Grid = grid, Origin = line.Origin, Direction = dir, Normal = normal });
+                    var s0 = (line.GetEndPoint(0) - line.Origin).DotProduct(dir);
+                    var s1 = (line.GetEndPoint(1) - line.Origin).DotProduct(dir);
+                    list.Add(new GridSeg
+                    {
+                        Grid = grid, Origin = line.Origin, Direction = dir, Normal = normal,
+                        Start = Math.Min(s0, s1), End = Math.Max(s0, s1)
+                    });
                 }
 
                 if (list.Any(g => g.Grid.Id == grid.Id))
@@ -360,8 +380,11 @@ internal static class ModelRevitAxisDimensions
             var nearest = NearestGrid(center, axis.Normal, grids, SnapSearchMm);
             if (nearest is null)
                 continue;
-            var aligned = faces.Any(f => Math.Abs(f.FaceNormal.DotProduct(nearest.Normal)) >= ParallelCos)
-                || HalfPileRadiusInternal(instance) is > 0;
+            // A section with flat faces follows the grids parallel to them: every rectangular column has a width
+            // too, and counting that as "round" let a diagonal grid 470 away outrank the bay's grid 4000 away.
+            var aligned = faces.Count > 0
+                ? faces.Any(f => Math.Abs(f.FaceNormal.DotProduct(nearest.Normal)) >= ParallelCos)
+                : HalfPileRadiusInternal(instance) is > 0;
             var absMm = Math.Abs(UnitConv.ToMm((center - nearest.Origin).DotProduct(nearest.Normal)));
             candidates.Add((nearest, aligned, absMm));
         }
@@ -747,15 +770,15 @@ internal static class ModelRevitAxisDimensions
         var count = 0;
         foreach (var axis in DistinctAxes(grids))
         {
-            var nearest = NearestGrid(center, axis.Normal, grids, MaxDimOffsetMm);
+            var nearest = NearestGrid(center, axis.Normal, grids, MaxColumnDimOffsetMm);
             if (nearest is null)
                 continue;
-            var faceToward = FaceTowardGrid(faces, center, nearest, MaxDimOffsetMm);
+            var faceToward = FaceTowardGrid(faces, center, nearest, MaxColumnDimOffsetMm);
             if (faceToward?.Reference is null)
                 continue;
             var facePt = FacePoint(faceToward, center);
             var offsetMm = Math.Abs(UnitConv.ToMm((facePt - nearest.Origin).DotProduct(nearest.Normal)));
-            if (offsetMm < 1 || offsetMm > MaxDimOffsetMm)
+            if (offsetMm < 1 || offsetMm > MaxColumnDimOffsetMm)
                 continue;
             // Only auto-dim when geometry is already on a 5 mm station (after snap).
             if (!OnStep(offsetMm, TinyNudgeMm))
@@ -1046,7 +1069,16 @@ internal static class ModelRevitAxisDimensions
         return face.Origin;
     }
 
-    private static GridSeg? NearestGrid(XYZ point, XYZ axisNormal, List<GridSeg> grids, double maxAbsMm)
+    /// <summary>
+    /// Nearest parallel grid whose line runs past the point. Grids of another wing are parallel too, but their
+    /// endless extension must not locate an element here. Without such a grid the nearest extension is still
+    /// better than none.
+    /// </summary>
+    private static GridSeg? NearestGrid(XYZ point, XYZ axisNormal, List<GridSeg> grids, double maxAbsMm) =>
+        NearestGrid(point, axisNormal, grids.Where(g => g.Reaches(point)), maxAbsMm)
+        ?? NearestGrid(point, axisNormal, (IEnumerable<GridSeg>)grids, maxAbsMm);
+
+    private static GridSeg? NearestGrid(XYZ point, XYZ axisNormal, IEnumerable<GridSeg> grids, double maxAbsMm)
     {
         GridSeg? best = null;
         var bestAbs = double.MaxValue;
