@@ -7,16 +7,16 @@ Phong cách **A – Kỹ sư xanh–vàng** (chốt 2026-10-27).
 | Vai trò | Mã màu |
 |---|---|
 | Nét chính (navy) | `#1B3A5C` |
-| Điểm nhấn (amber) | `#E9A23B` |
-| Trạng thái bật | `#1F9D55` |
-| Trạng thái tắt | `#8A949E` |
+| Điểm nhấn (amber) | `#9A5B00` (sáng) · `#E9A23B` (tối) |
+| Trạng thái bật | `#14803F` (sáng) · `#4CC784` (tối) |
+| Trạng thái tắt | `#5F6B76` (sáng) · `#B4BEC8` (tối) |
 
 Icon: nét navy dày 2px trên khung 32×32, mỗi icon có đúng một mảng vàng. Có cả bản 32px và 16px trong `src/DSSTech.Revit/Assets/`.
-Icon các bước CAD → BIM có số ①②③ trên bản 32px (bản 16px bỏ số vì quá nhỏ).
+Icon module do `scripts/generate-module-icons.ps1` tạo. Màu trên đạt tương phản tối thiểu 3:1 với nền ribbon ở cả hai chế độ (ước lượng nền sáng `#F0F0F0`, nền tối `#3B4453`); chữ nhãn do Revit tự vẽ theo giao diện.
 
 ## Giao diện tối (Revit 2024+)
 
-Mỗi icon có thêm bản `*-32-dark.png` / `*-16-dark.png`: nét `#D6E2EE` (xám xanh sáng) thay cho navy, giữ nguyên mảng vàng; số bước ①②③ đổi sang nền vàng chữ tối.
+Mỗi icon có thêm bản `*-32-dark.png` / `*-16-dark.png`: nét `#D6E2EE` (xám xanh sáng) thay cho navy, mảng vàng dùng màu tối ở bảng trên.
 `RibbonIcons.Load` tự chọn bản tối khi `UIThemeManager.CurrentTheme == UITheme.Dark`; `RibbonState.RefreshTheme()` chạy lại khi người dùng đổi theme (sự kiện `ThemeChanged`) nên không cần khởi động lại Revit.
 
 ## Nhãn song ngữ
@@ -27,15 +27,18 @@ Mỗi icon có thêm bản `*-32-dark.png` / `*-16-dark.png`: nét `#D6E2EE` (x�
 - **Tooltip:** `ToolTip` = mô tả tiếng Việt; `LongDescription` = tiếng Anh (hiện khi giữ chuột lâu).
 - **F1:** mọi nút trỏ tới `Help/HuongDan.html#<mục>`.
 
-Bề rộng đo trên bản phác thảo: khoảng 1.035 px, vừa màn hình laptop 1366 px. Nếu ghi song ngữ cả nút nhỏ thì khoảng 1.185 px, vẫn vừa nhưng chật.
-
 ## Bố cục
 
 | Panel | Nút |
 |---|---|
 | Thiết lập · Setup | Bảng điều khiển (to) · [Tham số QS / Tài khoản / Hướng dẫn] |
-| CAD → BIM | [① Link mặt bằng / ② Trục & tầng] · ③ Dựng mô hình (to) · Dựng theo lô ▾ (Kiểm tra CAD, Kết cấu, Kiến trúc, Cơ điện) |
+| Kiến trúc · Architecture | Trục · Level · Tường kiến trúc · Cửa · Cửa sổ · [Phòng / Trần] |
+| Kết cấu · Structure | Cột · Tường kết cấu · Dầm · Sàn |
+| Móng & cọc · Foundation | [Đài cọc / Móng đơn / Móng băng] · [Móng bè / Cọc] |
+| MEPF | [Ống nước / Ống gió] · [Máng cáp / Thiết bị] |
 | Khối lượng · Quantity | Chọn định mức · Ván khuôn · Xuất BOQ · Bảng khối lượng |
 | Trợ lý AI · AI | AI: Đang bật/Đã tắt (đổi icon + chữ theo trạng thái thật) · Kết nối AI |
+
+Mỗi nút module mở cửa sổ Dựng mô hình đúng loại đó, không có ô Loại; Bảng điều khiển vẫn mở cửa sổ đầy đủ như trước. Nút Link mặt bằng, Dựng mô hình và Dựng theo lô đã gỡ khỏi ribbon, lệnh phía sau giữ nguyên. Level chưa có logic dựng.
 
 Tên nội bộ (ID) của các nút cũ giữ nguyên. Riêng tên panel đã đổi, nên phím tắt người dùng tự gán cho nút cũ có thể phải gán lại.

@@ -47,46 +47,49 @@ public sealed class App : IExternalApplication
                 "Mở hướng dẫn sử dụng DSSTech. Mẹo: rê chuột lên bất kỳ nút nào rồi nhấn F1.",
                 "Open the DSSTech user guide. Tip: hover any button and press F1.", ""));
 
-        // ── Panel 2: CAD → BIM (đánh số theo thứ tự làm việc) ──────────────
-        var cad = Panel(application, tab, "CAD → BIM");
-        cad.AddStackedItems(
-            Small(asm, "DSSTechCadLink", "Link mặt bằng", "Link CAD plan", typeof(CadLinkHelpCommand), "icon-link",
-                "Bước 1 — Link DWG/DXF, Move/Rotate link cho khớp model trước khi dựng.",
-                "Step 1 — Link the DWG/DXF and align it to the model before building.", "link-mat-bang"),
-            Small(asm, "DSSTechCadDatum", "Trục & tầng", "Grids & Levels", typeof(CadDatumCommand), "icon-grid",
-                "Bước 2 — Dựng lưới trục từ layer G-GRID nếu chưa có (bỏ qua trục đã tồn tại).",
-                "Step 2 — Create grids from layer G-GRID (existing grids are skipped).", "truc-tang"));
-        cad.AddItem(Large(asm, "DSSTechModelRevit", "Dựng mô hình", "Model Revit", typeof(ModelRevitCommand), "icon-model",
-            "Bước 3 — Chọn loại, family, level, offset rồi dựng cấu kiện từ CAD link.",
-            "Step 3 — Pick types, families, level and offset, then build from the CAD link.", "dung-mo-hinh"));
+        // ── Panel 2: Kiến trúc (Trục, Level là nền cho các bộ môn) ─────────
+        var arch = Panel(application, tab, "Kiến trúc · Architecture");
+        arch.AddItem(Large(asm, "DSSTechCadDatum", "Trục", "Grids", typeof(CadDatumCommand), "icon-part-grid",
+            "Dựng lưới trục từ layer G-GRID nếu chưa có (bỏ qua trục đã tồn tại).",
+            "Create grids from layer G-GRID (existing grids are skipped).", "truc-tang"));
+        arch.AddItem(Large(asm, "DSSTechModelLevel", "Level", "Levels", typeof(ModelLevelCommand), "icon-level",
+            "Dựng Level. Chức năng đang được bổ sung.",
+            "Create levels. Coming soon.", "truc-tang"));
+        arch.AddSeparator();
+        arch.AddItem(Part(asm, "DSSTechModelArchWall", "Tường kiến trúc", "Arch Wall", typeof(ModelArchitecturalWallCommand), "icon-part-archwall"));
+        arch.AddItem(Part(asm, "DSSTechModelDoor", "Cửa", "Door", typeof(ModelDoorCommand), "icon-part-door"));
+        arch.AddItem(Part(asm, "DSSTechModelWindow", "Cửa sổ", "Window", typeof(ModelWindowCommand), "icon-part-window"));
+        arch.AddStackedItems(
+            SmallPart(asm, "DSSTechModelRoom", "Phòng", "Room", typeof(ModelRoomCommand), "icon-part-room"),
+            SmallPart(asm, "DSSTechModelCeiling", "Trần", "Ceiling", typeof(ModelCeilingCommand), "icon-part-ceiling"));
 
-        var wizardData = new PulldownButtonData("DSSTechBatchWizard", "Dựng theo lô\nBatch Wizard")
-        {
-            ToolTip = "Dựng hàng loạt theo bộ môn: Kiểm tra → Xem trước → Xác nhận → Tạo.",
-            LongDescription = "Batch build by discipline: Check → Preview → Confirm → Create.",
-            LargeImage = RibbonIcons.Load("icon-wizard", 32),
-            Image = RibbonIcons.Load("icon-wizard", 16)
-        };
-        RibbonState.IconById[wizardData.Name] = "icon-wizard";
-        SetHelp(wizardData, "dung-theo-lo");
-        if (cad.AddItem(wizardData) is PulldownButton wizard)
-        {
-            wizard.AddPushButton(Item(asm, "DSSTechCadPreflight", "Kiểm tra CAD · Preflight", typeof(CadPreflightCommand), "icon-preflight",
-                "Kiểm tra CAD link đã chọn theo CAD_INPUT_SPEC (chỉ báo lỗi, không tạo gì).",
-                "Check the selected CAD link against CAD_INPUT_SPEC (report only, creates nothing).", "dung-theo-lo"));
-            wizard.AddSeparator();
-            wizard.AddPushButton(Item(asm, "DSSTechCadStructure", "Kết cấu · Structure", typeof(CadStructureCommand), "icon-structure",
-                "CAD kết cấu → Xem trước → Xác nhận → Tạo hàng loạt.",
-                "Structural CAD → Preview → Confirm → Batch create.", "dung-theo-lo"));
-            wizard.AddPushButton(Item(asm, "DSSTechCadArch", "Kiến trúc · Architecture", typeof(CadArchCommand), "icon-arch",
-                "CAD kiến trúc → Xem trước → Xác nhận → Tạo hàng loạt.",
-                "Architectural CAD → Preview → Confirm → Batch create.", "dung-theo-lo"));
-            wizard.AddPushButton(Item(asm, "DSSTechCadMepf", "Cơ điện · MEPF", typeof(CadMepfCommand), "icon-mepf",
-                "CAD MEPF → Xem trước → Xác nhận → Tạo hàng loạt.",
-                "MEPF CAD → Preview → Confirm → Batch create.", "dung-theo-lo"));
-        }
+        // ── Panel 3: Kết cấu ───────────────────────────────────────────────
+        var structure = Panel(application, tab, "Kết cấu · Structure");
+        structure.AddItem(Part(asm, "DSSTechModelColumn", "Cột", "Column", typeof(ModelColumnCommand), "icon-part-column"));
+        structure.AddItem(Part(asm, "DSSTechModelStructuralWall", "Tường kết cấu", "Structural Wall", typeof(ModelStructuralWallCommand), "icon-part-wall"));
+        structure.AddItem(Part(asm, "DSSTechModelBeam", "Dầm", "Beam", typeof(ModelBeamCommand), "icon-part-beam"));
+        structure.AddItem(Part(asm, "DSSTechModelFloor", "Sàn", "Floor", typeof(ModelFloorCommand), "icon-part-floor"));
 
-        // ── Panel 3: Khối lượng ────────────────────────────────────────────
+        // ── Panel 4: Móng & cọc ────────────────────────────────────────────
+        var foundation = Panel(application, tab, "Móng & cọc · Foundation");
+        foundation.AddStackedItems(
+            SmallPart(asm, "DSSTechModelPileCap", "Đài cọc", "Pile Cap", typeof(ModelPileCapCommand), "icon-part-pilecap"),
+            SmallPart(asm, "DSSTechModelFooting", "Móng đơn", "Isolated Footing", typeof(ModelIsolatedFoundationCommand), "icon-part-footing"),
+            SmallPart(asm, "DSSTechModelStrip", "Móng băng", "Strip Footing", typeof(ModelStripFoundationCommand), "icon-part-strip"));
+        foundation.AddStackedItems(
+            SmallPart(asm, "DSSTechModelRaft", "Móng bè", "Raft", typeof(ModelRaftFoundationCommand), "icon-part-raft"),
+            SmallPart(asm, "DSSTechModelPile", "Cọc", "Pile", typeof(ModelPileCommand), "icon-part-pile"));
+
+        // ── Panel 5: MEPF ──────────────────────────────────────────────────
+        var mepf = Panel(application, tab, "MEPF");
+        mepf.AddStackedItems(
+            SmallPart(asm, "DSSTechModelPipe", "Ống nước", "Pipe", typeof(ModelPipeCommand), "icon-part-pipe"),
+            SmallPart(asm, "DSSTechModelDuct", "Ống gió", "Duct", typeof(ModelDuctCommand), "icon-part-duct"));
+        mepf.AddStackedItems(
+            SmallPart(asm, "DSSTechModelCableTray", "Máng cáp", "Cable Tray", typeof(ModelCableTrayCommand), "icon-part-tray"),
+            SmallPart(asm, "DSSTechModelEquipment", "Thiết bị", "Equipment", typeof(ModelEquipmentCommand), "icon-part-equipment"));
+
+        // ── Panel 6: Khối lượng ────────────────────────────────────────────
         var qty = Panel(application, tab, "Khối lượng · Quantity");
         qty.AddItem(Large(asm, "QSNormSelector", "Chọn định mức", "Norm Selector", typeof(NormSelectorCommand), "icon-norm",
             "Phân tích cấu kiện đang chọn → công việc → mã định mức → vật liệu / nhân công / máy.",
@@ -101,7 +104,7 @@ public sealed class App : IExternalApplication
             "Tạo / cập nhật bảng thống kê 'QS-BIM Khối lượng cấu kiện' (nhiều loại cấu kiện, chạy lại không bị trùng).",
             "Create / update the 'QS-BIM element quantities' schedule (multi-category, safe to re-run).", "bang-khoi-luong"));
 
-        // ── Panel 4: Trợ lý AI ─────────────────────────────────────────────
+        // ── Panel 7: Trợ lý AI ─────────────────────────────────────────────
         var ai = Panel(application, tab, "Trợ lý AI · AI");
         RibbonState.AiButton = ai.AddItem(Large(asm, "DSSTechMcpToggle", "AI: Đang bật", "AI: On", typeof(McpToggleCommand), "icon-mcp",
             "", "", "tro-ly-ai")) as PushButton;
@@ -139,6 +142,15 @@ public sealed class App : IExternalApplication
     private static RibbonPanel Panel(UIControlledApplication application, string tab, string name) =>
         application.GetRibbonPanels(tab).FirstOrDefault(x => x.Name == name)
         ?? application.CreateRibbonPanel(tab, name);
+
+    /// <summary>Nút module: mở cửa sổ Dựng mô hình với loại cấu kiện chọn sẵn.</summary>
+    private static PushButtonData Part(string asm, string id, string vi, string en, Type command, string icon) =>
+        Large(asm, id, vi, en, command, icon, $"Dựng {vi.ToLowerInvariant()} từ CAD link: chọn family, level, offset rồi dựng.",
+            $"Build {en.ToLowerInvariant()} from the CAD link: pick family, level and offset.", "dung-mo-hinh");
+
+    private static PushButtonData SmallPart(string asm, string id, string vi, string en, Type command, string icon) =>
+        Small(asm, id, vi, en, command, icon, "Dựng từ CAD link: chọn family, level, offset rồi dựng.",
+            $"Build {en.ToLowerInvariant()} from the CAD link: pick family, level and offset.", "dung-mo-hinh");
 
     /// <summary>Nút to: nhãn 2 dòng Việt / Anh.</summary>
     private static PushButtonData Large(string asm, string id, string vi, string en, Type command, string icon,

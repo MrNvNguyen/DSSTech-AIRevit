@@ -248,15 +248,18 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         ("Cọc đóng / Driven", FoundationCatalogFilter.PileSubtypeDriven)
     };
 
-    private ModelRevitSetupWindow(ModelRevitFormCatalog catalog)
+    private ModelRevitSetupWindow(ModelRevitFormCatalog catalog, ModelRevitPartKind? presetPart)
         : base(
-            "DSSTech — Dựng từ CAD",
+            presetPart is ModelRevitPartKind titlePart ? $"DSSTech — {ParamPackageCatalog.PartLabel(titlePart)}" : "DSSTech — Dựng từ CAD",
             "Chỉnh đầu vào rồi dựng. Cột và tường đo tiết diện từ nét vẽ. Loại khác vẫn đọc Text hoặc Dimension. Để trống layer thì pick nét trên bản vẽ.",
             640,
             720)
     {
         _catalog = catalog;
-        _part = DssTheme.Combo(ParamPackageCatalog.Parts.Select(p => p.Label), ParamPackageCatalog.Parts[0].Label);
+        var partLabel = presetPart is ModelRevitPartKind preset
+            ? ParamPackageCatalog.PartLabel(preset)
+            : ParamPackageCatalog.Parts[0].Label;
+        _part = DssTheme.Combo(ParamPackageCatalog.Parts.Select(p => p.Label), partLabel);
         _layer = DssTheme.Combo();
         _layer.Items.Add("(để trống — pick nét trên bản vẽ)");
         foreach (var layer in catalog.Layers)
@@ -326,8 +329,12 @@ internal sealed class ModelRevitSetupWindow : DssDialog
                  })
             kindHost.Children.Add(row);
 
-        AddSection(1, "Loại cấu kiện",
-            DssTheme.Pair(DssTheme.Field("Loại", _part), DssTheme.Field("Layer", _layer)));
+        // From a module button the part is already chosen, so only the layer is left to pick.
+        if (presetPart is null)
+            AddSection(1, "Loại cấu kiện",
+                DssTheme.Pair(DssTheme.Field("Loại", _part), DssTheme.Field("Layer", _layer)));
+        else
+            AddSection(1, "Layer CAD", DssTheme.Field("Layer", _layer));
         AddSection(2, "Thông số", kindHost);
         AddSection(3, "Level",
             DssTheme.Pair(_baseRow, _topRow),
@@ -351,10 +358,11 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         ApplyKind();
     }
 
-    public static bool TryPick(IntPtr owner, ModelRevitFormCatalog catalog, out ModelRevitFormChoice choice)
+    public static bool TryPick(
+        IntPtr owner, ModelRevitFormCatalog catalog, out ModelRevitFormChoice choice, ModelRevitPartKind? presetPart = null)
     {
         choice = null!;
-        var dlg = new ModelRevitSetupWindow(catalog);
+        var dlg = new ModelRevitSetupWindow(catalog, presetPart);
         dlg.SetOwner(owner);
         if (dlg.ShowDialog() != true || dlg.Choice is null)
             return false;

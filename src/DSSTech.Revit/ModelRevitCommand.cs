@@ -18,7 +18,7 @@ public sealed class ModelRevitCommand : IExternalCommand
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements) =>
         Run(commandData.Application);
 
-    public static Result Run(UIApplication uiApp, bool ensurePackage = true)
+    public static Result Run(UIApplication uiApp, bool ensurePackage = true, ModelRevitPartKind? presetPart = null)
     {
         var uidoc = uiApp.ActiveUIDocument;
         var doc = uidoc?.Document;
@@ -43,7 +43,7 @@ public sealed class ModelRevitCommand : IExternalCommand
             .OfType<ImportInstance>()
             .FirstOrDefault();
         var catalog = ModelRevitFormCatalog.Load(doc, baseLevel, topLevel, selectedImport);
-        if (!ModelRevitSetupWindow.TryPick(uiApp.MainWindowHandle, catalog, out var choice))
+        if (!ModelRevitSetupWindow.TryPick(uiApp.MainWindowHandle, catalog, out var choice, presetPart))
             return Result.Cancelled;
 
         var part = choice.Part;
