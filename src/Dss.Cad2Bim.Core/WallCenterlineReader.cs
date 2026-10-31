@@ -58,6 +58,8 @@ public static class WallCenterlineReader
     public const double MinThicknessMm = 80;
     public const double MaxThicknessMm = 1200;
     public const double MinOverlapMm = 200;
+    /// <summary>Beam faces this far apart along one line join (a crossing beam, 600 along a skew one).</summary>
+    public const double BeamFaceGapMm = 650;
     /// <summary>
     /// After a beam face-pair is accepted, parallel CAD faces within this of either face are treated as
     /// ghost/double-outline and blocked on the same span (finish lines, hatch offsets ~25–35 mm).
@@ -96,7 +98,8 @@ public static class WallCenterlineReader
             }
         }
 
-        faces = MergeCollinear(faces);
+        // A beam face stops at each crossing beam (300 to 600 gap in D5X17): it is still one face.
+        faces = MergeCollinear(faces, wallFilter ? 80 : BeamFaceGapMm);
         var pairs = new List<Pair>();
         for (var i = 0; i < faces.Count; i++)
         {
@@ -288,7 +291,7 @@ public static class WallCenterlineReader
         faces.Add(new Seg(x0, y0, x1, y1, dx / len, dy / len, len, side));
     }
 
-    private static List<Seg> MergeCollinear(List<Seg> faces)
+    private static List<Seg> MergeCollinear(List<Seg> faces, double maxGap)
     {
         var open = new List<Seg>(faces);
         var changed = true;
@@ -299,7 +302,7 @@ public static class WallCenterlineReader
             {
                 for (var j = i + 1; j < open.Count; j++)
                 {
-                    if (!TryMerge(open[i], open[j], out var merged))
+                    if (!TryMerge(open[i], open[j], maxGap, out var merged))
                         continue;
                     open[i] = merged;
                     open.RemoveAt(j);
@@ -312,7 +315,7 @@ public static class WallCenterlineReader
         return open;
     }
 
-    private static bool TryMerge(Seg a, Seg b, out Seg merged)
+    private static bool TryMerge(Seg a, Seg b, double maxGap, out Seg merged)
     {
         merged = default;
         if (Math.Abs(a.Ux * b.Ux + a.Uy * b.Uy) < 0.999)
@@ -330,7 +333,7 @@ public static class WallCenterlineReader
         var hi = Math.Max(Math.Max(a0, a1), Math.Max(b0, b1));
         var gap = hi - lo - a.Len - Math.Abs(b1 - b0);
         // Allow slightly larger gaps so faces broken at columns still merge.
-        if (gap > 80)
+        if (gap > maxGap)
             return false;
 
         var x0 = a.X0 + a.Ux * lo;

@@ -38,7 +38,7 @@ public static class BeamCenterlineReader
     public const double DedupeAlignCos = 0.99939;
     public const double ColumnLateralTolMm = 40;
     /// <summary>After face pairing, midlines this close and parallel collapse to one centerline.</summary>
-    public const double NearDuplicateMidlineMm = 30;
+    public const double NearDuplicateMidlineMm = 20;
     /// <summary>Planned-segment dedupe: lateral ≤ max(thickness)/2 + this.</summary>
     public const double DedupeLateralPadMm = 30;
     /// <summary>
@@ -777,9 +777,10 @@ public static class BeamCenterlineReader
                     continue;
                 }
 
-                if (t > len + 1 && t <= len + ExtendMaxMm && Reachable(axis, ux, uy, len, t, runs, faces, supports))
+                // Reachable measures the open stretch; a deep support adds its own half on top.
+                if (t > len + 1 && t <= len + 2 * ExtendMaxMm && Reachable(axis, ux, uy, len, t, runs, faces, supports))
                     near.Add(t);
-                else if (t < -1 && t >= -ExtendMaxMm && Reachable(axis, ux, uy, t, 0, runs, faces, supports))
+                else if (t < -1 && t >= -2 * ExtendMaxMm && Reachable(axis, ux, uy, t, 0, runs, faces, supports))
                     near.Add(t);
             }
         }
@@ -1113,6 +1114,20 @@ public static class BeamCenterlineReader
         return null;
     }
 
+    /// <summary>Length of the curves of <paramref name="entities"/> lying in the band of <paramref name="run"/>.</summary>
+    public static double FaceLengthOnRun(WallRun run, IReadOnlyList<CadEntity> entities)
+    {
+        var len = Length(run);
+        if (len < 1)
+            return 0;
+        var ux = (run.X1 - run.X0) / len;
+        var uy = (run.Y1 - run.Y0) / len;
+        var total = 0.0;
+        foreach (var (lo, hi) in FaceIntervals(run, ux, uy, FaceLines(entities)))
+            total += Math.Max(0, Math.Min(hi, len) - Math.Max(lo, 0));
+        return total;
+    }
+
     private static bool SupportAlong(SectionFootprint support, double ux, double uy)
     {
         var rad = support.RotationDeg * Math.PI / 180.0;
@@ -1212,12 +1227,31 @@ public static class BeamCenterlineReader
         foreach (var other in runs)
         {
             if (Parallel(run, other))
+            {
+                // A neighbouring beam already holds that stretch (DGX14 stops where D1X19 starts).
+                var across = Math.Abs(((other.X0 + other.X1) / 2 - run.X0) * -uy + ((other.Y0 + other.Y1) / 2 - run.Y0) * ux);
+                var a0 = (other.X0 - run.X0) * ux + (other.Y0 - run.Y0) * uy;
+                var a1 = (other.X1 - run.X0) * ux + (other.Y1 - run.Y0) * uy;
+                if (across > LateralStepMm && across <= (run.ThicknessMm + other.ThicknessMm) / 2 &&
+                    Math.Min(Math.Max(a0, a1), g1) - Math.Max(Math.Min(a0, a1), g0) > LateralNickMm)
+                    return false;
                 continue;
+            }
+
             if (Clip(run, ux, uy, 0, Body(other), out var enter, out var exit) && exit > g0 + 1 && enter < g1 - 1)
                 return false;
         }
 
-        return MaxUncovered(g0, g1, FaceIntervals(run, ux, uy, faces)) <= ExtendMaxMm;
+        var cover = FaceIntervals(run, ux, uy, faces);
+        foreach (var support in supports ?? Array.Empty<SectionFootprint>())
+        {
+            // A wall along the beam is no CAD evidence for it: only crossing supports close the stretch.
+            if (!(IsElongated(support) && SupportAlong(support, ux, uy)) &&
+                SupportInterval(run, ux, uy, support, out var enter, out var exit))
+                cover.Add((enter, exit));
+        }
+
+        return MaxUncovered(g0, g1, cover) <= ExtendMaxMm;
     }
 
     /// <summary>Intersection of two centerlines; t along <paramref name="run"/>.</summary>
