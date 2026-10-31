@@ -225,7 +225,8 @@ internal static class CatalogCreate
         var lo = Math.Max(0, Math.Min(t0, t1));
         var hi = Math.Min(bLen, Math.Max(t0, t1));
         var overlap = hi - lo;
-        return UnitConv.ToMm(overlap) >= UnitConv.ToMm(Math.Min(aLen, bLen)) * 0.5;
+        // Half of the longer one: an old long beam must not be taken over (and moved) by each short new span in turn.
+        return UnitConv.ToMm(overlap) >= UnitConv.ToMm(Math.Max(aLen, bLen)) * 0.5;
     }
 
     private static bool SameBeamReferenceLevel(FamilyInstance fi, Level level)

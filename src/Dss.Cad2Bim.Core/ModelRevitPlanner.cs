@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Text.Json;
 using Dss.McpContracts;
 
@@ -760,6 +761,7 @@ public static class ModelRevitPlanner
         IReadOnlyList<double>? gridAnglesDeg)
     {
         var texts = BeamTexts(geom);
+        entities = WithLabelledBeamLayers(geom, entities, texts, place);
         var runs = BeamCenterlineReader.FromEntities(entities, run => BeamPairRank(texts, run));
         if (runs.Count == 0)
             return Array.Empty<CreateOperation>();
@@ -781,7 +783,7 @@ public static class ModelRevitPlanner
         foreach (var f in oneFace)
             place.Log?.Invoke($"beam one-face ({f.X0:0},{f.Y0:0})-({f.X1:0},{f.Y1:0}) t={f.ThicknessMm:0}");
         runs.AddRange(oneFace);
-        var planned = BeamCenterlineReader.PrepareRuns(runs, supports, entities).ToList();
+        var planned = BeamCenterlineReader.PrepareRuns(runs, supports, entities, SameDrawing(geom, entities)).ToList();
         if (planned.Count == 0)
             return Array.Empty<CreateOperation>();
         place.Log?.Invoke(
@@ -795,9 +797,12 @@ public static class ModelRevitPlanner
         var sources = new string[planned.Count];
         for (var i = 0; i < planned.Count; i++)
             labels[i] = MatchBeamLabel(texts, nearest, planned[i].Run, out sources[i]);
-        InheritCollinearBeamLabels(planned, labels, sources, place.Log);
-        InheritAxisMarks(planned, labels, sources, place.Log);
+        var layers = SegmentLayers(planned, entities);
+        InheritCollinearBeamLabels(planned, labels, sources, layers, place.Log);
+        InheritAxisMarks(planned, labels, sources, layers, place.Log);
         InheritCornerLabels(planned, labels, sources, place.Log);
+        KeepCadWidthOverForeignLabel(planned, labels, sources, place.Log);
+        CenterOwnLabelsOnDrawnFaces(planned, labels, sources, SameDrawing(geom, entities), place.Log);
         MergeSameSectionCollinear(planned, ref labels, ref sources, supports, fromModel, place.Log);
 
         // Drop ultra-short junk, then collapse near-coincident parallel bays to one segment.
@@ -995,7 +1000,7 @@ public static class ModelRevitPlanner
     /// excluded by <see cref="BeamCenterlineReader.CollinearInheritSibling"/>.
     /// </summary>
     private static void InheritCollinearBeamLabels(
-        IReadOnlyList<BeamSegment> planned, BeamLabel[] labels, string[] sources, Action<string>? log)
+        IReadOnlyList<BeamSegment> planned, BeamLabel[] labels, string[] sources, string[] layers, Action<string>? log)
     {
         var changed = true;
         while (changed)
@@ -1009,7 +1014,7 @@ public static class ModelRevitPlanner
                 var bestGap = double.MaxValue;
                 for (var j = 0; j < planned.Count; j++)
                 {
-                    if (i == j || !labels[j].HasSize)
+                    if (i == j || !labels[j].HasSize || !SameBeamGroup(layers, i, j))
                         continue;
                     if (!BeamCenterlineReader.CollinearInheritSibling(
                             planned[i].Run, planned[j].Run, out var gap, out _))
@@ -1042,7 +1047,7 @@ public static class ModelRevitPlanner
     /// labeled pieces agree; otherwise the nearest labeled sibling. Size-only texts never invent a Mark.
     /// </summary>
     private static void InheritAxisMarks(
-        IReadOnlyList<BeamSegment> planned, BeamLabel[] labels, string[] sources, Action<string>? log)
+        IReadOnlyList<BeamSegment> planned, BeamLabel[] labels, string[] sources, string[] layers, Action<string>? log)
     {
         var n = planned.Count;
         var parent = new int[n];
@@ -1068,7 +1073,8 @@ public static class ModelRevitPlanner
             for (var j = i + 1; j < n; j++)
             {
                 // Far pieces on one drawn line are different beams (GTC4 at the edge vs a stub at the core).
-                if (BeamCenterlineReader.CollinearAxisSibling(planned[i].Run, planned[j].Run, out var gap, out _) &&
+                if (SameBeamGroup(layers, i, j) &&
+                    BeamCenterlineReader.CollinearAxisSibling(planned[i].Run, planned[j].Run, out var gap, out _) &&
                     gap <= BeamCenterlineReader.MaxBridgeMm)
                     Union(i, j);
             }
@@ -1099,7 +1105,7 @@ public static class ModelRevitPlanner
                         continue;
                     labels[i] = new BeamLabel(mark, labels[i].WidthMm, labels[i].DepthMm,
                         string.IsNullOrEmpty(labels[i].Raw) ? mark : labels[i].Raw + "+" + mark);
-                    sources[i] = $"axisMark={mark}";
+                    sources[i] = AxisMarkSource(sources[i], $"axisMark={mark}");
                     log?.Invoke($"beam axis-mark seg {i} ← {mark} (unique on axis)");
                 }
 
@@ -1134,7 +1140,7 @@ public static class ModelRevitPlanner
                 var mark = labels[best].Mark!;
                 labels[i] = new BeamLabel(mark, labels[i].WidthMm, labels[i].DepthMm,
                     string.IsNullOrEmpty(labels[i].Raw) ? mark : labels[i].Raw + "+" + mark);
-                sources[i] = $"axisMark={mark}@seg{best}";
+                sources[i] = AxisMarkSource(sources[i], $"axisMark={mark}@seg{best}");
                 log?.Invoke($"beam axis-mark seg {i} ← seg {best} {mark} gap={bestGap:0}");
             }
         }
@@ -1632,6 +1638,94 @@ public static class ModelRevitPlanner
         return best;
     }
 
+    /// <summary>Where the size came from (own text or a neighbour) survives when only the Mark comes from the axis.</summary>
+    private static string AxisMarkSource(string source, string axisMark) =>
+        source.StartsWith("inherit=", StringComparison.Ordinal) ||
+        (source.StartsWith("cands=", StringComparison.Ordinal) && !source.StartsWith("cands=0", StringComparison.Ordinal))
+            ? $"{source} {axisMark}"
+            : axisMark;
+
+    /// <summary>
+    /// Layer holding most of each segment's faces. Beam groups live on their own layers (D1… on 3MBKC, DG… on 4MBKC),
+    /// so a Mark or section only travels along an axis within one layer. "" = no face found (one-face or wall-top run).
+    /// </summary>
+    private static string[] SegmentLayers(IReadOnlyList<BeamSegment> planned, List<CadEntity> entities)
+    {
+        var groups = entities.GroupBy(e => FlatLayer(e.Layer), StringComparer.OrdinalIgnoreCase)
+            .Select(g => (Layer: g.Key, Curves: (IReadOnlyList<CadEntity>)g.ToList()))
+            .ToList();
+        var result = new string[planned.Count];
+        for (var i = 0; i < planned.Count; i++)
+        {
+            result[i] = "";
+            var best = 0.0;
+            foreach (var (layer, curves) in groups)
+            {
+                var length = groups.Count > 1 ? BeamCenterlineReader.FaceLengthOnRun(planned[i].Run, curves) : 1;
+                if (length <= best)
+                    continue;
+                best = length;
+                result[i] = layer;
+            }
+        }
+
+        return result;
+    }
+
+    private static bool SameBeamGroup(string[] layers, int a, int b) =>
+        layers[a].Length == 0 || layers[b].Length == 0 ||
+        string.Equals(layers[a], layers[b], StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A label written beside the beam decides its section, but one inherited along the axis belongs to another beam
+    /// when the CAD faces are far from it (DGX14 100x60 ran on over a 500 wide bay): that bay keeps its CAD width.
+    /// </summary>
+    private static void KeepCadWidthOverForeignLabel(
+        IReadOnlyList<BeamSegment> planned, BeamLabel[] labels, string[] sources, Action<string>? log)
+    {
+        for (var i = 0; i < planned.Count; i++)
+        {
+            var thickness = planned[i].Run.ThicknessMm;
+            if (sources[i].StartsWith("cands=", StringComparison.Ordinal) || !labels[i].HasSize || thickness <= 0)
+                continue;
+            double width = labels[i].WidthMm!.Value;
+            if (Math.Max(width, thickness) < ForeignLabelWidthRatio * Math.Min(width, thickness))
+                continue;
+            // The same outline as the beam the label was written on: one beam, drawn off its label throughout.
+            var label = labels[i];
+            var sameOutline = Enumerable.Range(0, planned.Count).Any(j =>
+                sources[j].StartsWith("cands=", StringComparison.Ordinal) && labels[j].WidthMm == label.WidthMm &&
+                string.Equals(labels[j].Mark, label.Mark, StringComparison.OrdinalIgnoreCase) &&
+                Math.Abs(planned[j].Run.ThicknessMm - thickness) <= BeamWidthTolMm);
+            if (sameOutline)
+                continue;
+            log?.Invoke($"beam width seg {i} CAD {thickness:0} over inherited {width:0} ({labels[i].Raw})");
+            labels[i] = new BeamLabel(null, (int)Math.Round(thickness), labels[i].DepthMm, labels[i].Raw);
+        }
+    }
+
+    private const double ForeignLabelWidthRatio = 1.5;
+
+    /// <summary>A span with its own label off the axis width follows its own CAD lines, the width stays the label's.</summary>
+    private static void CenterOwnLabelsOnDrawnFaces(
+        List<BeamSegment> planned, BeamLabel[] labels, string[] sources, List<CadEntity> drawing, Action<string>? log)
+    {
+        for (var i = 0; i < planned.Count; i++)
+        {
+            var run = planned[i].Run;
+            if (!labels[i].HasSize || Math.Abs(labels[i].WidthMm!.Value - run.ThicknessMm) < 1 ||
+                !sources[i].StartsWith("cands=", StringComparison.Ordinal) ||
+                sources[i].StartsWith("cands=0", StringComparison.Ordinal))
+                continue;
+            var moved = BeamCenterlineReader.CenterOnDrawnFaces(run, labels[i].WidthMm!.Value, drawing);
+            var shift = Math.Sqrt((moved.X0 - run.X0) * (moved.X0 - run.X0) + (moved.Y0 - run.Y0) * (moved.Y0 - run.Y0));
+            if (shift < 1)
+                continue;
+            log?.Invoke($"beam drawn faces seg {i} moved {shift:0} ({labels[i].Raw})");
+            planned[i] = new BeamSegment(moved, planned[i].Kind);
+        }
+    }
+
     /// <summary>A sized label within reach matches this pair width, so the pair is one real beam.</summary>
     private static bool PairHasOwnLabel(List<BeamText> texts, WallRun run) =>
         texts.Any(t => t.Label.HasSize && Math.Abs(t.Label.WidthMm!.Value - run.ThicknessMm) <= BeamPairMatchTolMm &&
@@ -1657,6 +1751,52 @@ public static class ModelRevitPlanner
         return string.Join("$0$", flat);
     }
 
+    /// <summary>Grid bubbles ("F", "C5") read as size-less marks; a beam mark has more to it (D1PY6, DGX1).</summary>
+    private static bool IsGridBubble(BeamLabel label) =>
+        !label.HasSize && Regex.IsMatch(label.Mark ?? "", @"^[A-Za-z]\d?$");
+
+    /// <summary>
+    /// One plan can draw its beam groups on separate layers (D1… on 3MBKC, DG… on 4MBKC). Another layer of the drawing
+    /// joins the picked one when several long face pairs on it carry their own WxH label and are not supports.
+    /// </summary>
+    private static List<CadEntity> WithLabelledBeamLayers(
+        CadGeometry geom, List<CadEntity> entities, List<BeamText> texts, ModelRevitPlacement place)
+    {
+        var picked = entities.Count > 0 ? FlatLayer(entities[0].Layer) : "";
+        var result = new List<CadEntity>(entities);
+        foreach (var group in SameDrawing(geom, entities).GroupBy(e => FlatLayer(e.Layer), StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.Equals(group.Key, picked, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var curves = group.ToList();
+            var runs = BeamCenterlineReader.FromEntities(curves);
+            var labelled = runs.Count(r =>
+                r.ThicknessMm > 0 && RunLength(r) >= LabelledLayerMinRunMm && PairHasOwnLabel(texts, r) &&
+                !(place.Supports?.Any(s => InFootprint(s, (r.X0 + r.X1) / 2, (r.Y0 + r.Y1) / 2)) ?? false));
+            if (labelled < LabelledLayerMinRuns)
+                continue;
+            place.Log?.Invoke($"beam layer + {group.Key} labelled runs={labelled}/{runs.Count}");
+            result.AddRange(curves);
+        }
+
+        return result;
+    }
+
+    private static bool InFootprint(SectionFootprint s, double x, double y)
+    {
+        var rad = s.RotationDeg * Math.PI / 180.0;
+        var dx = x - s.CenterX;
+        var dy = y - s.CenterY;
+        return Math.Abs(dx * Math.Cos(rad) + dy * Math.Sin(rad)) <= s.WidthMm / 2 &&
+               Math.Abs(-dx * Math.Sin(rad) + dy * Math.Cos(rad)) <= s.DepthMm / 2;
+    }
+
+    private static double RunLength(WallRun r) =>
+        Math.Sqrt((r.X1 - r.X0) * (r.X1 - r.X0) + (r.Y1 - r.Y0) * (r.Y1 - r.Y0));
+
+    private const int LabelledLayerMinRuns = 5;
+    private const double LabelledLayerMinRunMm = 2000;
+
     /// <summary>Curves from the same xref as the beam layer ("Structural Plans$0$…"), or the whole drawing.</summary>
     private static List<CadEntity> SameDrawing(CadGeometry geom, List<CadEntity> layerEntities)
     {
@@ -1664,7 +1804,8 @@ public static class ModelRevitPlanner
         var cut = layer.LastIndexOf('$');
         var prefix = cut > 0 ? layer.Substring(0, cut) : "";
         return geom.Entities
-            .Where(e => e is CadLine or CadPolyline && (e.Layer ?? "").StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .Where(e => e is CadLine or CadPolyline && (e.Layer ?? "").StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                        !Regex.IsMatch(e.Layer ?? "", @"(^|[$ .-])(TRUC|AXIS|GRID|DIM)[^$]*$", RegexOptions.IgnoreCase))
             .ToList();
     }
 
@@ -1703,7 +1844,7 @@ public static class ModelRevitPlanner
         var result = new List<BeamText>();
         foreach (var text in geom.Entities.OfType<CadText>())
         {
-            if (!BeamLabelParser.TryParse(text.Value, out var parsed))
+            if (!BeamLabelParser.TryParse(text.Value, out var parsed) || IsGridBubble(parsed))
                 continue;
             var rad = text.RotationDeg * Math.PI / 180.0;
             result.Add(new BeamText(text.CenterX ?? text.X, text.CenterY ?? text.Y, Math.Cos(rad), Math.Sin(rad), parsed));

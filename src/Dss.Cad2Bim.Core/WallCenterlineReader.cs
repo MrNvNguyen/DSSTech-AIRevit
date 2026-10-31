@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Dss.Cad2Bim.Core;
 
@@ -58,6 +59,8 @@ public static class WallCenterlineReader
     public const double MinThicknessMm = 80;
     public const double MaxThicknessMm = 1200;
     public const double MinOverlapMm = 200;
+    /// <summary>Beam faces this far apart along one line join (a crossing beam, 600 along a skew one).</summary>
+    public const double BeamFaceGapMm = 650;
     /// <summary>
     /// After a beam face-pair is accepted, parallel CAD faces within this of either face are treated as
     /// ghost/double-outline and blocked on the same span (finish lines, hatch offsets ~25–35 mm).
@@ -96,7 +99,8 @@ public static class WallCenterlineReader
             }
         }
 
-        faces = MergeCollinear(faces);
+        // A beam face stops at each crossing beam (300 to 600 gap in D5X17): it is still one face.
+        faces = MergeCollinear(faces, wallFilter ? 80 : BeamFaceGapMm);
         var pairs = new List<Pair>();
         for (var i = 0; i < faces.Count; i++)
         {
@@ -115,6 +119,8 @@ public static class WallCenterlineReader
 
         // Label-matching beam pairs before unlabeled / mismatched; then nearest faces (thinner first)
         // so a wall's own faces beat the gap to the next wall. Closed-outline solid side breaks ties.
+        if (!wallFilter)
+            YieldToLabelledPairs(pairs);
         pairs.Sort(static (a, b) =>
         {
             var side = a.Conflicts.CompareTo(b.Conflicts);
@@ -146,26 +152,51 @@ public static class WallCenterlineReader
                 blocked.Add((Math.Min(s0, s1), Math.Max(s0, s1)));
             }
 
-            if (!LongestFree(pair.Lo, pair.Hi, blocked, out var lo, out var hi) || hi - lo < MinOverlapMm)
-                continue;
-            used[pair.I].Add((lo, hi));
-            var t0 = off + lo * c;
-            var t1 = off + hi * c;
-            used[pair.J].Add((Math.Min(t0, t1), Math.Max(t0, t1)));
-            // Beam double-outlines: consume parallel ghost faces within GhostFacePadMm of either face.
-            if (!wallFilter)
-                BlockGhostFaces(faces, used, pair.I, pair.J, a, lo, hi, pair.Thickness);
+            // Every free span of the pair, not only the longest: a thin pair may hold the middle of a long face.
+            while (LongestFree(pair.Lo, pair.Hi, blocked, out var lo, out var hi) && hi - lo >= MinOverlapMm)
+            {
+                blocked.Add((lo, hi));
+                used[pair.I].Add((lo, hi));
+                var t0 = off + lo * c;
+                var t1 = off + hi * c;
+                used[pair.J].Add((Math.Min(t0, t1), Math.Max(t0, t1)));
+                // Beam double-outlines: consume parallel ghost faces within GhostFacePadMm of either face.
+                if (!wallFilter)
+                    BlockGhostFaces(faces, used, pair.I, pair.J, a, lo, hi, pair.Thickness);
 
-            var halfX = pair.Nx * pair.Thickness / 2;
-            var halfY = pair.Ny * pair.Thickness / 2;
-            runs.Add(new WallRun(
-                a.X0 + a.Ux * lo + halfX, a.Y0 + a.Uy * lo + halfY,
-                a.X0 + a.Ux * hi + halfX, a.Y0 + a.Uy * hi + halfY,
-                Round10(pair.Thickness), pair.Nx, pair.Ny));
+                var halfX = pair.Nx * pair.Thickness / 2;
+                var halfY = pair.Ny * pair.Thickness / 2;
+                runs.Add(new WallRun(
+                    a.X0 + a.Ux * lo + halfX, a.Y0 + a.Uy * lo + halfY,
+                    a.X0 + a.Ux * hi + halfX, a.Y0 + a.Uy * hi + halfY,
+                    Round10(pair.Thickness), pair.Nx, pair.Ny));
+            }
         }
 
         var merged = MergeRuns(runs);
         return MeetAtCorners(wallFilter ? KeepWalls(merged) : KeepElongated(merged, 1.5));
+    }
+
+    /// <summary>
+    /// A thin unlabelled pair made with an opening outline (45188/45388 inside the labelled 45188/45488) goes after
+    /// the labelled pair sharing its face, whatever the closed-outline side says.
+    /// </summary>
+    private static void YieldToLabelledPairs(List<Pair> pairs)
+    {
+        const int unlabelled = 500_000;
+        const int yieldConflicts = 10;
+        var labelled = pairs.Where(p => p.Mismatch < unlabelled).ToList();
+        for (var k = 0; k < pairs.Count; k++)
+        {
+            var p = pairs[k];
+            if (p.Mismatch < unlabelled)
+                continue;
+            if (labelled.Any(q => q.Thickness > p.Thickness &&
+                                  (q.I == p.I || q.I == p.J || q.J == p.I || q.J == p.J)))
+            {
+                pairs[k] = new Pair(p.I, p.J, p.Thickness, p.Overlap, p.Nx, p.Ny, p.Lo, p.Hi, p.Conflicts + yieldConflicts, p.Mismatch);
+            }
+        }
     }
 
     /// <summary>
@@ -288,7 +319,7 @@ public static class WallCenterlineReader
         faces.Add(new Seg(x0, y0, x1, y1, dx / len, dy / len, len, side));
     }
 
-    private static List<Seg> MergeCollinear(List<Seg> faces)
+    private static List<Seg> MergeCollinear(List<Seg> faces, double maxGap)
     {
         var open = new List<Seg>(faces);
         var changed = true;
@@ -299,7 +330,7 @@ public static class WallCenterlineReader
             {
                 for (var j = i + 1; j < open.Count; j++)
                 {
-                    if (!TryMerge(open[i], open[j], out var merged))
+                    if (!TryMerge(open[i], open[j], maxGap, out var merged))
                         continue;
                     open[i] = merged;
                     open.RemoveAt(j);
@@ -312,7 +343,7 @@ public static class WallCenterlineReader
         return open;
     }
 
-    private static bool TryMerge(Seg a, Seg b, out Seg merged)
+    private static bool TryMerge(Seg a, Seg b, double maxGap, out Seg merged)
     {
         merged = default;
         if (Math.Abs(a.Ux * b.Ux + a.Uy * b.Uy) < 0.999)
@@ -330,7 +361,7 @@ public static class WallCenterlineReader
         var hi = Math.Max(Math.Max(a0, a1), Math.Max(b0, b1));
         var gap = hi - lo - a.Len - Math.Abs(b1 - b0);
         // Allow slightly larger gaps so faces broken at columns still merge.
-        if (gap > 80)
+        if (gap > maxGap)
             return false;
 
         var x0 = a.X0 + a.Ux * lo;

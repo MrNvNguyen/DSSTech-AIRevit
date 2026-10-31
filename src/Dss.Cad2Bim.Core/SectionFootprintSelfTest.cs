@@ -2877,6 +2877,99 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // Beam groups on two layers of one drawing, grid lines 400 apart and a grid bubble must not become beams.
+        var groups = new CadGeometry();
+        for (var i = 0; i < 6; i++)
+        {
+            var y = i * 6000.0;
+            var layer = "X$0$DG";
+            groups.Entities.Add(new CadLine { Layer = layer, X0 = 0, Y0 = y - 250, X1 = 8000, Y1 = y - 250 });
+            groups.Entities.Add(new CadLine { Layer = layer, X0 = 0, Y0 = y + 250, X1 = 8000, Y1 = y + 250 });
+            groups.Entities.Add(new CadText { Layer = "0", Value = $"DGX{i + 1}-50x60", X = 4000, Y = y + 400, CenterX = 4000, CenterY = y + 400 });
+        }
+
+        groups.Entities.Add(new CadLine { Layer = "X$0$D1", X0 = 10000, Y0 = -150, X1 = 18000, Y1 = -150 });
+        groups.Entities.Add(new CadLine { Layer = "X$0$D1", X0 = 10000, Y0 = 150, X1 = 18000, Y1 = 150 });
+        groups.Entities.Add(new CadLine { Layer = "X$0$Tim Truc", X0 = -5000, Y0 = 40000, X1 = 30000, Y1 = 40000 });
+        groups.Entities.Add(new CadLine { Layer = "X$0$Tim Truc", X0 = -5000, Y0 = 40400, X1 = 30000, Y1 = 40400 });
+        groups.Entities.Add(new CadText { Layer = "0", Value = "30x60", X = 14000, Y = 300, CenterX = 14000, CenterY = 300 });
+        groups.Entities.Add(new CadText { Layer = "0", Value = "40x60", X = 5000, Y = 40600, CenterX = 5000, CenterY = 40600 });
+        groups.Entities.Add(new CadText { Layer = "0", Value = "C5", X = 14000, Y = -300, CenterX = 14000, CenterY = -300 });
+        var groupOps = ModelRevitPlanner.Plan(
+            groups, "X$0$D1", ModelRevitPartKind.Beam, "L1", "L2", new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        var groupMarks = groupOps.Select(op => op.Fields.TryGetProperty("mark", out var m) ? m.GetString() ?? "" : "").ToList();
+        if (groupOps.Count != 7 || groupMarks.Contains("C5") || groupMarks.Count(m => m == "DGX1") != 1)
+        {
+            message = $"beam labelled layers: expected 7 beams without grid marks, got {groupOps.Count} [{string.Join(",", groupMarks)}]";
+            return false;
+        }
+
+        // A face broken by a crossing beam is one face; the 500 bay past the column keeps its CAD width.
+        var wideRow = new CadGeometry();
+        wideRow.Entities.Add(new CadLine { Layer = "BEAM", X0 = 300, Y0 = -500, X1 = 4000, Y1 = -500 });
+        wideRow.Entities.Add(new CadLine { Layer = "BEAM", X0 = 4300, Y0 = -500, X1 = 7700, Y1 = -500 });
+        wideRow.Entities.Add(new CadLine { Layer = "BEAM", X0 = 300, Y0 = 500, X1 = 3700, Y1 = 500 });
+        wideRow.Entities.Add(new CadLine { Layer = "BEAM", X0 = 4300, Y0 = 500, X1 = 7700, Y1 = 500 });
+        wideRow.Entities.Add(new CadLine { Layer = "BEAM", X0 = 8300, Y0 = -250, X1 = 15700, Y1 = -250 });
+        wideRow.Entities.Add(new CadLine { Layer = "BEAM", X0 = 8300, Y0 = 250, X1 = 15700, Y1 = 250 });
+        wideRow.Entities.Add(new CadText { Layer = "ANN", Value = "DGX14-100x60", X = 2000, Y = 700, CenterX = 2000, CenterY = 700 });
+        var wideOps = ModelRevitPlanner.Plan(
+            wideRow, "BEAM", ModelRevitPartKind.Beam, "L1", "L2", new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                FamilyName = "S-BEAM",
+                Supports = new[] { new SectionFootprint(0, 0, 600, 600), new SectionFootprint(8000, 0, 600, 600), new SectionFootprint(16000, 0, 600, 600) }
+            });
+        var wideSpans = wideOps
+            .Select(op => $"{op.Fields.GetProperty("startMm")[0].GetDouble():0}-{op.Fields.GetProperty("endMm")[0].GetDouble():0}:{op.Fields.GetProperty("widthMm").GetInt32()}")
+            .OrderBy(t => t.Length).ThenBy(t => t, StringComparer.Ordinal).ToList();
+        if (wideSpans.Count != 2 || !wideSpans.Contains("0-8000:1000") || !wideSpans.Contains("8000-16000:500"))
+        {
+            message = $"beam broken face / CAD width: expected 0-8000:1000 + 8000-16000:500, got [{string.Join(" ", wideSpans)}]";
+            return false;
+        }
+
+        // A deep column ahead of the face still closes the span (D5Y9: 1000 deep, 1650 to its center).
+        var deep = BeamCenterlineReader.PrepareRuns(
+            new[] { new WallRun(0, 300, 0, 6000, 500) },
+            new[] { Col(0, 0), new SectionFootprint(0, 7650, 500, 1000) });
+        if (!Has(deep, BeamSpanKind.Main, 0, 0, 0, 7650))
+        {
+            message = $"beam deep column: expected main 0..7650, got {Describe(deep)}";
+            return false;
+        }
+
+        // A span labelled off its axis width follows its own lines, one of them on another layer.
+        var drawnSpan = BeamCenterlineReader.CenterOnDrawnFaces(
+            new WallRun(0, 0, 0, 6500, 500), 400,
+            new CadEntity[]
+            {
+                new CadLine { Layer = "A", X0 = -250, Y0 = 250, X1 = -250, Y1 = 6250 },
+                new CadLine { Layer = "A", X0 = 50, Y0 = 4200, X1 = 50, Y1 = 6250 },
+                new CadLine { Layer = "B", X0 = 50, Y0 = 250, X1 = 50, Y1 = 3900 }
+            });
+        if (Math.Abs(drawnSpan.X0 + 50) > 1 || Math.Abs(drawnSpan.X1 - drawnSpan.X0) > 1)
+        {
+            message = $"drawn span: expected flush with the axis face at x=-50, got x={drawnSpan.X0:0}";
+            return false;
+        }
+
+        // A beam stops at a lift shaft: along its wall only one CAD edge goes on, and that is the wall's.
+        var shaft = BeamCenterlineReader.PrepareRuns(
+            new[] { new WallRun(300, 0, 3700, 0, 400) },
+            new[] { Col(0, 0), Col(4000, 0), Col(8000, 0), new SectionFootprint(6000, -75, 3400, 250) },
+            new CadEntity[]
+            {
+                new CadLine { Layer = "BEAM", X0 = 300, Y0 = -200, X1 = 7700, Y1 = -200 },
+                new CadLine { Layer = "BEAM", X0 = 300, Y0 = 200, X1 = 3700, Y1 = 200 }
+            });
+        if (shaft.Count != 1 || !Has(shaft, BeamSpanKind.Main, 0, 0, 4000, 0))
+        {
+            message = $"beam at lift shaft: expected main 0..4000 only, got {Describe(shaft)}";
+            return false;
+        }
+
         // Wall-top beam with one face on the beam layer: labelled width, on the wall side of the face.
         var oneFace = new CadGeometry();
         oneFace.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = -500, X1 = 16000, Y1 = -500 });
