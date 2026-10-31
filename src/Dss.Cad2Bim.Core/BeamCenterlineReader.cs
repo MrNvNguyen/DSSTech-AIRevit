@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -56,10 +56,24 @@ public static class BeamCenterlineReader
     public const double MergeGapMm = 2500;
     /// <summary>Longest stretch between a beam end and the next on-axis support not covered by a CAD face of this beam.</summary>
     public const double ExtendMaxMm = 1500;
+    /// <summary>Crossing beams never join collinear pieces further apart than this (the two end legs of one building edge).</summary>
+    public const double MaxBridgeMm = 12000;
     /// <summary>A CAD face belongs to the beam band when it lies within half width + this.</summary>
     private const double FaceBandTolMm = 30;
     /// <summary>Crossing counts when the intersection lies within this past a run end.</summary>
     private const double CrossingPadMm = 50;
+    /// <summary>Midlines further apart than this are two drawn stretches of one axis, not one line.</summary>
+    private const double LateralStepMm = 20;
+    /// <summary>A run shorter than this cannot start a new stretch: it is a nick on the one it touches.</summary>
+    private const double LateralNickMm = 500;
+    /// <summary>A face pair this many label widths wide is the inner faces of two beams, not one beam.</summary>
+    private const double OversizedPairRatio = 2;
+    /// <summary>Label width spreads one face per pass at most along an interrupted beam; this caps the sweep.</summary>
+    private const int OneFacePasses = 30;
+    /// <summary>A partner face counts when its distance is within this of the label width.</summary>
+    private const double PartnerWidthTolMm = 25;
+    /// <summary>Shortest beam-layer face that may stand for a wall-top beam drawn with one face only.</summary>
+    private const double WallTopMinFaceMm = 2000;
 
     public static List<WallRun> FromEntities(IEnumerable<CadEntity> entities, Func<WallRun, int>? pairRank = null)
     {
@@ -167,6 +181,15 @@ public static class BeamCenterlineReader
                     continue;
                 if (CenterlineCrossing(run, ux, uy, len, m, out var t))
                     cuts.Add(t);
+            }
+
+            // A column under a secondary (carried by beams at both ends) still breaks it.
+            foreach (var support in supports)
+            {
+                var stations = SupportStations(run, ux, uy, support);
+                if (stations.Count == 1 && !IsElongated(support) &&
+                    stations[0] >= MinLengthMm && stations[0] <= len - MinLengthMm)
+                    cuts.Add(stations[0]);
             }
 
             foreach (var piece in SplitAtCuts(run, ux, uy, len, cuts))
@@ -601,9 +624,8 @@ public static class BeamCenterlineReader
             var len = Length(rep);
             var ux = (rep.X1 - rep.X0) / len;
             var uy = (rep.Y1 - rep.Y0) / len;
-            // One lateral for the whole physical axis so a wall-hybrid nick on one bay cannot
-            // leave the next bay 100 mm off (log: D1Y-3 at x=-11950 vs -12050).
-            var axisLateral = DominantLateral(rep, ux, uy, axis);
+            double Lateral(WallRun r) =>
+                ((r.X0 + r.X1) / 2 - rep.X0) * -uy + ((r.Y0 + r.Y1) / 2 - rep.Y0) * ux;
             var spans = axis
                 .Select(r =>
                 {
@@ -620,20 +642,24 @@ public static class BeamCenterlineReader
             for (var i = 1; i < spans.Count; i++)
             {
                 var s = spans[i];
-                if (s.Lo <= hi + 1 || GapCovered(rep, ux, uy, hi, s.Lo, runs, supports, faces))
+                // CAD may move a bay off the grid (D1Y-3: x=-11950 south of the core, -12050 north), so each
+                // stretch keeps its own drawn midline; only a short nick follows the stretch it touches.
+                var stepped = s.Lo >= hi - 1 && Length(s.Run) >= LateralNickMm &&
+                    Math.Abs(Lateral(s.Run) - DominantLateral(rep, ux, uy, members)) > LateralStepMm;
+                if (!stepped && (s.Lo <= hi + 1 || GapCovered(rep, ux, uy, hi, s.Lo, runs, supports, faces)))
                 {
                     hi = Math.Max(hi, s.Hi);
                     members.Add(s.Run);
                     continue;
                 }
 
-                result.Add(AxisRun(rep, ux, uy, lo, hi, members, axisLateral));
+                result.Add(AxisRun(rep, ux, uy, lo, hi, members));
                 lo = s.Lo;
                 hi = s.Hi;
                 members = new List<WallRun> { s.Run };
             }
 
-            result.Add(AxisRun(rep, ux, uy, lo, hi, members, axisLateral));
+            result.Add(AxisRun(rep, ux, uy, lo, hi, members));
         }
 
         return result;
@@ -677,10 +703,11 @@ public static class BeamCenterlineReader
         return weight > 0 ? sum / weight : 0;
     }
 
-    /// <summary>Merged axis on the representative direction at a shared lateral (whole-axis lock).</summary>
+    /// <summary>Merged stretch on the representative direction at the stretch's own dominant lateral.</summary>
     private static WallRun AxisRun(
-        WallRun rep, double ux, double uy, double lo, double hi, List<WallRun> members, double lateral)
+        WallRun rep, double ux, double uy, double lo, double hi, List<WallRun> members)
     {
+        var lateral = DominantLateral(rep, ux, uy, members);
         var thick = 0.0;
         foreach (var m in members)
             thick = Math.Max(thick, m.ThicknessMm);
@@ -698,6 +725,8 @@ public static class BeamCenterlineReader
         WallRun axis, double ux, double uy, double g0, double g1,
         List<WallRun> runs, IReadOnlyList<SectionFootprint> supports, List<WallRun> faces)
     {
+        if (g1 - g0 > MaxBridgeMm)
+            return false;
         if (g1 - g0 <= MergeGapMm)
             return true;
         var cover = new List<(double Lo, double Hi)>();
@@ -748,9 +777,9 @@ public static class BeamCenterlineReader
                     continue;
                 }
 
-                if (t > len + 1 && t <= len + ExtendMaxMm && Reachable(axis, ux, uy, len, t, runs, faces))
+                if (t > len + 1 && t <= len + ExtendMaxMm && Reachable(axis, ux, uy, len, t, runs, faces, supports))
                     near.Add(t);
-                else if (t < -1 && t >= -ExtendMaxMm && Reachable(axis, ux, uy, t, 0, runs, faces))
+                else if (t < -1 && t >= -ExtendMaxMm && Reachable(axis, ux, uy, t, 0, runs, faces, supports))
                     near.Add(t);
             }
         }
@@ -769,6 +798,8 @@ public static class BeamCenterlineReader
         var euy = (extended.Y1 - extended.Y0) / elen;
         var centers = new List<double>();
         var wallEnds = new List<double>();
+        var columns = new List<(double T, double Half)>();
+        var crossingWalls = new List<(double T, double Half)>();
         foreach (var support in supports)
         {
             var stations = SupportStations(extended, eux, euy, support);
@@ -777,10 +808,29 @@ public static class BeamCenterlineReader
                 if (t < -1 || t > elen + 1)
                     continue;
                 if (stations.Count > 1)
+                {
                     wallEnds.Add(t);
-                else
-                    centers.Add(t);
+                    continue;
+                }
+
+                SupportInterval(extended, eux, euy, support, out var enter, out var exit);
+                if (IsElongated(support))
+                {
+                    crossingWalls.Add((t, (exit - enter) / 2));
+                    continue;
+                }
+
+                centers.Add(t);
+                columns.Add((t, (exit - enter) / 2));
             }
+        }
+
+        // A crossing wall against a column is one joint with it: a center→center piece between them
+        // would lie wholly inside the two supports.
+        foreach (var (t, half) in crossingWalls)
+        {
+            if (!columns.Any(c => Math.Abs(c.T - t) <= c.Half + half + 1))
+                centers.Add(t);
         }
 
         // A wall end next to a column (wall between two columns) is not a joint of its own: the span runs
@@ -801,14 +851,285 @@ public static class BeamCenterlineReader
 
         for (var i = 0; i < centers.Count - 1; i++)
         {
-            if (centers[i + 1] - centers[i] >= MinLengthMm)
+            if (centers[i + 1] - centers[i] >= MinLengthMm &&
+                !InsideSupports(extended, eux, euy, centers[i], centers[i + 1], supports))
                 main.Add(OrientRun(Slice(extended, eux, euy, centers[i], centers[i + 1])));
         }
 
-        if (centers[0] >= MinLengthMm)
+        var last = centers[centers.Count - 1];
+        if (centers[0] >= MinLengthMm && !InsideSupports(extended, eux, euy, 0, centers[0], supports))
             secondary.Add(OrientRun(Slice(extended, eux, euy, 0, centers[0])));
-        if (elen - centers[centers.Count - 1] >= MinLengthMm)
-            secondary.Add(OrientRun(Slice(extended, eux, euy, centers[centers.Count - 1], elen)));
+        if (elen - last >= MinLengthMm && !InsideSupports(extended, eux, euy, last, elen, supports))
+            secondary.Add(OrientRun(Slice(extended, eux, euy, last, elen)));
+    }
+
+    private static bool IsElongated(SectionFootprint support) =>
+        Math.Max(support.WidthMm, support.DepthMm) >= 4 * Math.Max(Math.Min(support.WidthMm, support.DepthMm), 1);
+
+    private static bool InsideSupports(
+        WallRun run, double ux, double uy, double t0, double t1, IReadOnlyList<SectionFootprint> supports)
+    {
+        var cover = new List<(double Lo, double Hi)>();
+        foreach (var support in supports)
+        {
+            // A beam along a wall sits on it, not inside it: wall-top spans stay.
+            if (IsElongated(support) && SupportAlong(support, ux, uy))
+                continue;
+            if (SupportInterval(run, ux, uy, support, out var enter, out var exit))
+                cover.Add((enter, exit));
+        }
+
+        return MaxUncovered(t0, t1, cover) <= 1;
+    }
+
+    /// <summary>
+    /// Beams with one face on the beam layer and the other on another layer of the same drawing (slab edge, border):
+    /// a labelled face whose partner lies one label width away gives a run there, even inside a wider false pair
+    /// (GTC1/GTC2 share a 680 "pair"; the real faces are 300 and 220). Labelled faces with no partner but a parallel
+    /// wall take the label width on the wall side. An unlabelled leg takes the width of the beam at its corner.
+    /// </summary>
+    public static List<WallRun> OneFaceRuns(
+        IReadOnlyList<CadEntity> layerEntities,
+        IReadOnlyList<CadEntity> drawingEntities,
+        IReadOnlyList<WallRun> runs,
+        IReadOnlyList<SectionFootprint> supports,
+        Func<WallRun, double> labelWidth,
+        Func<WallRun, bool> labelledPair)
+    {
+        var partners = FaceLines(drawingEntities);
+        // A labelled beam may lie wholly on another layer of the drawing (D2X-8B on S-HIDD).
+        var faces = FaceLines(layerEntities).Concat(partners.Where(f => labelWidth(f) > 0)).ToList();
+        var result = new List<WallRun>();
+        // Only labelled beams spread along their line: a corner leg must not run on into the next beam.
+        var labelled = new List<WallRun>();
+        for (var pass = 0; pass < OneFacePasses; pass++)
+        {
+            var added = result.Count;
+            foreach (var face in faces)
+            {
+                var len = Length(face);
+                if (len < LateralNickMm)
+                    continue;
+                var width = labelWidth(face);
+                var ux = (face.X1 - face.X0) / len;
+                var uy = (face.Y1 - face.Y0) / len;
+                if (width <= 0)
+                    width = CollinearWidth(face, ux, uy, len, labelled);
+                var corner = width <= 0;
+                if (corner && len < WallTopMinFaceMm)
+                    width = CornerWidth(face, labelled);
+                if (width <= 0)
+                    continue;
+                if (runs.Any(r => (labelledPair(r) || r.ThicknessMm < OversizedPairRatio * width) && FaceOfRun(face, ux, uy, len, r)) ||
+                    result.Any(r => FaceOfRun(face, ux, uy, len, r)))
+                    continue;
+                var paired = 0.0;
+                foreach (var other in partners)
+                {
+                    if (!Parallel(face, other))
+                        continue;
+                    if (PartnerRun(face, ux, uy, len, other, width) is not WallRun run)
+                        continue;
+                    paired += Length(run);
+                    if (runs.Concat(result).Any(r => SameStretch(r, run, width)))
+                        continue;
+                    result.Add(OrientRun(run));
+                    if (!corner)
+                        labelled.Add(run);
+                }
+
+                // The partner may stop short of the face (slab edge open at the tower): the wall carries the rest.
+                if (paired < len - WallTopMinFaceMm && len >= WallTopMinFaceMm && WallSide(face, ux, uy, len, width, supports) is double side)
+                {
+                    result.Add(OrientRun(new WallRun(
+                        face.X0 - uy * side, face.Y0 + ux * side, face.X1 - uy * side, face.Y1 + ux * side, width)));
+                }
+            }
+
+            if (result.Count == added)
+                break;
+        }
+
+        return result;
+    }
+
+    /// <summary>True for a pair at least <see cref="OversizedPairRatio"/> × as wide as a one-face run beside it.</summary>
+    public static bool OversizedPair(WallRun pair, WallRun oneFace)
+    {
+        var len = Length(pair);
+        if (len < 1 || !Parallel(pair, oneFace) || pair.ThicknessMm < OversizedPairRatio * oneFace.ThicknessMm)
+            return false;
+        var ux = (pair.X1 - pair.X0) / len;
+        var uy = (pair.Y1 - pair.Y0) / len;
+        var across = Math.Abs(((oneFace.X0 + oneFace.X1) / 2 - pair.X0) * -uy + ((oneFace.Y0 + oneFace.Y1) / 2 - pair.Y0) * ux);
+        if (across > pair.ThicknessMm / 2 + oneFace.ThicknessMm)
+            return false;
+        return Overlap(pair, ux, uy, len, oneFace) > 0;
+    }
+
+    /// <summary>
+    /// Pairing clips a crossing beam at the midline of a false wide pair (GTC3 at y=-30940, between GTC1 and GTC2).
+    /// With the pair gone, such a run goes on to the midline of the nearest one-face run ahead of it.
+    /// </summary>
+    public static List<WallRun> ReachPastOversized(List<WallRun> runs, List<WallRun> removed, List<WallRun> oneFace)
+    {
+        var result = new List<WallRun>(runs.Count);
+        foreach (var run in runs)
+        {
+            var extended = run;
+            foreach (var pair in removed)
+            {
+                if (Parallel(extended, pair))
+                    continue;
+                var len = Length(extended);
+                if (len < 1)
+                    continue;
+                var ux = (extended.X1 - extended.X0) / len;
+                var uy = (extended.Y1 - extended.Y0) / len;
+                var pl = Length(pair);
+                var px = (pair.X1 - pair.X0) / pl;
+                var py = (pair.Y1 - pair.Y0) / pl;
+                double Off(double x, double y) => (x - pair.X0) * -py + (y - pair.Y0) * px;
+                double Along(double x, double y) => (x - pair.X0) * px + (y - pair.Y0) * py;
+                var startOn = Math.Abs(Off(extended.X0, extended.Y0)) <= 5;
+                var endOn = Math.Abs(Off(extended.X1, extended.Y1)) <= 5;
+                if (startOn == endOn)
+                    continue;
+                var (ex, ey) = startOn ? (extended.X0, extended.Y0) : (extended.X1, extended.Y1);
+                var dir = startOn ? -1.0 : 1.0;
+                var alongPair = Along(ex, ey);
+                if (alongPair < 0 || alongPair > pl)
+                    continue;
+                var best = double.MaxValue;
+                foreach (var face in oneFace)
+                {
+                    if (!Parallel(face, pair))
+                        continue;
+                    var gap = Off((face.X0 + face.X1) / 2, (face.Y0 + face.Y1) / 2) / (dir * (ux * -py + uy * px));
+                    if (gap > 1 && gap <= pair.ThicknessMm && gap < best)
+                        best = gap;
+                }
+
+                if (best == double.MaxValue)
+                    continue;
+                extended = startOn
+                    ? new WallRun(ex - ux * best, ey - uy * best, extended.X1, extended.Y1, extended.ThicknessMm, extended.Nx, extended.Ny)
+                    : new WallRun(extended.X0, extended.Y0, ex + ux * best, ey + uy * best, extended.ThicknessMm, extended.Nx, extended.Ny);
+            }
+
+            result.Add(extended);
+        }
+
+        return result;
+    }
+
+    private static double Overlap(WallRun axis, double ux, double uy, double len, WallRun other)
+    {
+        var a0 = (other.X0 - axis.X0) * ux + (other.Y0 - axis.Y0) * uy;
+        var a1 = (other.X1 - axis.X0) * ux + (other.Y1 - axis.Y0) * uy;
+        return Math.Min(Math.Max(a0, a1), len) - Math.Max(Math.Min(a0, a1), 0);
+    }
+
+    private static WallRun? PartnerRun(WallRun face, double ux, double uy, double len, WallRun other, double width)
+    {
+        var c0 = (other.X0 - face.X0) * -uy + (other.Y0 - face.Y0) * ux;
+        var c1 = (other.X1 - face.X0) * -uy + (other.Y1 - face.Y0) * ux;
+        if (Math.Abs(c0 - c1) > 1 || Math.Abs(Math.Abs(c0) - width) > PartnerWidthTolMm)
+            return null;
+        var a0 = (other.X0 - face.X0) * ux + (other.Y0 - face.Y0) * uy;
+        var a1 = (other.X1 - face.X0) * ux + (other.Y1 - face.Y0) * uy;
+        var oLo = Math.Min(a0, a1);
+        var oHi = Math.Max(a0, a1);
+        var lo = Math.Max(0, oLo);
+        var hi = Math.Min(len, oHi);
+        if (hi - lo < LateralNickMm)
+            return null;
+        // The partner running on past this end of the face is a corner: reach the corner beam midline.
+        if (lo <= 0 && oLo <= -width + PartnerWidthTolMm)
+            lo -= width / 2;
+        if (hi >= len && oHi >= len + width - PartnerWidthTolMm)
+            hi += width / 2;
+        var mid = c0 / 2;
+        return new WallRun(
+            face.X0 + ux * lo - uy * mid, face.Y0 + uy * lo + ux * mid,
+            face.X0 + ux * hi - uy * mid, face.Y0 + uy * hi + ux * mid, width);
+    }
+
+    private static bool SameStretch(WallRun a, WallRun b, double width)
+    {
+        var len = Length(b);
+        if (len < 1 || !Parallel(a, b) || a.ThicknessMm >= OversizedPairRatio * width)
+            return false;
+        var ux = (b.X1 - b.X0) / len;
+        var uy = (b.Y1 - b.Y0) / len;
+        var across = Math.Abs(((a.X0 + a.X1) / 2 - b.X0) * -uy + ((a.Y0 + a.Y1) / 2 - b.Y0) * ux);
+        return across <= NearDuplicateMidlineMm && Overlap(b, ux, uy, len, a) >= len / 2;
+    }
+
+    /// <summary>Width of a one-face run this face continues (the same beam, interrupted by crossing beams).</summary>
+    private static double CollinearWidth(WallRun face, double ux, double uy, double len, List<WallRun> oneFace)
+    {
+        foreach (var run in oneFace)
+        {
+            if (!Parallel(face, run))
+                continue;
+            var across = Math.Abs(((run.X0 + run.X1) / 2 - face.X0) * -uy + ((run.Y0 + run.Y1) / 2 - face.Y0) * ux);
+            if (Math.Abs(across - run.ThicknessMm / 2) > FaceBandTolMm)
+                continue;
+            if (Overlap(face, ux, uy, len, run) >= -MergeGapMm)
+                return run.ThicknessMm;
+        }
+
+        return 0;
+    }
+
+    private static double CornerWidth(WallRun face, List<WallRun> oneFace)
+    {
+        foreach (var run in oneFace)
+        {
+            if (Parallel(face, run))
+                continue;
+            foreach (var (x, y) in new[] { (face.X0, face.Y0), (face.X1, face.Y1) })
+            {
+                if (Hypot(run.X0 - x, run.Y0 - y) <= run.ThicknessMm || Hypot(run.X1 - x, run.Y1 - y) <= run.ThicknessMm)
+                    return run.ThicknessMm;
+            }
+        }
+
+        return 0;
+    }
+
+    private static double? WallSide(
+        WallRun face, double ux, double uy, double len, double width, IReadOnlyList<SectionFootprint> supports)
+    {
+        foreach (var wall in supports)
+        {
+            var across = (wall.CenterX - face.X0) * -uy + (wall.CenterY - face.Y0) * ux;
+            var along = (wall.CenterX - face.X0) * ux + (wall.CenterY - face.Y0) * uy;
+            if (IsElongated(wall) && Math.Abs(across) <= width && along >= 0 && along <= len && SupportAlong(wall, ux, uy))
+                return Math.Sign(across) * width / 2;
+        }
+
+        return null;
+    }
+
+    private static bool SupportAlong(SectionFootprint support, double ux, double uy)
+    {
+        var rad = support.RotationDeg * Math.PI / 180.0;
+        var alongWidth = support.WidthMm >= support.DepthMm;
+        var lx = alongWidth ? Math.Cos(rad) : -Math.Sin(rad);
+        var ly = alongWidth ? Math.Sin(rad) : Math.Cos(rad);
+        return Math.Abs(lx * ux + ly * uy) >= 0.95;
+    }
+
+    private static bool FaceOfRun(WallRun face, double ux, double uy, double len, WallRun run)
+    {
+        if (!Parallel(face, run))
+            return false;
+        var across = Math.Abs(((run.X0 + run.X1) / 2 - face.X0) * -uy + ((run.Y0 + run.Y1) / 2 - face.Y0) * ux);
+        if (across > run.ThicknessMm / 2 + FaceBandTolMm)
+            return false;
+        return Overlap(face, ux, uy, len, run) >= len / 2;
     }
 
     /// <summary>
@@ -850,17 +1171,44 @@ public static class BeamCenterlineReader
 
         var t0 = 0.0;
         var t1 = len;
-        if (!touchEnd && ahead < double.MaxValue && Reachable(run, ux, uy, len, ahead, runs, faces))
-            t1 = ahead;
-        if (!touchStart && behind > double.MinValue && Reachable(run, ux, uy, behind, 0, runs, faces))
-            t0 = behind;
+        if (!touchEnd && ahead < double.MaxValue && Reachable(run, ux, uy, len, ahead, runs, faces, supports))
+            t1 = PastAdjacentColumn(run, ux, uy, ahead, 1, supports);
+        if (!touchStart && behind > double.MinValue && Reachable(run, ux, uy, behind, 0, runs, faces, supports))
+            t0 = PastAdjacentColumn(run, ux, uy, behind, -1, supports);
         if (Math.Abs(t0) < 1e-9 && Math.Abs(t1 - len) < 1e-9)
             return run;
         return OrientRun(Slice(run, ux, uy, t0, t1));
     }
 
-    private static bool Reachable(WallRun run, double ux, double uy, double g0, double g1, List<WallRun> runs, List<WallRun> faces)
+    /// <summary>A crossing wall reached first stands against the column behind it: the span ends at that column.</summary>
+    private static double PastAdjacentColumn(
+        WallRun run, double ux, double uy, double t, int dir, IReadOnlyList<SectionFootprint> supports)
     {
+        var best = t;
+        foreach (var support in supports)
+        {
+            if (IsElongated(support))
+                continue;
+            var stations = SupportStations(run, ux, uy, support);
+            if (stations.Count != 1 || (stations[0] - t) * dir <= 1)
+                continue;
+            var c = stations[0];
+            if ((c - best) * dir > 0 && best != t)
+                continue;
+            if (InsideSupports(run, ux, uy, Math.Min(t, c), Math.Max(t, c), supports))
+                best = c;
+        }
+
+        return best;
+    }
+
+    private static bool Reachable(
+        WallRun run, double ux, double uy, double g0, double g1, List<WallRun> runs, List<WallRun> faces,
+        IReadOnlyList<SectionFootprint>? supports = null)
+    {
+        // Wholly inside supports nothing can stop the beam: a crossing edge beam sits on the same wall.
+        if (supports != null && InsideSupports(run, ux, uy, g0, g1, supports))
+            return true;
         foreach (var other in runs)
         {
             if (Parallel(run, other))
