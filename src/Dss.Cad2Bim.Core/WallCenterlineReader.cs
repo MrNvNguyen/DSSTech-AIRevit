@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Dss.Cad2Bim.Core;
@@ -201,8 +201,9 @@ public static class WallCenterlineReader
             var c = a.Ux * f.Ux + a.Uy * f.Uy;
             if (Math.Abs(c) < 0.5)
                 continue;
-            var s0 = (lo - off) / c;
-            var s1 = (hi - off) / c;
+            // Span on A mapped onto f (a mirrored map here blocked unrelated collinear pieces).
+            var s0 = off + lo * c;
+            var s1 = off + hi * c;
             used[k].Add((Math.Min(s0, s1), Math.Max(s0, s1)));
         }
     }

@@ -2822,6 +2822,88 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // Bays drawn at different midlines on one grid keep their own CAD lateral (x=-11950 then -12050).
+        var stepped = BeamCenterlineReader.PrepareRuns(
+            new[] { new WallRun(50, 300, 50, 7700, 500), new WallRun(-50, 8300, -50, 15700, 500) },
+            new[] { Col(0, 0), Col(0, 8000), Col(0, 16000) });
+        if (!Has(stepped, BeamSpanKind.Main, 50, 0, 50, 8000) || !Has(stepped, BeamSpanKind.Main, -50, 8000, -50, 16000))
+        {
+            message = $"beam stepped bays: expected x=50 then x=-50, got {Describe(stepped)}";
+            return false;
+        }
+
+        // A crossing wall against a column is one joint: no stub inside them, and the span past it starts at the column.
+        var adjacent = BeamCenterlineReader.PrepareRuns(
+            new[] { new WallRun(0, 300, 0, 7700, 500), new WallRun(0, 8650, 0, 13700, 500) },
+            new[] { Col(0, 0), new SectionFootprint(0, 8000, 600, 700), new SectionFootprint(0, 8500, 20000, 300), Col(0, 14000) });
+        if (adjacent.Count != 2 || !Has(adjacent, BeamSpanKind.Main, 0, 0, 0, 8000) ||
+            !Has(adjacent, BeamSpanKind.Main, 0, 8000, 0, 14000))
+        {
+            message = $"beam column+wall joint: expected 0..8000 + 8000..14000, got {Describe(adjacent)}";
+            return false;
+        }
+
+        // Two beams whose outer faces are on the border layer: the 680 pair on the beam layer is false.
+        var twoEdge = new CadGeometry();
+        twoEdge.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = 0, X1 = 8000, Y1 = 0 });
+        twoEdge.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = -680, X1 = 8000, Y1 = -680 });
+        twoEdge.Entities.Add(new CadLine { Layer = "BORDER", X0 = -300, Y0 = -300, X1 = 8300, Y1 = -300 });
+        twoEdge.Entities.Add(new CadLine { Layer = "BORDER", X0 = -300, Y0 = -900, X1 = 8300, Y1 = -900 });
+        twoEdge.Entities.Add(new CadText { Layer = "ANN", Value = "GTC1(30x40)", X = 4000, Y = 120, CenterX = 4000, CenterY = 120 });
+        twoEdge.Entities.Add(new CadText { Layer = "ANN", Value = "GTC2(22x40)", X = 4000, Y = -1100, CenterX = 4000, CenterY = -1100 });
+        var twoEdgeOps = ModelRevitPlanner.Plan(
+            twoEdge, "BEAM", ModelRevitPartKind.Beam, "L1", "L2", new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        double EdgeY(string mark) => twoEdgeOps
+            .Where(op => op.Fields.TryGetProperty("mark", out var m) && m.GetString() == mark)
+            .Select(op => op.Fields.GetProperty("startMm")[1].GetDouble())
+            .DefaultIfEmpty(double.NaN).First();
+        if (twoEdgeOps.Count != 2 || !(Math.Abs(EdgeY("GTC1") + 150) <= 2.5) || !(Math.Abs(EdgeY("GTC2") + 790) <= 2.5))
+        {
+            message = $"beam false wide pair: expected GTC1 y=-150, GTC2 y=-790, got {twoEdgeOps.Count} ops y={EdgeY("GTC1")},{EdgeY("GTC2")}";
+            return false;
+        }
+
+        // A nested bound xref doubles the layer prefix: both names are the picked layer.
+        var nested = new CadGeometry();
+        nested.Entities.Add(new CadLine { Layer = "X$0$BEAM", X0 = 0, Y0 = -150, X1 = 8000, Y1 = -150 });
+        nested.Entities.Add(new CadLine { Layer = "X$0$X$0$BEAM", X0 = 0, Y0 = 150, X1 = 8000, Y1 = 150 });
+        var nestedOps = ModelRevitPlanner.Plan(
+            nested, "X$0$BEAM", ModelRevitPartKind.Beam, "L1", "L2", new AnnotationSize(300, 600, null, ""),
+            placement: new ModelRevitPlacement { FamilyName = "S-BEAM" });
+        if (nestedOps.Count != 1)
+        {
+            message = $"beam nested xref layer: expected 1 beam from faces on both names, got {nestedOps.Count}";
+            return false;
+        }
+
+        // Wall-top beam with one face on the beam layer: labelled width, on the wall side of the face.
+        var oneFace = new CadGeometry();
+        oneFace.Entities.Add(new CadLine { Layer = "BEAM", X0 = 0, Y0 = -500, X1 = 16000, Y1 = -500 });
+        oneFace.Entities.Add(new CadLine { Layer = "BEAM", X0 = 7750, Y0 = -8000, X1 = 7750, Y1 = -1000 });
+        oneFace.Entities.Add(new CadLine { Layer = "BEAM", X0 = 8250, Y0 = -8000, X1 = 8250, Y1 = -1000 });
+        oneFace.Entities.Add(new CadText { Layer = "ANN", Value = "D1X-B (50x70)", X = 4000, Y = -800, CenterX = 4000, CenterY = -800 });
+        var oneFaceOps = ModelRevitPlanner.Plan(
+            oneFace, "BEAM", ModelRevitPartKind.Beam, "L1", "L2", new AnnotationSize(null, null, null, ""),
+            placement: new ModelRevitPlacement
+            {
+                FamilyName = "S-BEAM",
+                Supports = new[]
+                {
+                    new SectionFootprint(0, -650, 600, 700), new SectionFootprint(8000, -650, 600, 700),
+                    new SectionFootprint(16000, -650, 600, 700), new SectionFootprint(8000, -150, 16000, 300)
+                }
+            });
+        var tops = oneFaceOps
+            .Where(op => op.Fields.TryGetProperty("mark", out var m) && m.GetString() == "D1X-B")
+            .Select(op => op.Fields.GetProperty("startMm")[1].GetDouble())
+            .ToList();
+        if (tops.Count != 2 || tops.Any(y => Math.Abs(y + 250) > 2.5))
+        {
+            message = $"beam one-face wall top: expected 2 spans at y=-250, got [{string.Join(",", tops)}]";
+            return false;
+        }
+
         // (vi) 30° beam in two CAD pieces → one main span between rotated column centers.
         var rad = 30.0 * Math.PI / 180.0;
         (double X, double Y) P(double t) => (1000 + t * Math.Cos(rad), 2000 + t * Math.Sin(rad));
