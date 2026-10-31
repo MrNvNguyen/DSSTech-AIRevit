@@ -2955,6 +2955,35 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // A column on another layer joins the picked ones when it sits at a grid crossing and fits their sizes.
+        static CadPolyline Outline(string layer, double x, double y, double w, double d)
+        {
+            var outline = new CadPolyline { Layer = layer, Closed = true };
+            outline.Points.Add(new CadPoint2(x - w / 2, y - d / 2));
+            outline.Points.Add(new CadPoint2(x + w / 2, y - d / 2));
+            outline.Points.Add(new CadPoint2(x + w / 2, y + d / 2));
+            outline.Points.Add(new CadPoint2(x - w / 2, y + d / 2));
+            return outline;
+        }
+
+        var mixedColumns = new CadGeometry();
+        mixedColumns.Entities.Add(Outline("COT", 0, 0, 500, 600));
+        mixedColumns.Entities.Add(Outline("COT", 6000, 0, 500, 600));
+        mixedColumns.Entities.Add(Outline("COT MOI", 0, 6000, 500, 600));
+        mixedColumns.Entities.Add(Outline("COT MOI", 6000, 0, 500, 600));
+        mixedColumns.Entities.Add(Outline("CUA", 3000, 3000, 500, 600));
+        mixedColumns.Entities.Add(Outline("MONG", 6000, 6000, 2000, 2000));
+        var mixedPlace = new ModelRevitPlacement { FamilyName = "C" };
+        var mixedOps = ModelRevitPlanner.Plan(
+            mixedColumns, "COT", ModelRevitPartKind.Column, "L1", "L2", new AnnotationSize(null, null, null, ""),
+            gridPoints: new[] { new CadPoint2(0, 0), new CadPoint2(6000, 0), new CadPoint2(0, 6000), new CadPoint2(6000, 6000) },
+            placement: mixedPlace);
+        if (mixedOps.Count != 3 || mixedPlace.OtherLayerColumns.Count != 1 || mixedPlace.OtherLayerColumns[0] != "COT MOI")
+        {
+            message = $"columns on other layers: expected 3 with 1 from COT MOI, got {mixedOps.Count} ({string.Join(",", mixedPlace.OtherLayerColumns)})";
+            return false;
+        }
+
         // A beam stops at a lift shaft: along its wall only one CAD edge goes on, and that is the wall's.
         var shaft = BeamCenterlineReader.PrepareRuns(
             new[] { new WallRun(300, 0, 3700, 0, 400) },

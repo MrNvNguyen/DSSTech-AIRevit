@@ -144,7 +144,7 @@ public sealed class ModelRevitCommand : IExternalCommand
                 FoundationTypeMarks = part == ModelRevitPartKind.PileCap
                     ? catalog.FoundationTypeMarks
                     : null,
-                Log = part == ModelRevitPartKind.PileCap ? DssTechLog.Write : null
+                Log = part is ModelRevitPartKind.PileCap or ModelRevitPartKind.Column ? DssTechLog.Write : null
             };
             var supportColumns = 0;
             var supportWalls = 0;
@@ -167,6 +167,22 @@ public sealed class ModelRevitCommand : IExternalCommand
                 catch (Exception ex)
                 {
                     DssTechLog.Write($"beam capture failed: {ex.Message}");
+                }
+            }
+
+            if (part == ModelRevitPartKind.Column)
+            {
+                // Planner input for checking columns found on other layers. Must not break the command.
+                try
+                {
+                    var capturePath = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DSSTech", "column-capture.json");
+                    PlanCapture.From(geom, layerName, part, placement.BaseLevelName, placement.TopLevelName,
+                        size, placement, grids, gridAngles).Save(capturePath);
+                }
+                catch (Exception ex)
+                {
+                    DssTechLog.Write($"column capture failed: {ex.Message}");
                 }
             }
 
@@ -226,6 +242,12 @@ public sealed class ModelRevitCommand : IExternalCommand
                 summary.AppendLine($"Family gốc: {columnFamily}");
                 summary.AppendLine("Tiết diện đo từ outline trên layer, gồm cột vát góc và cột xoay theo grid.");
                 summary.AppendLine("Tâm cột làm tròn 5 mm tính từ trục (2172,4 → 2170; 2173 → 2175). Không kéo về hàng chục.");
+                if (placement.OtherLayerColumns.Count > 0)
+                {
+                    var layers = placement.OtherLayerColumns.GroupBy(l => l).Select(g => $"{g.Key} ({g.Count()})");
+                    summary.AppendLine($"Cột ở layer khác: {placement.OtherLayerColumns.Count} — {string.Join(", ", layers)}");
+                }
+
                 if (choice.AssignMark)
                     summary.AppendLine(DescribeMarks(geom, ops));
             }
