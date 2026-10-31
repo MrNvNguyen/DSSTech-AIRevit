@@ -229,6 +229,8 @@ internal sealed class ModelRevitSetupWindow : DssDialog
     private readonly StackPanel _materialRow;
     private readonly StackPanel _typeRow;
     private readonly StackPanel _functionRow;
+    private readonly System.Windows.Controls.Grid _levelRow;
+    private readonly System.Windows.Controls.Grid _offsetRow;
     private readonly StackPanel _thickRow;
     private readonly StackPanel _systemRow;
     private readonly StackPanel _pileSubtypeRow;
@@ -251,7 +253,9 @@ internal sealed class ModelRevitSetupWindow : DssDialog
     private ModelRevitSetupWindow(ModelRevitFormCatalog catalog, ModelRevitPartKind? presetPart)
         : base(
             presetPart is ModelRevitPartKind titlePart ? $"DSSTech — {ParamPackageCatalog.PartLabel(titlePart)}" : "DSSTech — Dựng từ CAD",
-            "Chỉnh đầu vào rồi dựng. Cột và tường đo tiết diện từ nét vẽ. Loại khác vẫn đọc Text hoặc Dimension. Để trống layer thì pick nét trên bản vẽ.",
+            presetPart is null
+                ? "Chỉnh đầu vào rồi dựng. Cột và tường đo tiết diện từ nét vẽ. Loại khác vẫn đọc Text hoặc Dimension. Để trống layer thì pick nét trên bản vẽ."
+                : "Chỉnh đầu vào rồi dựng. Cột và tường đo tiết diện từ nét vẽ. Loại khác vẫn đọc Text hoặc Dimension. Sau khi bấm dựng, pick một nét trên layer cần dựng.",
             640,
             720)
     {
@@ -329,16 +333,15 @@ internal sealed class ModelRevitSetupWindow : DssDialog
                  })
             kindHost.Children.Add(row);
 
-        // From a module button the part is already chosen, so only the layer is left to pick.
+        // From a module button the part is already chosen and the layer comes from a picked line.
+        var section = 1;
         if (presetPart is null)
-            AddSection(1, "Loại cấu kiện",
+            AddSection(section++, "Loại cấu kiện",
                 DssTheme.Pair(DssTheme.Field("Loại", _part), DssTheme.Field("Layer", _layer)));
-        else
-            AddSection(1, "Layer CAD", DssTheme.Field("Layer", _layer));
-        AddSection(2, "Thông số", kindHost);
-        AddSection(3, "Level",
-            DssTheme.Pair(_baseRow, _topRow),
-            DssTheme.Pair(_baseOffsetRow, _topOffsetRow));
+        AddSection(section++, "Thông số", kindHost);
+        _levelRow = DssTheme.Pair(_baseRow, _topRow);
+        _offsetRow = DssTheme.Pair(_baseOffsetRow, _topOffsetRow);
+        AddSection(section, "Level", _levelRow, _offsetRow);
 
         _part.SelectionChanged += (_, _) => ApplyKind();
         _pileSubtype.SelectionChanged += (_, _) =>
@@ -374,14 +377,11 @@ internal sealed class ModelRevitSetupWindow : DssDialog
     {
         var kind = SelectedKind();
         PrimaryButton.Content = Verb(kind);
-        // Structural wall on a shared column layer can also place short footprints as columns.
-        var families = kind == ModelRevitPartKind.StructuralWall
-            ? _catalog.ColumnFamilies
-            : FamiliesFor(kind);
+        var families = FamiliesFor(kind);
         Show(_familyRow, families is not null && families.Count > 0);
         if (families is not null && families.Count > 0)
         {
-            if (kind is ModelRevitPartKind.StructuralWall or ModelRevitPartKind.Beam)
+            if (kind == ModelRevitPartKind.Beam)
                 DssTheme.FillCombo(_family, WithBlank(families), "");
             else
                 DssTheme.FillCombo(_family, families, null);
@@ -424,6 +424,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         Show(_baseOffsetRow, kind != ModelRevitPartKind.Beam && kind != ModelRevitPartKind.Pile
             && kind != ModelRevitPartKind.Room);
         Show(_topOffsetRow, bothLevels || levelOnly);
+        ArrangeLevelRows(levelOnly);
         _baseOffsetLabel.Text = kind == ModelRevitPartKind.Ceiling ? "Cao độ bù (mm)" : "Offset đáy (mm)";
         // Beams/piles: Catalog.TopLevel is the floor above (for columns/walls); do not default onto that.
         if (_topRow.Children[0] is TextBlock topLevelLabel)
@@ -460,6 +461,16 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         _systemLabel.Text = "Hệ thống";
         FillTypes(kind);
         FillLengthParams();
+    }
+
+    /// <summary>Beams and piles have one Level and one Offset: side by side from the left, not below an empty column.</summary>
+    private void ArrangeLevelRows(bool levelOnly)
+    {
+        _levelRow.Children.Remove(_topOffsetRow);
+        _offsetRow.Children.Remove(_topOffsetRow);
+        (levelOnly ? _levelRow : _offsetRow).Children.Add(_topOffsetRow);
+        System.Windows.Controls.Grid.SetColumn(_topRow, levelOnly ? 0 : 1);
+        _topRow.Margin = new Thickness(levelOnly ? 0 : 8, 0, 0, 0);
     }
 
     private void UpdatePileOffsetLabels()
@@ -677,7 +688,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             TopLevel = topLevel,
             BaseOffsetMm = baseOff,
             TopOffsetMm = topOff,
-            Family = DssTheme.ComboValue(_family),
+            Family = kind == ModelRevitPartKind.StructuralWall ? "" : DssTheme.ComboValue(_family),
             TypeName = BlankToEmpty(DssTheme.ComboValue(_type)),
             SectionShape = DssTheme.ComboValue(_shape) == "Tròn" ? "Circle" : "Rectangle",
             WidthParam = DssTheme.ComboValue(_widthParam),

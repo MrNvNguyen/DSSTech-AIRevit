@@ -263,7 +263,6 @@ public sealed class ModelRevitCommand : IExternalCommand
             {
                 summary.AppendLine($"Type gốc: {choice.TypeName}");
                 summary.AppendLine("Bề dày đo từ hai nét song song, làm tròn 10 mm, nhân type tường theo bề dày và chức năng (mặc định CoreShaft / Lõi).");
-                summary.AppendLine("Layer chung cột/vách: vách khi L/b > 4; cột khi L/b ≤ 4 (nếu đã chọn family cột).");
                 summary.AppendLine("Tường kết cấu: Function = CoreShaft, Location Line = Wall Centerline (tim CAD). Exterior/Interior chỉ dùng cho tường kiến trúc.");
                 summary.AppendLine("Đầu tường kéo tới tim tường vuông góc để góc L/T join khít.");
                 AppendOtherLayerWalls(summary, placement);

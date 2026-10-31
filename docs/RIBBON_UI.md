@@ -39,6 +39,6 @@ Mỗi icon có thêm bản `*-32-dark.png` / `*-16-dark.png`: nét `#D6E2EE` (x�
 | Khối lượng · Quantity | Chọn định mức · Ván khuôn · Xuất BOQ · Bảng khối lượng |
 | Trợ lý AI · AI | AI: Đang bật/Đã tắt (đổi icon + chữ theo trạng thái thật) · Kết nối AI |
 
-Mỗi nút module mở cửa sổ Dựng mô hình đúng loại đó, không có ô Loại; Bảng điều khiển vẫn mở cửa sổ đầy đủ như trước. Nút Link mặt bằng, Dựng mô hình và Dựng theo lô đã gỡ khỏi ribbon, lệnh phía sau giữ nguyên. Level chưa có logic dựng.
+Mỗi nút module mở cửa sổ Dựng mô hình đúng loại đó, không có ô Loại và ô Layer (layer lấy từ nét pick trên bản vẽ); Bảng điều khiển vẫn mở cửa sổ đầy đủ như trước. Nút Link mặt bằng, Dựng mô hình và Dựng theo lô đã gỡ khỏi ribbon, lệnh phía sau giữ nguyên. Level chưa có logic dựng.
 
 Tên nội bộ (ID) của các nút cũ giữ nguyên. Riêng tên panel đã đổi, nên phím tắt người dùng tự gán cho nút cũ có thể phải gán lại.
