@@ -52,35 +52,17 @@
     <p class="en">Shows version, machine ID (HWID) and license activation.</p>
   </section>
 
-  <h2 id="cad-bim">CAD → BIM</h2>
-  <p>Làm theo thứ tự số trên icon: <span class="step">1</span> Link mặt bằng → <span class="step">2</span> Trục &amp; tầng → <span class="step">3</span> Dựng mô hình.</p>
-  <section class="cmd" id="link-mat-bang">
-    <h3><span class="step">1</span>Link mặt bằng · Link CAD plan</h3>
-    <ol>
-      <li>Insert → Link CAD vào đúng Level của tầng cần dựng.</li>
-      <li>Move / Rotate link cho khớp tọa độ và góc của model (add-in không tự chỉnh link).</li>
-      <li>Mở mặt bằng tầng đó rồi sang bước tiếp theo.</li>
-    </ol>
-    <p class="en">Link the DWG/DXF to the right level and align it to the model yourself.</p>
-  </section>
+  <h2 id="cad-bim">Dựng mô hình từ CAD</h2>
+  <p>Link DWG/DXF vào đúng Level rồi Move / Rotate cho khớp model, sau đó bấm nút của module cần dựng trên các panel Kiến trúc, Kết cấu, Móng &amp; cọc, MEPF.</p>
   <section class="cmd" id="truc-tang">
-    <h3><span class="step">2</span>Trục &amp; tầng · Grids &amp; Levels</h3>
-    <p>Dựng lưới trục từ layer G-GRID của bản CAD. Trục đã có trong model sẽ được bỏ qua.</p>
-    <p class="en">Creates grids from layer G-GRID; existing grids are skipped.</p>
+    <h3>Trục · Grids và Level · Levels</h3>
+    <p>Trục: dựng lưới trục từ layer G-GRID của bản CAD, trục đã có trong model sẽ được bỏ qua. Level: chức năng đang được bổ sung.</p>
+    <p class="en">Grids are created from layer G-GRID; existing grids are skipped. Levels are coming soon.</p>
   </section>
   <section class="cmd" id="dung-mo-hinh">
-    <h3><span class="step">3</span>Dựng mô hình · Model Revit</h3>
-    <p>Chọn layer, loại cấu kiện, family, level và offset rồi dựng cấu kiện từ CAD link đang mở.</p>
-    <p class="en">Pick layers, types, families, level and offset, then build elements from the CAD link.</p>
-  </section>
-  <section class="cmd" id="dung-theo-lo">
-    <h3>Dựng theo lô · Batch Wizard ▾</h3>
-    <p>Dựng hàng loạt theo bộ môn, luôn có bước xem trước và xác nhận trước khi tạo:</p>
-    <ul>
-      <li><b>Kiểm tra CAD · Preflight</b> – kiểm tra CAD link đã chọn có đúng quy định đầu vào (CAD_INPUT_SPEC) không. Chỉ báo lỗi, không tạo gì.</li>
-      <li><b>Kết cấu · Structure</b>, <b>Kiến trúc · Architecture</b>, <b>Cơ điện · MEPF</b> – đọc CAD theo bộ môn → xem trước → xác nhận → tạo.</li>
-    </ul>
-    <p class="en">Batch build by discipline: check → preview → confirm → create.</p>
+    <h3>Các nút module · Model buttons</h3>
+    <p>Mỗi nút mở cửa sổ dựng đúng loại cấu kiện đó. Chọn layer, family, level và offset rồi dựng cấu kiện từ CAD link đang mở.</p>
+    <p class="en">Each button opens the build window with its part selected. Pick layers, families, level and offset, then build from the CAD link.</p>
   </section>
 
   <h2 id="khoi-luong">Khối lượng · Quantity</h2>

@@ -18,7 +18,7 @@ public sealed class ModelRevitCommand : IExternalCommand
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements) =>
         Run(commandData.Application);
 
-    public static Result Run(UIApplication uiApp, bool ensurePackage = true)
+    public static Result Run(UIApplication uiApp, bool ensurePackage = true, ModelRevitPartKind? presetPart = null)
     {
         var uidoc = uiApp.ActiveUIDocument;
         var doc = uidoc?.Document;
@@ -43,7 +43,7 @@ public sealed class ModelRevitCommand : IExternalCommand
             .OfType<ImportInstance>()
             .FirstOrDefault();
         var catalog = ModelRevitFormCatalog.Load(doc, baseLevel, topLevel, selectedImport);
-        if (!ModelRevitSetupWindow.TryPick(uiApp.MainWindowHandle, catalog, out var choice))
+        if (!ModelRevitSetupWindow.TryPick(uiApp.MainWindowHandle, catalog, out var choice, presetPart))
             return Result.Cancelled;
 
         var part = choice.Part;
@@ -263,7 +263,6 @@ public sealed class ModelRevitCommand : IExternalCommand
             {
                 summary.AppendLine($"Type gốc: {choice.TypeName}");
                 summary.AppendLine("Bề dày đo từ hai nét song song, làm tròn 10 mm, nhân type tường theo bề dày và chức năng (mặc định CoreShaft / Lõi).");
-                summary.AppendLine("Layer chung cột/vách: vách khi L/b > 4; cột khi L/b ≤ 4 (nếu đã chọn family cột).");
                 summary.AppendLine("Tường kết cấu: Function = CoreShaft, Location Line = Wall Centerline (tim CAD). Exterior/Interior chỉ dùng cho tường kiến trúc.");
                 summary.AppendLine("Đầu tường kéo tới tim tường vuông góc để góc L/T join khít.");
                 AppendOtherLayerWalls(summary, placement);
