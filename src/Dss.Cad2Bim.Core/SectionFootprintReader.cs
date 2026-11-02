@@ -753,7 +753,7 @@ public static class SectionFootprintReader
 
 		PolygonCentroid(points, n, out double cx, out double cy);
 		double rotationDeg = FoundationRotationDeg(points, n, cx, cy);
-		footprint = new SectionFootprint(cx, cy, w, d, rotationDeg);
+		footprint = new SectionFootprint(cx, cy, w, d, rotationDeg, (minX + maxX) / 2.0, (minY + maxY) / 2.0);
 		return true;
 	}
 

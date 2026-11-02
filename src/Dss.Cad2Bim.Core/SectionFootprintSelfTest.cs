@@ -2984,6 +2984,21 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // A clipped outline hands its box to the placement: the centroid is not the middle of the outline.
+        var clipped = new CadPolyline { Layer = "DAI", Closed = true };
+        clipped.Points.Add(new CadPoint2(0, 0));
+        clipped.Points.Add(new CadPoint2(2500, 0));
+        clipped.Points.Add(new CadPoint2(2500, 1500));
+        clipped.Points.Add(new CadPoint2(1700, 2500));
+        clipped.Points.Add(new CadPoint2(800, 2500));
+        clipped.Points.Add(new CadPoint2(0, 1500));
+        var clippedFoot = SectionFootprintReader.FromEntitiesFoundation(new CadEntity[] { clipped })[0];
+        if (Math.Abs(clippedFoot.BoxCenterY - 1250) > 1 || Math.Abs(clippedFoot.CenterY - 1250) < 10)
+        {
+            message = $"clipped foundation: expected box middle 1250 apart from the centroid, got {clippedFoot.BoxCenterY:0} / {clippedFoot.CenterY:0}";
+            return false;
+        }
+
         // Piers of a lift core on the line of a core wall are walls; a column off that line is not.
         var core = new CadGeometry();
         core.Entities.Add(Outline("VACH", 0, 0, 350, 3000));

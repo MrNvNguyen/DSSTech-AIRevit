@@ -114,6 +114,9 @@ internal static class ModelRevitAxisDimensions
                     case FamilyInstance pile when IsStructuralFoundation(pile) && IsCircularPileLike(pile):
                         created += DimensionPile(doc, view, pile, grids);
                         break;
+                    case FamilyInstance footing when IsStructuralFoundation(footing):
+                        created += DimensionColumn(doc, view, footing, grids);
+                        break;
                     case FamilyInstance beam when IsStructuralFraming(beam):
                         created += DimensionBeam(doc, view, beam, grids);
                         break;
@@ -150,10 +153,12 @@ internal static class ModelRevitAxisDimensions
                 case FamilyInstance column when IsStructuralColumn(column):
                     SnapColumnToGridWholeMm(doc, column, grids);
                     break;
-                // Circular piles only — rectangular đài/footing Width≠diameter; MovesWithGrids +
-                // face-as-rim was jumping hundreds of mm off the CAD centroid (log ~500 mm).
+                // Round piles measure rim = center ± radius; rectangular đài/footing have real faces like columns.
                 case FamilyInstance pile when IsStructuralFoundation(pile) && IsCircularPileLike(pile):
                     SnapPileToGridWholeMm(doc, pile, grids);
+                    break;
+                case FamilyInstance footing when IsStructuralFoundation(footing):
+                    SnapPointFamilyToGrid(doc, footing, grids, MeasureColumn, "foundation");
                     break;
                 case FamilyInstance beam when IsStructuralFraming(beam):
                     SnapBeamToGridWholeMm(doc, beam, grids, allowRebuild);

@@ -587,7 +587,8 @@ internal static class CatalogCreate
         if (!TryXyz(op.Fields, "xyzMm", "xyz", units, out var xyz))
             return Fail(op, "missing_field", "fields.xyzMm required for isolated footing/pile.");
 
-        if (skip && TryExistingFoundationAtPoint(doc, symbol.Id, xyz, out var existingFi) && existingFi is not null)
+        var cadBox = FoundationCadBox(op, units);
+        if (skip && TryExistingFoundationAtPoint(doc, symbol.Id, xyz, cadBox?.Center, out var existingFi) && existingFi is not null)
         {
             var markFilled = PlacementApply.TrySetMark(existingFi, ReqString(op.Fields, "mark"));
             return Skip(op, existingFi.Id.Value.ToString(), markFilled ? "skipIfExists,mark" : "skipIfExists");
@@ -602,11 +603,12 @@ internal static class CatalogCreate
         PlacementApply.Apply(created, op.Fields, units);
         ApplyFoundationOffset(created, op.Fields, units);
         ApplyFoundationLength(created, op.Fields, units);
-        // Planner rotationDeg = CAD long-edge angle (world +X = 0°). Family width→+X, depth→+Y.
-        // When depth > width the long side is +Y → RevitRot = cad − 90° (else CAD horizontal reads vertical).
+        // Planner rotationDeg = CAD long-edge angle (world +X = 0°). When the family's long side is +Y,
+        // RevitRot = cad − 90° (else CAD horizontal reads vertical). Pile cap families name their sides freely
+        // (Đ2-1000x2500 has no b/h), so the side comes from the placed geometry, parameters only as a fallback.
         var cadRot = ReqDouble(op.Fields, "rotationDeg") ?? 0;
         var rot = cadRot;
-        if (TryGetFoundationSectionMm(symbol, out var famB, out var famH) && famH > famB)
+        if (FamilyLongSideIsLocalY(doc, created, symbol))
             rot = cadRot - 90.0;
         if (Math.Abs(rot) > 0.01)
         {
@@ -614,8 +616,58 @@ internal static class CatalogCreate
             ElementTransformUtils.RotateElement(doc, created.Id, axis, rot * Math.PI / 180.0);
         }
 
+        if (cadBox is not null)
+            MoveOntoCadBox(doc, created, cadBox.Value);
+
         return Created(op, created.Id.Value.ToString());
     }
+
+    private readonly record struct CadBox(XYZ Center, double Width, double Depth);
+
+    private static CadBox? FoundationCadBox(CreateOperation op, string? units)
+    {
+        if (!op.Fields.TryGetProperty("cadBoxMm", out var box) || box.ValueKind != JsonValueKind.Array || box.GetArrayLength() != 4)
+            return null;
+        return new CadBox(
+            new XYZ(UnitConv.MmToInternal(box[0].GetDouble()), UnitConv.MmToInternal(box[1].GetDouble()), 0),
+            UnitConv.MmToInternal(box[2].GetDouble()), UnitConv.MmToInternal(box[3].GetDouble()));
+    }
+
+    private static bool FamilyLongSideIsLocalY(Document doc, FamilyInstance instance, FamilySymbol symbol)
+    {
+        doc.Regenerate();
+        if (instance.get_BoundingBox(null) is { } box)
+        {
+            var dx = box.Max.X - box.Min.X;
+            var dy = box.Max.Y - box.Min.Y;
+            return dy - dx > UnitConv.MmToInternal(FoundationSquareTolMm);
+        }
+
+        return TryGetFoundationSectionMm(symbol, out var famB, out var famH) && famH > famB;
+    }
+
+    /// <summary>
+    /// The family origin need not sit at the outline's centroid (clipped caps have it at the column), so the placed
+    /// outline is laid over the CAD outline. Skipped when they are not the same outline: a wrong type stays at its point.
+    /// </summary>
+    private static void MoveOntoCadBox(Document doc, FamilyInstance instance, CadBox cad)
+    {
+        doc.Regenerate();
+        if (instance.get_BoundingBox(null) is not { } box)
+            return;
+        var tol = UnitConv.MmToInternal(FoundationBoxTolMm);
+        if (Math.Abs(box.Max.X - box.Min.X - cad.Width) > tol || Math.Abs(box.Max.Y - box.Min.Y - cad.Depth) > tol)
+            return;
+        var center = (box.Min + box.Max) / 2;
+        var move = new XYZ(cad.Center.X - center.X, cad.Center.Y - center.Y, 0);
+        if (move.GetLength() > 1e-9 && move.GetLength() <= UnitConv.MmToInternal(FoundationBoxMaxMoveMm))
+            ElementTransformUtils.MoveElement(doc, instance.Id, move);
+    }
+
+    private const double FoundationSquareTolMm = 10;
+    /// <summary>Lean concrete adds to the placed box on every side.</summary>
+    private const double FoundationBoxTolMm = 300;
+    private const double FoundationBoxMaxMoveMm = 1500;
 
     private static readonly string[] FoundationDiameterNames =
     {
@@ -1172,7 +1224,7 @@ internal static class CatalogCreate
     }
 
     private static bool TryExistingFoundationAtPoint(
-        Document doc, ElementId symbolId, XYZ xyz, out FamilyInstance? existing)
+        Document doc, ElementId symbolId, XYZ xyz, XYZ? cadBoxCenter, out FamilyInstance? existing)
     {
         existing = null;
         foreach (var fi in new FilteredElementCollector(doc)
@@ -1182,7 +1234,9 @@ internal static class CatalogCreate
         {
             if (fi.Symbol.Id != symbolId)
                 continue;
-            if (fi.Location is LocationPoint lp && PointNear(lp.Point, xyz))
+            if ((fi.Location is LocationPoint lp && PointNear(lp.Point, xyz)) ||
+                (cadBoxCenter is not null && fi.get_BoundingBox(null) is { } box &&
+                 PlanPointNear((box.Min + box.Max) / 2, cadBoxCenter)))
             {
                 existing = fi;
                 return true;

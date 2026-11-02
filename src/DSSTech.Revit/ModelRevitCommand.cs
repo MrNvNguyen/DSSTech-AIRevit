@@ -188,14 +188,20 @@ public sealed class ModelRevitCommand : IExternalCommand
                 }
             }
 
-            if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall)
+            if (part is ModelRevitPartKind.Column or ModelRevitPartKind.StructuralWall or ModelRevitPartKind.ArchitecturalWall
+                or ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation)
             {
-                // Planner input for checking parts found on other layers. Must not break the command.
+                // Planner input for checking placements offline. Must not break the command.
                 try
                 {
                     var capturePath = System.IO.Path.Combine(
                         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DSSTech",
-                        part == ModelRevitPartKind.Column ? "column-capture.json" : "wall-capture.json");
+                        part switch
+                        {
+                            ModelRevitPartKind.Column => "column-capture.json",
+                            ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation => "foundation-capture.json",
+                            _ => "wall-capture.json"
+                        });
                     PlanCapture.From(geom, layerName, part, placement.BaseLevelName, placement.TopLevelName,
                         size, placement, grids, gridAngles).Save(capturePath);
                 }
