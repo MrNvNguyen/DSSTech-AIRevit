@@ -2408,7 +2408,8 @@ public static class ModelRevitPlanner
 
             if (!TryAddFoundationOp(
                     ops, geom, place, baseLevel, foundationKind, sourceFamily, uiType,
-                    x, y, footprint.WidthMm, footprint.DepthMm, rot, resizeFromCad, resolveByTypeMark))
+                    x, y, footprint.WidthMm, footprint.DepthMm, rot, resizeFromCad, resolveByTypeMark,
+                    new[] { footprint.BoxCenterX, footprint.BoxCenterY, footprint.WidthMm, footprint.DepthMm }))
                 continue;
 
             placed.Add((x, y));
@@ -2477,7 +2478,8 @@ public static class ModelRevitPlanner
         double depthMm,
         double rotationDeg,
         bool resizeFromCad,
-        bool resolveByTypeMark)
+        bool resolveByTypeMark,
+        double[]? cadBoxMm = null)
     {
         if (resolveByTypeMark)
         {
@@ -2517,6 +2519,7 @@ public static class ModelRevitPlanner
                     material = place.Material ?? "",
                     kind = foundationKind,
                     mark = instanceMark,
+                    cadBoxMm,
                     exactMm = true
                 }, skipIfExists: true));
                 return true;
@@ -2549,6 +2552,7 @@ public static class ModelRevitPlanner
                 material = place.Material ?? "",
                 kind = foundationKind,
                 mark = instanceMark,
+                cadBoxMm,
                 exactMm = true
             }, skipIfExists: true));
             return true;
@@ -2575,6 +2579,7 @@ public static class ModelRevitPlanner
                 material = place.Material ?? "",
                 kind = foundationKind,
                 mark = genericMark,
+                cadBoxMm,
                 exactMm = true
             }, skipIfExists: true));
             return true;
@@ -2592,6 +2597,7 @@ public static class ModelRevitPlanner
             material = place.Material ?? "",
             kind = foundationKind,
             mark = genericMark,
+            cadBoxMm,
             exactMm = true
         }, skipIfExists: true));
         return true;
