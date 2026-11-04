@@ -54,6 +54,9 @@ internal sealed class ModelRevitFormCatalog
     public IReadOnlyList<string> FoundationTypes { get; init; } = Array.Empty<string>();
     /// <summary>Type Mark values on Structural Foundation symbols (Đài cọc CAD labels: Đ4, Đ3…).</summary>
     public IReadOnlyList<string> FoundationTypeMarks { get; init; } = Array.Empty<string>();
+    /// <summary>Type Mark values of the loaded door / window types: plan labels (D1, S2) name them.</summary>
+    public IReadOnlyList<string> DoorTypeMarks { get; init; } = Array.Empty<string>();
+    public IReadOnlyList<string> WindowTypeMarks { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> CeilingTypes { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> Materials { get; init; } = Array.Empty<string>();
     public IReadOnlyList<string> PipeSystems { get; init; } = Array.Empty<string>();
@@ -86,6 +89,8 @@ internal sealed class ModelRevitFormCatalog
             FloorTypes = TypeNames<FloorType>(doc),
             FoundationTypes = SymbolNames(doc, BuiltInCategory.OST_StructuralFoundation),
             FoundationTypeMarks = FoundationTypeMarkValues(doc),
+            DoorTypeMarks = TypeMarkValues(doc, BuiltInCategory.OST_Doors),
+            WindowTypeMarks = TypeMarkValues(doc, BuiltInCategory.OST_Windows),
             CeilingTypes = TypeNames<CeilingType>(doc),
             Materials = new FilteredElementCollector(doc).OfClass(typeof(Material)).Cast<Material>()
                 .Select(m => m.Name)
@@ -155,6 +160,16 @@ internal sealed class ModelRevitFormCatalog
 
         return marks.OrderBy(m => m, StringComparer.OrdinalIgnoreCase).ToList();
     }
+
+    private static List<string> TypeMarkValues(Document doc, BuiltInCategory category) =>
+        new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).OfCategory(category)
+            .Cast<FamilySymbol>()
+            .Select(s => s.get_Parameter(BuiltInParameter.ALL_MODEL_TYPE_MARK)?.AsString()?.Trim())
+            .Where(m => !string.IsNullOrWhiteSpace(m))
+            .Select(m => m!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(m => m, StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
     private static List<string> TypeNames<T>(Document doc) where T : Element =>
         new FilteredElementCollector(doc).OfClass(typeof(T)).Cast<T>()
@@ -253,9 +268,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
     private ModelRevitSetupWindow(ModelRevitFormCatalog catalog, ModelRevitPartKind? presetPart)
         : base(
             presetPart is ModelRevitPartKind titlePart ? $"DSSTech — {ParamPackageCatalog.PartLabel(titlePart)}" : "DSSTech — Dựng từ CAD",
-            presetPart is null
-                ? "Chỉnh đầu vào rồi dựng. Cột và tường đo tiết diện từ nét vẽ. Loại khác vẫn đọc Text hoặc Dimension. Để trống layer thì pick nét trên bản vẽ."
-                : "Chỉnh đầu vào rồi dựng. Cột và tường đo tiết diện từ nét vẽ. Loại khác vẫn đọc Text hoặc Dimension. Sau khi bấm dựng, pick một nét trên layer cần dựng.",
+            presetPart is ModelRevitPartKind hintPart ? Hint(hintPart) : "Chọn loại cấu kiện và layer (để trống thì pick nét trên bản vẽ).",
             640,
             720)
     {
@@ -319,13 +332,6 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         _topOffsetRow = DssTheme.Field("Offset đỉnh (mm)", _topOffset);
 
         var kindHost = new StackPanel();
-        kindHost.Children.Add(new TextBlock
-        {
-            Text = "Cột/dầm: chọn family có tham số b/h. Dầm đọc Mark/kích thước từ CadText DWG (D1Y19-40x60 → 400×600; 30x140 → 300×1400; một cạnh <3 chữ số → cả hai cm×10). Không ghi Assembly Code. Móng/cọc: Type lọc theo tên family đã load (S-FOUN-*, PHC, Bored…). Đài cọc: kích thước theo Type đã setup — gán Type Mark = tên CAD (Đ4, Đ3…); CAD chỉ chọn type + vị trí.",
-            TextWrapping = TextWrapping.Wrap,
-            Foreground = DssTheme.Muted,
-            Margin = new Thickness(0, 0, 0, 8)
-        });
         foreach (var row in new UIElement[]
                  {
                      _pileSubtypeRow, _familyRow, _shapeRow, _paramRow, _materialRow, _typeRow, _functionRow,
@@ -373,10 +379,30 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         return true;
     }
 
+    /// <summary>One line under the title: what happens after «Dựng» for this tool only.</summary>
+    private static string Hint(ModelRevitPartKind kind) => kind switch
+    {
+        ModelRevitPartKind.Column => "Sau khi bấm dựng: pick một nét trên layer cột. Tiết diện đo từ nét vẽ; cột canh 5 mm theo trục.",
+        ModelRevitPartKind.StructuralWall => "Sau khi bấm dựng: pick một nét trên layer vách. Bề dày đo từ hai nét song song.",
+        ModelRevitPartKind.ArchitecturalWall => "Sau khi bấm dựng: pick một nét trên layer tường. Cắt tại cột/vách và hạ đỉnh: nút «Khớp kết cấu».",
+        ModelRevitPartKind.Beam => "Sau khi bấm dựng: pick một nét trên layer dầm. Mark và tiết diện đọc từ chữ CAD (D1Y19-40x60).",
+        ModelRevitPartKind.PileCap => "Sau khi bấm dựng: pick một nét trên layer đài. Type theo Type Mark trùng tên đài trên CAD (Đ4, Đ3).",
+        ModelRevitPartKind.IsolatedFoundation => "Sau khi bấm dựng: pick một nét trên layer móng. Tiết diện lấy từ hình CAD.",
+        ModelRevitPartKind.StripFoundation => "Sau khi bấm dựng: pick một nét trên layer móng băng.",
+        ModelRevitPartKind.RaftFoundation => "Sau khi bấm dựng: pick một nét trên layer móng bè (đường bao kín).",
+        ModelRevitPartKind.Pile => "Sau khi bấm dựng: pick một nét trên layer cọc. Tiết diện lấy từ hình CAD.",
+        ModelRevitPartKind.Door => "Sau khi bấm dựng: pick một nét trên layer cửa. Type theo chữ D1 trùng Type Mark; hướng mở theo CAD.",
+        ModelRevitPartKind.Window => "Sau khi bấm dựng: pick một nét trên layer cửa sổ. Type theo chữ S1 trùng Type Mark.",
+        ModelRevitPartKind.Room => "Sau khi bấm dựng: tên phòng được quét trên mọi layer, phòng đặt theo vùng kín.",
+        ModelRevitPartKind.Ceiling => "Sau khi bấm dựng: pick một nét trên layer trần. Cao độ đọc từ chữ trong đường bao (+2.700).",
+        _ => "Sau khi bấm dựng: pick một nét trên layer cần dựng, rồi chọn chữ kích thước (Text hoặc Dimension)."
+    };
+
     private void ApplyKind()
     {
         var kind = SelectedKind();
         PrimaryButton.Content = Verb(kind);
+        SubtitleBlock.Text = Hint(kind);
         var families = FamiliesFor(kind);
         Show(_familyRow, families is not null && families.Count > 0);
         if (families is not null && families.Count > 0)
@@ -387,12 +413,15 @@ internal sealed class ModelRevitSetupWindow : DssDialog
                 DssTheme.FillCombo(_family, families, null);
         }
         Show(_shapeRow, kind == ModelRevitPartKind.Column);
-        Show(_paramRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.Beam
-            or ModelRevitPartKind.Door or ModelRevitPartKind.Window);
+        // Doors / windows take their type (and so their size) from the plan label's Type Mark.
+        Show(_paramRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.Beam);
         Show(_markRow, kind is ModelRevitPartKind.Column or ModelRevitPartKind.Beam
             or ModelRevitPartKind.Pile or ModelRevitPartKind.PileCap or ModelRevitPartKind.IsolatedFoundation
-            or ModelRevitPartKind.StripFoundation or ModelRevitPartKind.RaftFoundation
-            or ModelRevitPartKind.Door or ModelRevitPartKind.Window);
+            or ModelRevitPartKind.StripFoundation or ModelRevitPartKind.RaftFoundation);
+        if (_familyRow.Children[0] is TextBlock familyLabel)
+            familyLabel.Text = kind is ModelRevitPartKind.Door or ModelRevitPartKind.Window
+                ? "Type khi chữ CAD không khớp Type Mark"
+                : "Family";
         if (kind is ModelRevitPartKind.Pile or ModelRevitPartKind.PileCap
             or ModelRevitPartKind.IsolatedFoundation)
             _mark.IsChecked = true;
@@ -425,7 +454,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             && kind != ModelRevitPartKind.Room);
         Show(_topOffsetRow, bothLevels || levelOnly);
         ArrangeLevelRows(levelOnly);
-        _baseOffsetLabel.Text = kind == ModelRevitPartKind.Ceiling ? "Cao độ bù (mm)" : "Offset đáy (mm)";
+        _baseOffsetLabel.Text = kind == ModelRevitPartKind.Ceiling ? "Cao độ trần khi không có chữ (mm)" : "Offset đáy (mm)";
         // Beams/piles: Catalog.TopLevel is the floor above (for columns/walls); do not default onto that.
         if (_topRow.Children[0] is TextBlock topLevelLabel)
             topLevelLabel.Text = levelOnly ? "Level" : "Level đỉnh";
@@ -742,8 +771,8 @@ internal sealed class ModelRevitSetupWindow : DssDialog
     private static string Verb(ModelRevitPartKind kind) => kind switch
     {
         ModelRevitPartKind.Column => "Dựng cột",
-        ModelRevitPartKind.StructuralWall => "Dựng tường kết cấu",
-        ModelRevitPartKind.ArchitecturalWall => "Dựng tường kiến trúc",
+        ModelRevitPartKind.StructuralWall => "Dựng vách",
+        ModelRevitPartKind.ArchitecturalWall => "Dựng tường",
         ModelRevitPartKind.Beam => "Dựng dầm",
         ModelRevitPartKind.Floor => "Dựng sàn",
         ModelRevitPartKind.IsolatedFoundation => "Dựng móng đơn",

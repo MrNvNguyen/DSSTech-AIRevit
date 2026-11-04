@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Electrical;
 using Autodesk.Revit.DB.Mechanical;
 using Autodesk.Revit.DB.Structure;
@@ -271,7 +272,10 @@ internal static class CatalogCreate
         if (typeName is null)
             return Fail(op, "type_unresolved", "fields.familyType required.");
 
-        var symbol = FindSymbol(doc, bic, typeName);
+        // Plan label → the loaded type with that Type Mark (D1, S2); otherwise the type picked in the dialog.
+        var typeMark = ReqString(op.Fields, "typeMark");
+        var symbol = !string.IsNullOrWhiteSpace(typeMark) ? FindSymbolByTypeMark(doc, bic, typeMark!) : null;
+        symbol ??= FindSymbol(doc, bic, typeName);
         if (symbol is null)
             return Fail(op, "type_unresolved", $"Type '{typeName}' not found.");
 
@@ -291,6 +295,21 @@ internal static class CatalogCreate
 
         if (host is null)
             return Fail(op, "missing_host", "Need wallId or xyzMm near a wall (<200 mm).");
+
+        // The wall is broken at the opening on the plan: run its end on through it so the door has a wall to cut.
+        if (!dryRun && TryXyz(op.Fields, "bridgeEndMm", "bridgeEnd", units, out var bridgeEnd) &&
+            host.Location is LocationCurve { Curve: Line hostLine } hostLc)
+        {
+            var a = hostLine.GetEndPoint(0);
+            var b = hostLine.GetEndPoint(1);
+            var to = new XYZ(bridgeEnd.X, bridgeEnd.Y, a.Z);
+            var moveStart = to.DistanceTo(a) < to.DistanceTo(b);
+            var stays = moveStart ? b : a;
+            var along = (to - stays).DotProduct((moveStart ? a - b : b - a).Normalize());
+            if (along > hostLine.Length + 1e-6)
+                hostLc.Curve = moveStart ? Line.CreateBound(to, b) : Line.CreateBound(a, to);
+            doc.Regenerate();
+        }
 
         var level = FindLevel(doc, ReqString(op.Fields, "level")) ??
                     doc.GetElement(host.LevelId) as Level;
@@ -313,10 +332,14 @@ internal static class CatalogCreate
                          .WhereElementIsNotElementType()
                          .OfType<FamilyInstance>())
             {
-                if (fi.Symbol.Id != symbol.Id || fi.Host?.Id != host.Id)
+                // Same opening: same wall, plan point within the 5 mm snap of an earlier run (any type).
+                if (fi.Host?.Id != host.Id || fi.Location is not LocationPoint lp)
                     continue;
-                if (fi.Location is LocationPoint lp && PointNear(lp.Point, point))
-                    return Skip(op, fi.Id.Value.ToString(), "skipIfExists");
+                if (UnitConv.ToMm(new XYZ(lp.Point.X - point.X, lp.Point.Y - point.Y, 0).GetLength()) <= 50)
+                {
+                    var turned = dryRun ? "" : OrientToDrawing(doc, fi, host, op.Fields, units);
+                    return Skip(op, fi.Id.Value.ToString(), "skipIfExists" + turned);
+                }
             }
         }
 
@@ -325,7 +348,128 @@ internal static class CatalogCreate
 
         EnsureSymbolActive(doc, symbol);
         var created = doc.Create.NewFamilyInstance(point, symbol, host, level, StructuralType.NonStructural);
-        return Created(op, created.Id.Value.ToString());
+        var flips = OrientToDrawing(doc, created, host, op.Fields, units);
+        return Created(op, created.Id.Value.ToString(), flips.Length > 0 ? flips.TrimStart(' ', ';') : null);
+    }
+
+    /// <summary>
+    /// Flips the door so it opens like the drawing: leaves toward <c>swingMm</c>, hinge on the <c>hingeMm</c> jamb.
+    /// The family's own swing is read from its plan geometry (arc center = hinge, else the leaf line), so it works
+    /// whatever way the family was built. Returns "; flipFacing" / "; flipHand" for what was done.
+    /// </summary>
+    private static string OrientToDrawing(Document doc, FamilyInstance door, Wall host, JsonElement fields, string? units)
+    {
+        if (!TryXyz(fields, "swingMm", "swing", units, out var swingAt) ||
+            host.Location is not LocationCurve { Curve: Line hostLine } || door.Location is not LocationPoint lp)
+            return "";
+        doc.Regenerate();
+        var u = new XYZ(hostLine.Direction.X, hostLine.Direction.Y, 0).Normalize();
+        var n = new XYZ(-u.Y, u.X, 0);
+        var wantSide = Math.Sign((swingAt - lp.Point).DotProduct(n));
+        int? wantHinge = TryXyz(fields, "hingeMm", "hinge", units, out var hinge)
+            ? Math.Sign((hinge - lp.Point).DotProduct(u))
+            : null;
+        var done = "";
+        var swing = FamilySwing(doc, door, lp.Point, u, n, host.Width);
+        if (swing is null)
+        {
+            McpLog.Write($"door {door.Id.Value}: no swing in the family's plan geometry, kept as placed");
+            return "";
+        }
+
+        if (wantSide != 0 && swing.Value.Side != 0 && swing.Value.Side != wantSide)
+        {
+            door.flipFacing();
+            done += "; flipFacing";
+            doc.Regenerate();
+            swing = FamilySwing(doc, door, lp.Point, u, n, host.Width);
+        }
+
+        if (wantHinge is int wh && wh != 0 && swing?.Hinge is int fh && fh != 0 && fh != wh)
+        {
+            door.flipHand();
+            done += "; flipHand";
+            doc.Regenerate();
+        }
+
+        McpLog.Write($"door {door.Id.Value}: family side={swing?.Side} hinge={swing?.Hinge}, drawing side={wantSide} hinge={wantHinge}{done}");
+        return done;
+    }
+
+    /// <summary>The family's swing as placed: side of the wall it opens to, and the hinge end (−1 / +1 along the wall).</summary>
+    private static (int Side, int? Hinge)? FamilySwing(Document doc, FamilyInstance door, XYZ center, XYZ u, XYZ n, double wallWidth)
+    {
+        var options = doc.ActiveView is ViewPlan plan
+            ? new Options { View = plan }
+            : new Options { DetailLevel = ViewDetailLevel.Fine };
+        var curves = new List<Curve>();
+        void Collect(GeometryElement? element)
+        {
+            if (element is null)
+                return;
+            foreach (var obj in element)
+            {
+                if (obj is GeometryInstance gi)
+                    Collect(gi.GetInstanceGeometry());
+                else if (obj is Curve c)
+                    curves.Add(c);
+            }
+        }
+
+        Collect(door.get_Geometry(options));
+        var band = wallWidth / 2 + UnitConv.MmToInternal(40);
+        double Off(XYZ p) => (p - center).DotProduct(n);
+        double Along(XYZ p) => (p - center).DotProduct(u);
+
+        var leaves = new List<(double Along, int Side)>();
+        // Swing arcs: the center is the hinge.
+        foreach (var arc in curves.OfType<Arc>().Where(a => a.Radius >= UnitConv.MmToInternal(300)))
+        {
+            var mid = arc.Evaluate(0.5, true);
+            if (Math.Abs(Off(mid)) > band)
+                leaves.Add((Along(arc.Center), Math.Sign(Off(mid))));
+        }
+
+        if (leaves.Count == 0)
+        {
+            // Leaf lines leaving the wall face.
+            foreach (var line in curves.OfType<Line>().Where(l => l.Length >= UnitConv.MmToInternal(300)))
+            {
+                var a = line.GetEndPoint(0);
+                var b = line.GetEndPoint(1);
+                var cos = Math.Abs((b - a).Normalize().DotProduct(u));
+                var mid = (a + b) / 2;
+                if (cos > 0.95 || Math.Abs(Off(mid)) <= band)
+                    continue;
+                var near = Math.Abs(Off(a)) <= Math.Abs(Off(b)) ? a : b;
+                if (Math.Abs(Off(near)) > band + UnitConv.MmToInternal(150))
+                    continue;
+                leaves.Add((Along(near), Math.Sign(Off(mid))));
+            }
+        }
+
+        if (leaves.Count == 0)
+            return null;
+        var side = leaves.All(l => l.Side == leaves[0].Side) ? leaves[0].Side : 0;
+        var tol = UnitConv.MmToInternal(150);
+        var single = leaves.All(l => Math.Abs(l.Along - leaves[0].Along) <= tol);
+        return (side, single ? Math.Sign(leaves[0].Along) : null);
+    }
+
+    private static (XYZ Min, XYZ Max) PlanBox(CurveLoop loop)
+    {
+        var pts = loop.Select(c => c.GetEndPoint(0)).ToList();
+        return (new XYZ(pts.Min(p => p.X), pts.Min(p => p.Y), 0), new XYZ(pts.Max(p => p.X), pts.Max(p => p.Y), 0));
+    }
+
+    private static FamilySymbol? FindSymbolByTypeMark(Document doc, BuiltInCategory bic, string typeMark)
+    {
+        var want = NormalizeTypeMark(typeMark);
+        return new FilteredElementCollector(doc)
+            .OfClass(typeof(FamilySymbol))
+            .OfCategory(bic)
+            .Cast<FamilySymbol>()
+            .FirstOrDefault(s => TypeMarkEquals(ReadTypeMark(s), want));
     }
 
     public static CreateItemResult CreateRoom(Document doc, CreateOperation op, bool skip, bool dryRun, string? units)
@@ -349,8 +493,21 @@ internal static class CatalogCreate
             {
                 if (existing.LevelId != level.Id)
                     continue;
-                if (existing.Location is LocationPoint lp && PlanPointNear(lp.Point, xyz))
+                // The room already there (placed by hand or by Place Rooms) takes the plan's name.
+                var inside = existing is Room placed && placed.Area > 0 &&
+                             placed.IsPointInRoom(new XYZ(xyz.X, xyz.Y, level.Elevation + UnitConv.MmToInternal(1000)));
+                if (inside || (existing.Location is LocationPoint lp && PlanPointNear(lp.Point, xyz)))
+                {
+                    if (!dryRun && existing is Room named)
+                    {
+                        if (!string.IsNullOrWhiteSpace(name))
+                            named.Name = name;
+                        if (!string.IsNullOrWhiteSpace(number))
+                            named.Number = number;
+                    }
+
                     return Skip(op, existing.Id.Value.ToString(), "skipIfExists");
+                }
             }
         }
 
@@ -386,10 +543,25 @@ internal static class CatalogCreate
         if (level is null)
             return Fail(op, "missing_level", "Level not found.");
 
+        var curveLoops = BuildLoops(loops);
+        if (skip && curveLoops.Count > 0)
+        {
+            // Same ceiling from an earlier run: on this level, outline box within 100 mm.
+            var want = PlanBox(curveLoops[0]);
+            foreach (var existing in new FilteredElementCollector(doc).OfClass(typeof(Ceiling)).Cast<Ceiling>())
+            {
+                if (existing.LevelId != level.Id || existing.get_BoundingBox(null) is not { } bb)
+                    continue;
+                var tol = UnitConv.MmToInternal(100);
+                if (Math.Abs(bb.Min.X - want.Min.X) <= tol && Math.Abs(bb.Min.Y - want.Min.Y) <= tol &&
+                    Math.Abs(bb.Max.X - want.Max.X) <= tol && Math.Abs(bb.Max.Y - want.Max.Y) <= tol)
+                    return Skip(op, existing.Id.Value.ToString(), "skipIfExists");
+            }
+        }
+
         if (dryRun)
             return Created(op, null, "dryRun");
 
-        var curveLoops = BuildLoops(loops);
         var ceiling = Ceiling.Create(doc, curveLoops, ceilingType.Id, level.Id);
         var offsetMm = ReqDouble(op.Fields, "offsetMm");
         if (offsetMm is not null)
@@ -591,6 +763,27 @@ internal static class CatalogCreate
         if (skip && TryExistingFoundationAtPoint(doc, symbol.Id, xyz, cadBox?.Center, out var existingFi) && existingFi is not null)
         {
             var markFilled = PlacementApply.TrySetMark(existingFi, ReqString(op.Fields, "mark"));
+            if (string.Equals(kind, "Pile", StringComparison.OrdinalIgnoreCase) && !dryRun)
+            {
+                // A pile placed by an earlier run: onto its 5 mm station (it is within a few mm of it) and back
+                // under its cap, so running the tool again repairs it.
+                if (existingFi.Location is LocationPoint lp)
+                {
+                    var shift = new XYZ(xyz.X - lp.Point.X, xyz.Y - lp.Point.Y, 0);
+                    if (shift.GetLength() > 1e-9 && shift.GetLength() <= UnitConv.MmToInternal(PileRepairMoveMm))
+                        ElementTransformUtils.MoveElement(doc, existingFi.Id, shift);
+                }
+
+                ApplyFoundationOffset(existingFi, op.Fields, units);
+                SeatPileUnderCap(doc, existingFi, level, xyz, ReqDouble(op.Fields, "embedMm") ?? 0);
+            }
+
+            else if (!dryRun && ReqBool(op.Fields, "gridEdgeSnap") == true)
+            {
+                // A cap placed by an earlier run: its edges onto the 5 mm steps from its grids (a move of a few mm).
+                SnapEdgesToGrids(doc, existingFi, ReqDouble(op.Fields, "rotationDeg") ?? 0);
+            }
+
             return Skip(op, existingFi.Id.Value.ToString(), markFilled ? "skipIfExists,mark" : "skipIfExists");
         }
 
@@ -603,6 +796,8 @@ internal static class CatalogCreate
         PlacementApply.Apply(created, op.Fields, units);
         ApplyFoundationOffset(created, op.Fields, units);
         ApplyFoundationLength(created, op.Fields, units);
+        if (string.Equals(kind, "Pile", StringComparison.OrdinalIgnoreCase))
+            SeatPileUnderCap(doc, created, level, xyz, ReqDouble(op.Fields, "embedMm") ?? 0);
         // Planner rotationDeg = CAD long-edge angle (world +X = 0°). When the family's long side is +Y,
         // RevitRot = cad − 90° (else CAD horizontal reads vertical). Pile cap families name their sides freely
         // (Đ2-1000x2500 has no b/h), so the side comes from the placed geometry, parameters only as a fallback.
@@ -618,8 +813,177 @@ internal static class CatalogCreate
 
         if (cadBox is not null)
             MoveOntoCadBox(doc, created, cadBox.Value);
+        if (ReqBool(op.Fields, "gridEdgeSnap") == true)
+            SnapEdgesToGrids(doc, created, cadRot);
 
         return Created(op, created.Id.Value.ToString());
+    }
+
+    /// <summary>
+    /// A pile under a pile cap already in the model: its top goes to the cap's underside. The embedment into the cap
+    /// comes from the family's own parameter (Minimum Embedment / ngàm); only a family without one gets the
+    /// dialog's embedment added. With no cap over it, the pile keeps the offset it was given.
+    /// </summary>
+    private static void SeatPileUnderCap(Document doc, FamilyInstance pile, Level level, XYZ at, double embedMm)
+    {
+        doc.Regenerate();
+        var offset = pile.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM);
+        // The cap whose underside, on the pile's own axis, is nearest the top the pile was given (the cap it stands
+        // in, not one on another floor or a rotated cap whose box only reaches over).
+        // Model coordinates, not Level.Elevation: that is measured from the project base point, which put the
+        // search window metres away from the cap when the base point carries an elevation.
+        var planned = level.ProjectElevation + (offset?.AsDouble() ?? 0);
+        var reach = UnitConv.MmToInternal(PileCapSearchMm);
+        var axis = Line.CreateBound(new XYZ(at.X, at.Y, planned - reach), new XYZ(at.X, at.Y, planned + reach));
+        double? capBottom = null;
+        FamilyInstance? cap = null;
+        foreach (var fi in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_StructuralFoundation)
+                     .WhereElementIsNotElementType().OfType<FamilyInstance>())
+        {
+            if (fi.Id == pile.Id || fi.Symbol.Family.Id == pile.Symbol.Family.Id || fi.get_BoundingBox(null) is not { } box)
+                continue;
+            if (at.X < box.Min.X || at.X > box.Max.X || at.Y < box.Min.Y || at.Y > box.Max.Y)
+                continue;
+            foreach (var solid in InstanceSolids(fi))
+            {
+                SolidCurveIntersection hits;
+                try
+                {
+                    hits = solid.IntersectWithCurve(axis, new SolidCurveIntersectionOptions());
+                }
+                catch (Autodesk.Revit.Exceptions.ApplicationException)
+                {
+                    continue;
+                }
+
+                for (var i = 0; i < hits.SegmentCount; i++)
+                {
+                    var seg = hits.GetCurveSegment(i);
+                    var bottom = Math.Min(seg.GetEndPoint(0).Z, seg.GetEndPoint(1).Z);
+                    if (capBottom is null || Math.Abs(bottom - planned) < Math.Abs(capBottom.Value - planned))
+                    {
+                        capBottom = bottom;
+                        cap = fi;
+                    }
+                }
+            }
+        }
+
+        if (capBottom is null)
+            return;
+        var familyEmbeds = EmbedmentParam(pile) is not null;
+        var top = capBottom.Value + (familyEmbeds ? 0 : UnitConv.MmToInternal(Math.Max(0, embedMm)));
+        if (offset is { IsReadOnly: false, StorageType: StorageType.Double })
+            offset.Set(offset.AsDouble() + (top - planned));
+        if (cap is not null)
+        {
+            SnapPileInCap(doc, pile, cap);
+            JoinPileIntoCap(doc, pile, cap);
+        }
+    }
+
+    /// <summary>
+    /// The pile's center on whole 5 mm in both directions of its cap, measured square to the grids that locate the
+    /// cap (those nearest the cap's middle, as the cap's own edges): every pile of a cap and the cap read from the
+    /// same grids, whatever grid lies nearer one pile. A direction with no grid exactly along it is left alone.
+    /// </summary>
+    private static void SnapPileInCap(Document doc, FamilyInstance pile, FamilyInstance cap)
+    {
+        doc.Regenerate();
+        if (pile.Location is not LocationPoint lp)
+            return;
+        var points = SolidPoints(cap);
+        var grids = PlanGridLines(doc);
+        if (points.Count == 0 || grids.Count == 0)
+            return;
+        var basis = cap.GetTransform().BasisX;
+        var u = new XYZ(basis.X, basis.Y, 0);
+        if (u.GetLength() < 1e-9)
+            return;
+        u = u.Normalize();
+        var v = new XYZ(-u.Y, u.X, 0);
+        var mid = points.Aggregate(XYZ.Zero, (s, p) => s + p) / points.Count;
+        var at = lp.Point;
+        var move = XYZ.Zero;
+        foreach (var (along, normal) in new[] { (u, v), (v, u) })
+        {
+            if (LocatingGridOffset(grids, along, normal, mid) is not double g)
+                continue;
+            var distMm = UnitConv.ToMm(at.X * normal.X + at.Y * normal.Y - g);
+            var shiftMm = Math.Round(distMm / 5.0, MidpointRounding.AwayFromZero) * 5.0 - distMm;
+            move += normal * UnitConv.MmToInternal(shiftMm);
+        }
+
+        var moveMm = UnitConv.ToMm(move.GetLength());
+        if (moveMm > 1e-7 && moveMm <= PileRepairMoveMm)
+            ElementTransformUtils.MoveElement(doc, pile.Id, move);
+    }
+
+    /// <summary>Offset (along <paramref name="normal"/>) of the grid running along <paramref name="along"/> nearest <paramref name="mid"/>.</summary>
+    private static double? LocatingGridOffset(List<Line> grids, XYZ along, XYZ normal, XYZ mid)
+    {
+        var parallel = grids.Where(l => Math.Abs(l.Direction.X * along.Y - l.Direction.Y * along.X) < GridParallelSin).ToList();
+        if (parallel.Count == 0)
+            return null;
+        var reaching = parallel.Where(l => Reaches(l, along, mid)).ToList();
+        var at = mid.X * normal.X + mid.Y * normal.Y;
+        return (reaching.Count > 0 ? reaching : parallel)
+            .Select(l => l.GetEndPoint(0).X * normal.X + l.GetEndPoint(0).Y * normal.Y)
+            .OrderBy(o => Math.Abs(o - at)).First();
+    }
+
+    private static List<Line> PlanGridLines(Document doc) =>
+        new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>()
+            .Select(g => g.Curve as Line).Where(l => l is not null).Cast<Line>().ToList();
+
+    private static List<XYZ> SolidPoints(FamilyInstance instance)
+    {
+        var points = new List<XYZ>();
+        foreach (var solid in InstanceSolids(instance))
+        {
+            foreach (Edge edge in solid.Edges)
+                points.AddRange(edge.Tessellate());
+        }
+
+        return points;
+    }
+
+    /// <summary>The pile's embedment cuts into the cap: joined, with the pile as the cutting element.</summary>
+    private static void JoinPileIntoCap(Document doc, FamilyInstance pile, FamilyInstance cap)
+    {
+        try
+        {
+            doc.Regenerate();
+            if (!JoinGeometryUtils.AreElementsJoined(doc, pile, cap))
+                JoinGeometryUtils.JoinGeometry(doc, pile, cap);
+            if (!JoinGeometryUtils.IsCuttingElementInJoin(doc, pile, cap))
+                JoinGeometryUtils.SwitchJoinOrder(doc, pile, cap);
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException)
+        {
+            // Not joinable (no overlap, or the families do not allow it): the pile stays as placed.
+        }
+    }
+
+    /// <summary>How far above or below its given top a pile looks for the cap it stands in.</summary>
+    private const double PileCapSearchMm = 10000;
+
+    /// <summary>An existing pile this close to its new station is moved onto it on a rerun.</summary>
+    private const double PileRepairMoveMm = 10;
+
+    private static Parameter? EmbedmentParam(FamilyInstance pile)
+    {
+        foreach (var owner in new Element[] { pile, pile.Symbol })
+        {
+            foreach (Parameter p in owner.Parameters)
+            {
+                var name = p.Definition?.Name.ToLowerInvariant() ?? "";
+                if (p.StorageType == StorageType.Double && (name.Contains("embedment") || name.Contains("ngàm") || name.Contains("ngam")))
+                    return p;
+            }
+        }
+
+        return null;
     }
 
     private readonly record struct CadBox(XYZ Center, double Width, double Depth);
@@ -653,7 +1017,9 @@ internal static class CatalogCreate
     private static void MoveOntoCadBox(Document doc, FamilyInstance instance, CadBox cad)
     {
         doc.Regenerate();
-        if (instance.get_BoundingBox(null) is not { } box)
+        // The solids' own corners, not the bounding box: Revit pads that box by a hair, which put the cap
+        // 0.0005 mm off its 5 mm station.
+        if ((SolidExtents(instance) ?? (instance.get_BoundingBox(null) is { } bb ? (bb.Min, bb.Max) : null)) is not { } box)
             return;
         var tol = UnitConv.MmToInternal(FoundationBoxTolMm);
         if (Math.Abs(box.Max.X - box.Min.X - cad.Width) > tol || Math.Abs(box.Max.Y - box.Min.Y - cad.Depth) > tol)
@@ -662,6 +1028,112 @@ internal static class CatalogCreate
         var move = new XYZ(cad.Center.X - center.X, cad.Center.Y - center.Y, 0);
         if (move.GetLength() > 1e-9 && move.GetLength() <= UnitConv.MmToInternal(FoundationBoxMaxMoveMm))
             ElementTransformUtils.MoveElement(doc, instance.Id, move);
+    }
+
+    /// <summary>
+    /// The cap's own edges on whole 5 mm, measured square to the grids that run along them — what is dimensioned.
+    /// The outline frame is <paramref name="frameDeg"/> (already turned onto the grid direction); for each side
+    /// direction the edge nearest a parallel grid is moved onto the 5 mm step, so a clipped or rotated cap (whose
+    /// box middle is not its outline's) and a family whose origin is off the outline still read round.
+    /// A side with no exactly parallel grid is left alone.
+    /// </summary>
+    private static void SnapEdgesToGrids(Document doc, FamilyInstance instance, double frameDeg)
+    {
+        doc.Regenerate();
+        var points = SolidPoints(instance);
+        if (points.Count == 0)
+            return;
+        var grids = PlanGridLines(doc);
+        if (grids.Count == 0)
+            return;
+
+        var rad = frameDeg * Math.PI / 180.0;
+        var u = new XYZ(Math.Cos(rad), Math.Sin(rad), 0);
+        var v = new XYZ(-u.Y, u.X, 0);
+        var mid = points.Aggregate(XYZ.Zero, (s, p) => s + p) / points.Count;
+        var move = XYZ.Zero;
+        foreach (var (along, normal) in new[] { (u, v), (v, u) })
+        {
+            // Grids running along this side: their offset measured along the side's normal.
+            var parallel = grids.Where(l => Math.Abs(l.Direction.X * along.Y - l.Direction.Y * along.X) < GridParallelSin).ToList();
+            if (parallel.Count == 0)
+                continue;
+            var reaching = parallel.Where(l => Reaches(l, along, mid)).ToList();
+            var offsets = (reaching.Count > 0 ? reaching : parallel)
+                .Select(l => l.GetEndPoint(0).X * normal.X + l.GetEndPoint(0).Y * normal.Y).ToList();
+            var lo = points.Min(p => p.X * normal.X + p.Y * normal.Y);
+            var hi = points.Max(p => p.X * normal.X + p.Y * normal.Y);
+            // The grid nearest the cap's middle (its piles measure from the same one), then its edge nearest that grid.
+            var at = mid.X * normal.X + mid.Y * normal.Y;
+            var g = offsets.OrderBy(o => Math.Abs(o - at)).First();
+            var distMm = UnitConv.ToMm(Math.Abs(lo - g) <= Math.Abs(hi - g) ? lo - g : hi - g);
+            double? shiftMm = Math.Round(distMm / 5.0, MidpointRounding.AwayFromZero) * 5.0 - distMm;
+
+            if (shiftMm is double s && Math.Abs(s) > 1e-7)
+                move += normal * UnitConv.MmToInternal(s);
+        }
+
+        if (move.GetLength() > 1e-12)
+            ElementTransformUtils.MoveElement(doc, instance.Id, move);
+    }
+
+    /// <summary>A grid counts for a cap within this far past its drawn ends.</summary>
+    private static bool Reaches(Line grid, XYZ along, XYZ at)
+    {
+        var s0 = grid.GetEndPoint(0).X * along.X + grid.GetEndPoint(0).Y * along.Y;
+        var s1 = grid.GetEndPoint(1).X * along.X + grid.GetEndPoint(1).Y * along.Y;
+        var s = at.X * along.X + at.Y * along.Y;
+        var reach = UnitConv.MmToInternal(3000);
+        return s >= Math.Min(s0, s1) - reach && s <= Math.Max(s0, s1) + reach;
+    }
+
+    /// <summary>sin(0.001°): a grid this close to the cap's side direction runs along it.</summary>
+    private const double GridParallelSin = 1.75e-5;
+
+    private static (XYZ Min, XYZ Max)? SolidExtents(FamilyInstance instance)
+    {
+        double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue;
+        double maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+        var any = false;
+        foreach (var solid in InstanceSolids(instance))
+        {
+            foreach (Edge edge in solid.Edges)
+            {
+                foreach (var p in edge.Tessellate())
+                {
+                    any = true;
+                    minX = Math.Min(minX, p.X);
+                    minY = Math.Min(minY, p.Y);
+                    minZ = Math.Min(minZ, p.Z);
+                    maxX = Math.Max(maxX, p.X);
+                    maxY = Math.Max(maxY, p.Y);
+                    maxZ = Math.Max(maxZ, p.Z);
+                }
+            }
+        }
+
+        return any ? (new XYZ(minX, minY, minZ), new XYZ(maxX, maxY, maxZ)) : null;
+    }
+
+    private static IEnumerable<Solid> InstanceSolids(Element element)
+    {
+        static IEnumerable<Solid> Walk(GeometryElement? g)
+        {
+            if (g is null)
+                yield break;
+            foreach (var obj in g)
+            {
+                if (obj is Solid { Volume: > 1e-9 } s)
+                    yield return s;
+                else if (obj is GeometryInstance gi)
+                {
+                    foreach (var inner in Walk(gi.GetInstanceGeometry()))
+                        yield return inner;
+                }
+            }
+        }
+
+        return Walk(element.get_Geometry(new Options { DetailLevel = ViewDetailLevel.Fine }));
     }
 
     private const double FoundationSquareTolMm = 10;
@@ -724,10 +1196,22 @@ internal static class CatalogCreate
         {
             if (circular)
             {
-                if (TryGetFoundationDiameterMm(symbol, out var dia) && dia == widthMm)
+                // A type whose name says another size (a D500 copy still sized 400) is not the 400 type.
+                var nameFits = TypeNameMatchesDiameter(symbol.Name, widthMm);
+                var hasDia = TryGetFoundationDiameterMm(symbol, out var dia);
+                if (hasDia && dia == widthMm && (nameFits || !TypeNameLooksDiameter(symbol.Name)))
                     return symbol;
-                if (TypeNameMatchesDiameter(symbol.Name, widthMm))
+                if (nameFits)
+                {
+                    // Named for this size but sized otherwise (copied before its size was written): fix it now.
+                    if (hasDia && dia != widthMm && TrySetFoundationDiameterMm(symbol, widthMm))
+                    {
+                        SyncSizeText(symbol, dia, widthMm);
+                        doc.Regenerate();
+                    }
+
                     return symbol;
+                }
             }
             else if (TryGetFoundationSectionMm(symbol, out var b, out var h) && b == widthMm && h == depthMm)
             {
@@ -740,8 +1224,11 @@ internal static class CatalogCreate
             string.Equals(s.Name, wantedName, StringComparison.OrdinalIgnoreCase));
         if (existing is not null)
         {
+            var hadDia = TryGetFoundationDiameterMm(existing, out var oldDia) ? oldDia : 0;
             if (circular && TrySetFoundationDiameterMm(existing, widthMm))
             {
+                if (hadDia > 0 && hadDia != widthMm)
+                    SyncSizeText(existing, hadDia, widthMm);
                 doc.Regenerate();
                 return existing;
             }
@@ -760,6 +1247,7 @@ internal static class CatalogCreate
                      : TryGetFoundationSectionMm(s, out _, out _))
                       ?? symbols[0];
 
+        var templateDia = circular && TryGetFoundationDiameterMm(template, out var td) ? td : 0;
         FamilySymbol? duplicate;
         try
         {
@@ -775,6 +1263,9 @@ internal static class CatalogCreate
 
         if (circular)
         {
+            // Texts of the copied type that name the template's size (Model "D400") follow the new one.
+            if (templateDia > 0 && templateDia != widthMm)
+                SyncSizeText(duplicate, templateDia, widthMm);
             if (!TrySetFoundationDiameterMm(duplicate, widthMm) && !TypeNameMatchesDiameter(duplicate.Name, widthMm))
                 return duplicate; // name encodes size even if params are locked
         }
@@ -895,6 +1386,13 @@ internal static class CatalogCreate
                 return true;
         }
 
+        foreach (var p in OuterDiameterParams(symbol))
+        {
+            diaMm = (int)Math.Round(UnitConv.ToMm(p.AsDouble()));
+            if (diaMm > 0)
+                return true;
+        }
+
         var w = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
         if (w is { StorageType: StorageType.Double } && w.AsDouble() > 0)
         {
@@ -918,6 +1416,14 @@ internal static class CatalogCreate
             wrote = true;
         }
 
+        foreach (var p in OuterDiameterParams(symbol))
+        {
+            if (p.IsReadOnly)
+                continue;
+            p.Set(internalLen);
+            wrote = true;
+        }
+
         var w = symbol.get_Parameter(BuiltInParameter.STRUCTURAL_SECTION_COMMON_WIDTH);
         if (w is { IsReadOnly: false, StorageType: StorageType.Double })
         {
@@ -933,6 +1439,49 @@ internal static class CatalogCreate
         }
 
         return wrote;
+    }
+
+    /// <summary>
+    /// Type length parameters that name the outside diameter in other words ("Outer Diameter", "Đường kính ngoài",
+    /// "Pile Diameter"); inner / core diameters stay out.
+    /// </summary>
+    private static IEnumerable<Parameter> OuterDiameterParams(FamilySymbol symbol)
+    {
+        foreach (Parameter p in symbol.Parameters)
+        {
+            if (p.StorageType != StorageType.Double || p.Definition is null || p.AsDouble() <= 0)
+                continue;
+            var name = p.Definition.Name.ToLowerInvariant();
+            if (FoundationDiameterNames.Contains(p.Definition.Name))
+                continue;
+            var diameter = name.Contains("diameter") || name.Contains("đường kính") || name.Contains("duong kinh");
+            var inner = name.Contains("inner") || name.Contains("inside") || name.Contains("trong") || name.Contains("lõi") || name.Contains("core");
+            if (diameter && !inner)
+                yield return p;
+        }
+    }
+
+    /// <summary>Writable text parameters of a type naming its old size ("D400", "Ø400", "DN400") take the new one.</summary>
+    private static void SyncSizeText(FamilySymbol symbol, int oldMm, int newMm)
+    {
+        var size = new System.Text.RegularExpressions.Regex(
+            $@"(?<=(D|DN|Ø|ø|PHC)\s?){oldMm}(?!\d)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        foreach (Parameter p in symbol.Parameters)
+        {
+            if (p.IsReadOnly || p.StorageType != StorageType.String || p.Definition is null)
+                continue;
+            var text = p.AsString();
+            if (string.IsNullOrEmpty(text) || !size.IsMatch(text))
+                continue;
+            try
+            {
+                p.Set(size.Replace(text, newMm.ToString()));
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException)
+            {
+                // A locked or formula-driven text stays as it is.
+            }
+        }
     }
 
     private static bool TryGetFoundationSectionMm(FamilySymbol symbol, out int bMm, out int hMm)

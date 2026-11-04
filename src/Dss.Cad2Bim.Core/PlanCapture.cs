@@ -30,9 +30,12 @@ public sealed class PlanCapture
     public List<double[]>? Supports { get; set; }
     public List<double[]>? GridPoints { get; set; }
     public List<double>? GridAngles { get; set; }
+    /// <summary>Model walls for doors / windows: id, x0, y0, x1, y1, thickness.</summary>
+    public List<string[]>? HostWalls { get; set; }
+    public List<string>? TypeMarks { get; set; }
     public List<Ent> Entities { get; set; } = new();
 
-    /// <summary>One CAD entity. K = L line, P polyline, C circle, T text, I insert.</summary>
+    /// <summary>One CAD entity. K = L line, P polyline, C circle, T text, N number text (grid names), I insert.</summary>
     public sealed class Ent
     {
         public string K { get; set; } = "";
@@ -42,6 +45,10 @@ public sealed class PlanCapture
         public bool Closed { get; set; }
         public string? S { get; set; }
     }
+
+    private static string R(double v) => v.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static double D(string v) => double.Parse(v, System.Globalization.CultureInfo.InvariantCulture);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
 
@@ -67,8 +74,19 @@ public sealed class PlanCapture
             TopOffsetMm = place.TopOffsetMm,
             Supports = place.Supports?.Select(s => new[] { s.CenterX, s.CenterY, s.WidthMm, s.DepthMm, s.RotationDeg }).ToList(),
             GridPoints = gridPoints?.Select(p => new[] { p.X, p.Y }).ToList(),
-            GridAngles = gridAngles?.ToList()
+            GridAngles = gridAngles?.ToList(),
+            HostWalls = place.HostWalls?.Select(w => new[]
+            {
+                w.Id, R(w.X0), R(w.Y0), R(w.X1), R(w.Y1), R(w.ThicknessMm)
+            }).ToList(),
+            TypeMarks = (place.InsertTypeMarks ?? place.FoundationTypeMarks)?.ToList()
         };
+        foreach (var n in geom.NumberTexts)
+            capture.Entities.Add(new Ent
+            {
+                K = "N", Layer = n.Layer, S = n.Value,
+                V = new[] { n.X, n.Y, n.RotationDeg, n.CenterX ?? n.X, n.CenterY ?? n.Y }
+            });
         foreach (var e in geom.Entities)
         {
             switch (e)
@@ -142,6 +160,12 @@ public sealed class PlanCapture
                         CenterY = v.Length >= 5 ? v[4] : null
                     });
                     break;
+                case "N":
+                    geom.NumberTexts.Add(new CadText
+                    {
+                        Layer = e.Layer, Value = e.S ?? "", X = v[0], Y = v[1], RotationDeg = v[2], CenterX = v[3], CenterY = v[4]
+                    });
+                    break;
                 case "I":
                     geom.Entities.Add(new CadInsert { Layer = e.Layer, BlockName = e.S ?? "", X = v[0], Y = v[1], RotationDeg = v[2] });
                     break;
@@ -162,6 +186,9 @@ public sealed class PlanCapture
         FamilyName = Family,
         TypeName = TypeName,
         Supports = Supports?.Select(s => new SectionFootprint(s[0], s[1], s[2], s[3], s[4])).ToList(),
+        HostWalls = HostWalls?.Select(w => new HostWallAxis(w[0], D(w[1]), D(w[2]), D(w[3]), D(w[4]), D(w[5]))).ToList(),
+        InsertTypeMarks = Part is ModelRevitPartKind.Door or ModelRevitPartKind.Window ? TypeMarks : null,
+        FoundationTypeMarks = Part == ModelRevitPartKind.PileCap ? TypeMarks : null,
         Log = log
     };
 

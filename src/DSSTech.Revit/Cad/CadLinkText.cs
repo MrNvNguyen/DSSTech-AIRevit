@@ -59,15 +59,20 @@ internal static class CadLinkText
                     continue;
                 var point = ToModel(item.Xmm, item.Ymm, transform);
                 var center = ToModel(item.Cxmm, item.Cymm, transform);
-                geom.Entities.Add(new CadText
+                var placed = new CadText
                 {
+                    Layer = item.Layer ?? "0",
                     Value = item.Value.Trim(),
                     X = point.X,
                     Y = point.Y,
                     RotationDeg = ToModelRotationDeg(item.RotationDeg, transform),
                     CenterX = center.X,
                     CenterY = center.Y
-                });
+                };
+                if (item.Numeric)
+                    geom.NumberTexts.Add(placed);
+                else
+                    geom.Entities.Add(placed);
             }
         }
 
@@ -116,13 +121,13 @@ internal static class CadLinkText
 
     private sealed class DwgContent
     {
-        public DwgContent(List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm)> labels, List<CadEntity> curves)
+        public DwgContent(List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, bool Numeric)> labels, List<CadEntity> curves)
         {
             Labels = labels;
             Curves = curves;
         }
 
-        public List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm)> Labels { get; }
+        public List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, bool Numeric)> Labels { get; }
         public List<CadEntity> Curves { get; }
     }
 
@@ -165,17 +170,20 @@ internal static class CadLinkText
 
             foreach (var item in FromDwg(dwg).Labels)
             {
-                if (!CadMark.IsAnnotation(item.Value))
-                    continue;
-                geom.Entities.Add(new CadText
+                var placed = new CadText
                 {
+                    Layer = item.Layer ?? "0",
                     Value = item.Value,
                     X = item.Xmm,
                     Y = item.Ymm,
                     RotationDeg = item.RotationDeg,
                     CenterX = item.Cxmm,
                     CenterY = item.Cymm
-                });
+                };
+                if (item.Numeric)
+                    geom.NumberTexts.Add(placed);
+                else if (CadMark.IsAnnotation(item.Value))
+                    geom.Entities.Add(placed);
             }
         }
         catch (Exception ex)
@@ -226,18 +234,19 @@ internal static class CadLinkText
         }
     }
 
-    private static List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm)> FromDxf(string path)
+    private static List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, bool Numeric)> FromDxf(string path)
     {
         var parsed = DxfParser.Parse(path);
-        var list = new List<(string, double, double, double, double, double)>();
+        var list = new List<(string, double, double, double, double, double, string, bool)>();
         foreach (var text in parsed.Entities.OfType<CadText>())
         {
             var value = Clean(text.Value);
-            if (!CadMark.IsAnnotation(value))
+            var annotation = CadMark.IsAnnotation(value);
+            if (!annotation && !IsGridNumber(value))
                 continue;
             var x = ToMm(text.X, parsed.InsUnits);
             var y = ToMm(text.Y, parsed.InsUnits);
-            list.Add((value, x, y, text.RotationDeg, x, y));
+            list.Add((value, x, y, text.RotationDeg, x, y, text.Layer, !annotation));
         }
 
         return list;
@@ -259,10 +268,10 @@ internal static class CadLinkText
             using (var reader = new DwgReader(temp))
                 doc = reader.Read();
             if (doc is null)
-                return new DwgContent(new List<(string, double, double, double, double, double)>(), new List<CadEntity>());
+                return new DwgContent(new List<(string, double, double, double, double, double, string, bool)>(), new List<CadEntity>());
 
             var units = doc.Header.InsUnits;
-            var labels = new List<(string, double, double, double, double, double)>();
+            var labels = new List<(string, double, double, double, double, double, string, bool)>();
             var curves = new List<CadEntity>();
             foreach (var entity in doc.Entities)
                 Collect(entity, units, labels, curves, Transform2.Identity, 0, null);
@@ -327,7 +336,7 @@ internal static class CadLinkText
     private static void Collect(
         Entity entity,
         UnitsType units,
-        List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm)> labels,
+        List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, bool Numeric)> labels,
         List<CadEntity> curves,
         Transform2 transform,
         int depth,
@@ -339,11 +348,11 @@ internal static class CadLinkText
         {
             case MText mtext:
                 Add(mtext.Value, transform.Apply(mtext.InsertPoint), units, labels, WorldRotationDeg(transform, mtext.Rotation),
-                    transform.Apply(MTextCenter(mtext)));
+                    transform.Apply(MTextCenter(mtext)), layer);
                 break;
             case TextEntity text:
                 Add(text.Value, transform.Apply(text.InsertPoint), units, labels, WorldRotationDeg(transform, text.Rotation),
-                    transform.Apply(TextCenter(text)));
+                    transform.Apply(TextCenter(text)), layer);
                 break;
             case ACadSharp.Entities.Line line:
                 AddLine(layer, transform.Apply(line.StartPoint), transform.Apply(line.EndPoint), units, curves);
@@ -371,7 +380,7 @@ internal static class CadLinkText
             case Insert insert when depth < 8 && insert.Block is not null:
                 foreach (var attribute in insert.Attributes)
                     Add(attribute.Value, transform.Apply(attribute.InsertPoint), units, labels, WorldRotationDeg(transform.Then(insert), attribute.Rotation),
-                        transform.Apply(TextCenter(attribute)));
+                        transform.Apply(TextCenter(attribute)), ResolveLayer(attribute.Layer?.Name, layer));
                 var next = transform.Then(insert);
                 foreach (var child in insert.Block.Entities)
                     Collect(child, units, labels, curves, next, depth + 1, layer);
@@ -501,15 +510,22 @@ internal static class CadLinkText
         string? value,
         CadPoint point,
         UnitsType units,
-        List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm)> list,
+        List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, bool Numeric)> list,
         double rotationDeg,
-        CadPoint center)
+        CadPoint center,
+        string layer)
     {
         var clean = Clean(value);
-        if (!CadMark.IsAnnotation(clean))
+        var annotation = CadMark.IsAnnotation(clean);
+        if (!annotation && !IsGridNumber(clean))
             return;
-        list.Add((clean, ToMm(point.X, units), ToMm(point.Y, units), rotationDeg, ToMm(center.X, units), ToMm(center.Y, units)));
+        list.Add((clean, ToMm(point.X, units), ToMm(point.Y, units), rotationDeg, ToMm(center.X, units), ToMm(center.Y, units), layer,
+            !annotation));
     }
+
+    /// <summary>Grid bubble numbers (1, 12, 1.1, 2A): short, unlike dimension values.</summary>
+    private static bool IsGridNumber(string value) =>
+        System.Text.RegularExpressions.Regex.IsMatch(value, @"^\d{1,2}([.,]\d{1,2})?[A-Z]?'?$");
 
     /// <summary>Average glyph advance as a fraction of text height (digits / capitals in common CAD fonts).</summary>
     private const double GlyphWidthRatio = 0.7;

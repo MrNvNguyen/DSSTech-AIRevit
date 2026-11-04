@@ -120,10 +120,10 @@ internal sealed class ControlCenterView : UserControl
 
         var license = new StackPanel { Margin = new Thickness(12) };
         license.Children.Add(Group("License",
-            new TextBlock { Text = "HWID", FontWeight = FontWeights.SemiBold },
+            new TextBlock { Text = "Mã máy", FontWeight = FontWeights.SemiBold },
             new WpfTextBox
             {
-                Text = ReadHardwareId(),
+                Text = License.LicenseService.MachineCode,
                 IsReadOnly = true,
                 Margin = new Thickness(0, 6, 0, 8),
                 TextWrapping = TextWrapping.Wrap
@@ -232,20 +232,4 @@ internal sealed class ControlCenterView : UserControl
         FontFamily = new FontFamily("Segoe UI")
     };
 
-    private static string ReadHardwareId()
-    {
-        try
-        {
-            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Cryptography");
-            var guid = key?.GetValue("MachineGuid") as string;
-            if (!string.IsNullOrWhiteSpace(guid))
-                return guid;
-        }
-        catch (Exception)
-        {
-            // Pane still opens if the registry key is unreadable.
-        }
-
-        return Environment.MachineName;
-    }
 }

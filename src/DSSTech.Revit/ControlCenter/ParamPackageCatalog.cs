@@ -13,8 +13,8 @@ internal static class ParamPackageCatalog
     public static readonly (string Label, ModelRevitPartKind Kind)[] Parts =
     {
         ("Cột", ModelRevitPartKind.Column),
-        ("Tường kết cấu", ModelRevitPartKind.StructuralWall),
-        ("Tường kiến trúc", ModelRevitPartKind.ArchitecturalWall),
+        ("Vách", ModelRevitPartKind.StructuralWall),
+        ("Tường", ModelRevitPartKind.ArchitecturalWall),
         ("Dầm", ModelRevitPartKind.Beam),
         ("Sàn", ModelRevitPartKind.Floor),
         ("Đài cọc", ModelRevitPartKind.PileCap),

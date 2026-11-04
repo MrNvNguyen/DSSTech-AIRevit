@@ -33,6 +33,23 @@ internal static class ModelRevitGrids
         return points;
     }
 
+    /// <summary>The grid lines as drawn in the view, in plan millimetres (piles are located square to them).</summary>
+    public static List<GridSegment> Segments(Document doc, View view)
+    {
+        var list = new List<GridSegment>();
+        foreach (var grid in new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>())
+        {
+            foreach (var curve in BoundLines(grid, view))
+            {
+                var a = curve.GetEndPoint(0);
+                var b = curve.GetEndPoint(1);
+                list.Add(new GridSegment(UnitConv.ToMm(a.X), UnitConv.ToMm(a.Y), UnitConv.ToMm(b.X), UnitConv.ToMm(b.Y)));
+            }
+        }
+
+        return list;
+    }
+
     /// <summary>Grid directions in degrees, folded to (-90, 90]. Parallel grids share one angle.</summary>
     public static List<double> Angles(Document doc, View view)
     {

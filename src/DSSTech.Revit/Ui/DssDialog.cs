@@ -12,6 +12,8 @@ internal class DssDialog : Window
 
     public Button PrimaryButton { get; }
     public Button CancelButton { get; }
+    /// <summary>The line under the title: what this dialog does, changeable while it is open.</summary>
+    public TextBlock SubtitleBlock { get; }
 
     public DssDialog(string title, string subtitle, double width = 560, double height = 640)
     {
@@ -33,6 +35,7 @@ internal class DssDialog : Window
         body.Children.Add(footer);
 
         var header = DssTheme.Subtitle(subtitle);
+        SubtitleBlock = header;
         DockPanel.SetDock(header, Dock.Top);
         body.Children.Add(header);
 

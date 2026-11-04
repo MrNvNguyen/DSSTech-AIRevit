@@ -2999,6 +2999,502 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // A door drawn in the break between two walls: the left wall runs on to the right one and hosts it; the
+        // label beside it names the type; the frame and the leaf drawn apart are one door.
+        var doorPlan = new CadGeometry();
+        doorPlan.Entities.Add(new CadLine { Layer = "CUA", X0 = 3000, Y0 = -100, X1 = 3000, Y1 = 100 });
+        doorPlan.Entities.Add(new CadLine { Layer = "CUA", X0 = 3000, Y0 = 0, X1 = 3500, Y1 = 0 });
+        doorPlan.Entities.Add(new CadLine { Layer = "CUA", X0 = 3550, Y0 = 0, X1 = 3900, Y1 = 0 });
+        doorPlan.Entities.Add(new CadLine { Layer = "CUA", X0 = 3900, Y0 = -100, X1 = 3900, Y1 = 100 });
+        doorPlan.Entities.Add(new CadLine { Layer = "CUA", X0 = 3900, Y0 = 0, X1 = 3900, Y1 = 900 });
+        doorPlan.Entities.Add(new CadText { Layer = "ANN", Value = "D2", X = 3450, Y = 600 });
+        doorPlan.Entities.Add(new CadText { Layer = "ANN", Value = "D1 (900x2200)", X = 3450, Y = 300 });
+        var doorPlace = new ModelRevitPlacement
+        {
+            TypeName = "Cua",
+            InsertTypeMarks = new[] { "D1", "D2" },
+            HostWalls = new[]
+            {
+                new HostWallAxis("10", 0, 0, 3000, 0, 200),
+                new HostWallAxis("11", 3900, 0, 8000, 0, 200)
+            }
+        };
+        var doorOps = ModelRevitPlanner.Plan(
+            doorPlan, "CUA", ModelRevitPartKind.Door, "L1", "L1", new AnnotationSize(null, null, null, ""),
+            placement: doorPlace);
+        if (doorOps.Count != 1)
+        {
+            message = $"door in a wall break: expected 1 door, got {doorOps.Count}";
+            return false;
+        }
+
+        var door = doorOps[0].Fields;
+        var bridge = door.GetProperty("bridgeEndMm");
+        if (door.GetProperty("wallId").GetString() != "10" || door.GetProperty("typeMark").GetString() != "D1" ||
+            Math.Abs(door.GetProperty("xyzMm")[0].GetDouble() - 3450) > 1 ||
+            Math.Abs(bridge[0].GetDouble() - 3900) > 1 || Math.Abs(door.GetProperty("openingWidthMm").GetDouble() - 900) > 1 ||
+            // The leaf drawn open at the right jamb, into +Y: swing to +Y, hinge at 3900.
+            door.GetProperty("swingMm")[1].GetDouble() < 500 || Math.Abs(door.GetProperty("hingeMm")[0].GetDouble() - 3900) > 1)
+        {
+            message = $"door in a wall break: got {door.GetRawText()}";
+            return false;
+        }
+
+        // Lintels: B + 2×200 on the head; two doors 300 apart share one; a 1600 door gets stiffeners, except past
+        // the wall end.
+        var hosted = new[]
+        {
+            new HostedOpening { Id = "a", X = 2000, Y = 0, DirX = 1, WidthMm = 900, HeadMm = 2200, WallId = "w", WallThicknessMm = 200, WallStartMm = -2000, WallEndMm = 6000 },
+            new HostedOpening { Id = "b", X = 3200, Y = 0, DirX = 1, WidthMm = 900, HeadMm = 2200, WallId = "w", WallThicknessMm = 200, WallStartMm = -3200, WallEndMm = 4800 },
+            new HostedOpening { Id = "c", X = 7200, Y = 0, DirX = 1, WidthMm = 1600, HeadMm = 2400, WallId = "w", WallThicknessMm = 200, WallStartMm = -7200, WallEndMm = 800 }
+        };
+        var lintelOps = LintelPlanner.Plan(hosted, "L1", "L2", "Dam", "Cot");
+        var lintelBeams = lintelOps.Where(op => op.Category == "StructuralFraming").ToList();
+        var stiffeners = lintelOps.Where(op => op.Category == "StructuralColumns").ToList();
+        if (lintelBeams.Count != 2 || stiffeners.Count != 1 ||
+            Math.Abs(lintelBeams[0].Fields.GetProperty("startMm")[0].GetDouble() - 1350) > 1 ||
+            Math.Abs(lintelBeams[0].Fields.GetProperty("endMm")[0].GetDouble() - 3850) > 1 ||
+            Math.Abs(lintelBeams[0].Fields.GetProperty("topOffsetMm").GetDouble() - 2400) > 1 ||
+            Math.Abs(lintelBeams[1].Fields.GetProperty("endMm")[0].GetDouble() - 8000) > 1 ||
+            Math.Abs(stiffeners[0].Fields.GetProperty("xyzMm")[0].GetDouble() - 6300) > 1)
+        {
+            message = "lintels: got " + string.Join(" | ", lintelOps.Select(op => op.Category + " " + op.Fields.GetRawText()));
+            return false;
+        }
+
+        // Finish walls: half a finish thickness inside the room, broken at the door, holed at the window.
+        var finish = FinishWallPlanner.Plan(
+            new[] { new RoomFace { X0 = 0, Y0 = 100, X1 = 6000, Y1 = 100, NormalY = 1 } }, 20,
+            new[] { hosted[0] },
+            new[] { (new HostedOpening { X = 4500, Y = 0, DirX = 1, WidthMm = 1000, HeadMm = 2100, WallThicknessMm = 200 }, 900.0) });
+        if (finish.Count != 2 || Math.Abs(finish[0].X1 - 1550) > 1 || Math.Abs(finish[0].Y0 - 110) > 1 ||
+            Math.Abs(finish[1].X0 - 2450) > 1 || finish[1].Holes.Count != 1 || Math.Abs(finish[1].Holes[0].From - 1550) > 1)
+        {
+            message = $"finish walls: got {finish.Count} pieces";
+            return false;
+        }
+
+        foreach (var (text, want) in new[] { ("+2.700", 2700.0), ("CT +2700", 2700), ("TRẦN THẠCH CAO H=3200", 3200), ("+2,85", 2850) })
+        {
+            if (!CeilingHeightReader.TryParse(text, out var got) || Math.Abs(got - want) > 0.5)
+            {
+                message = $"ceiling height '{text}': expected {want}, got {got}";
+                return false;
+            }
+        }
+
+        if (CeilingHeightReader.TryParse("+0.000", out _) || CeilingHeightReader.TryParse("D1", out _))
+        {
+            message = "ceiling height: floor level or a label read as a ceiling";
+            return false;
+        }
+
+        // Room names: the name text with the number beside it; door marks, areas and elevations are not rooms.
+        var roomTexts = new[]
+        {
+            new CadText { Value = "PHÒNG NGỦ 1", X = 1000, Y = 1000 },
+            new CadText { Value = "P.101", X = 1000, Y = 700 },
+            new CadText { Value = "S=12.5m2", X = 1000, Y = 400 },
+            new CadText { Value = "D1", X = 3000, Y = 1000 },
+            new CadText { Value = "+2.700", X = 5000, Y = 1000 },
+            new CadText { Value = "{\\fArial;WC}", X = 8000, Y = 1000 }
+        };
+        var roomLabels = RoomPlanner.Labels(roomTexts, new[] { "D1" });
+        if (roomLabels.Count != 2 || roomLabels[0].Name != "PHÒNG NGỦ 1" || roomLabels[0].Number != "P.101" || roomLabels[1].Name != "WC")
+        {
+            message = "room labels: got " + string.Join(" | ", roomLabels.Select(l => $"{l.Name}/{l.Number}"));
+            return false;
+        }
+
+        // Whole-drawing scan: room words or a room-name layer; titles, beams, grids and notes are not rooms.
+        var scanned = RoomPlanner.Scan(new[]
+        {
+            new CadText { Layer = "0", Value = "101 PHÒNG KHÁCH", X = 0, Y = 0 },
+            new CadText { Layer = "0", Value = "BẾP S=8.5M2", X = 5000, Y = 0 },
+            new CadText { Layer = "A-AREA-IDEN", Value = "ĐỆM", X = 9000, Y = 0 },
+            new CadText { Layer = "0", Value = "MẶT BẰNG TẦNG 1", X = 0, Y = 9000 },
+            new CadText { Layer = "0", Value = "D1Y10-40X60", X = 3000, Y = 3000 },
+            new CadText { Layer = "0", Value = "C", X = 3000, Y = 6000 }
+        }, new string[0]);
+        if (scanned.Count != 3 || scanned[0].Name != "ĐỆM" || scanned.All(l => l.Number != "101") ||
+            scanned.All(l => l.Name != "BẾP"))
+        {
+            message = "room scan: got " + string.Join(" | ", scanned.Select(l => $"{l.Name}/{l.Number}"));
+            return false;
+        }
+
+        // Grids: lines into named bubbles, dashes joined, the name inside the bubble (numbers kept apart); spacing
+        // 7999.98 becomes 8000 from the first grid; a line with no bubble is not a grid.
+        var gridPlan = new CadGeometry();
+        foreach (var (x, name) in new[] { (0.0, "1"), (7999.98, "2"), (16000.03, "3") })
+        {
+            gridPlan.Entities.Add(new CadCircle { Layer = "BUB", Cx = x, Cy = -800, Radius = 400 });
+            gridPlan.NumberTexts.Add(new CadText { Layer = "BUB", Value = name, X = x, Y = -800 });
+            gridPlan.Entities.Add(new CadLine { Layer = "AXIS", X0 = x, Y0 = -400, X1 = x, Y1 = 5000 });
+            gridPlan.Entities.Add(new CadLine { Layer = "AXIS", X0 = x, Y0 = 5200, X1 = x, Y1 = 12000 });
+        }
+
+        gridPlan.Entities.Add(new CadCircle { Layer = "BUB", Cx = -900, Cy = 0, Radius = 400 });
+        gridPlan.Entities.Add(new CadText { Layer = "BUB", Value = "A", X = -900, Y = 0 });
+        gridPlan.Entities.Add(new CadLine { Layer = "AXIS", X0 = -500, Y0 = 0.4, X1 = 17000, Y1 = 0.4 });
+        gridPlan.Entities.Add(new CadLine { Layer = "AXIS", X0 = 3000, Y0 = 6000, X1 = 9000, Y1 = 6000 });
+        var gridLines = GridPlanner.Plan(gridPlan);
+        var g2 = gridLines.FirstOrDefault(g => g.Name == "2");
+        var g3 = gridLines.FirstOrDefault(g => g.Name == "3");
+        if (gridLines.Count != 4 || g2 is null || g3 is null || Math.Abs(g2.X0 - 8000) > 1e-6 || Math.Abs(g3.X0 - 16000) > 1e-6 ||
+            Math.Abs(g2.Y1 - 12000) > 1 || gridLines.All(g => g.Name != "A"))
+        {
+            message = "grids: got " + string.Join(" | ", gridLines.Select(g => $"{g.Name} ({g.X0:0.###},{g.Y0:0.###})-({g.X1:0.###},{g.Y1:0.###})"));
+            return false;
+        }
+
+        // MEP: size from the layer; layers differing by size are one network; a branch landing on a run is a tee.
+        if (!MepRoutePlanner.TryParseSize("M-SAD-600x400", out var sz1) || sz1.WidthMm != 600 || sz1.HeightMm != 400 ||
+            !MepRoutePlanner.TryParseSize("P-CWS-D50", out var sz2) || sz2.DiameterMm != 50 ||
+            !MepRoutePlanner.TryParseSize("DN100", out var sz3) || sz3.DiameterMm != 100 ||
+            MepRoutePlanner.TryParseSize("M-SAD", out _) || MepSystemCatalog.FromLayer("M-SAD-600x400", MepDomain.Duct)?.Abbr != "SAD")
+        {
+            message = "mep size from layer";
+            return false;
+        }
+
+        var mepPlan = new[]
+        {
+            (CadEntity)new CadLine { Layer = "M-SAD-600x400", X0 = 0, Y0 = 0, X1 = 10000, Y1 = 0 },
+            new CadLine { Layer = "M-SAD-400x300", X0 = 5000, Y0 = 0, X1 = 5000, Y1 = 4000 },
+            new CadLine { Layer = "M-SAD-400x300", X0 = 10000, Y0 = 0, X1 = 10000, Y1 = 3000 },
+            new CadLine { Layer = "M-RAD-600x400", X0 = 0, Y0 = 8000, X1 = 9000, Y1 = 8000 }
+        };
+        var mepNet = MepRoutePlanner.Build(mepPlan, "M-SAD-600x400", new MepSize(400, 300, 0));
+        if (mepNet.Edges.Count != 4 || mepNet.Nodes.Count != 5 ||
+            mepNet.Edges.Count(e => e.Size.WidthMm == 400) != 2)
+        {
+            message = $"mep network: {mepNet.Edges.Count} edges, {mepNet.Nodes.Count} nodes";
+            return false;
+        }
+
+        // Whole link, any layer names: size from the label beside each run; an unlabelled run after a bend takes
+        // the size of the run before it; an arrow tick is not a run.
+        var linkPlan = new CadEntity[]
+        {
+            new CadLine { Layer = "0", X0 = 0, Y0 = 0, X1 = 6000, Y1 = 0 },
+            new CadLine { Layer = "DUONG ONG", X0 = 6000, Y0 = 0, X1 = 6000, Y1 = 5000 },
+            new CadLine { Layer = "0", X0 = 3000, Y0 = 0, X1 = 3000, Y1 = -4000 },
+            new CadLine { Layer = "0", X0 = 100, Y0 = 50, X1 = 180, Y1 = 0 }
+        };
+        var linkTexts = new[]
+        {
+            new CadText { Value = "800x400", X = 1500, Y = 300 },
+            new CadText { Value = "Ø250", X = 3300, Y = -2000 }
+        };
+        var linkNet = MepRoutePlanner.Build(linkPlan, null, new MepSize(400, 300, 0), linkTexts);
+        var linkEdges = linkNet.Edges.Select(e => (From: e.SizeFrom, Size: e.Size.ToString())).ToList();
+        if (linkNet.Edges.Count != 4 || linkEdges.Count(e => e.Size == "800x400") != 3 ||
+            linkEdges.Count(e => e.From == "inherited") != 2 || linkEdges.All(e => e.Size != "Ø250"))
+        {
+            message = "mep whole link: " + string.Join(" | ", linkEdges.Select(e => $"{e.Size}/{e.From}"));
+            return false;
+        }
+
+        // A whole drawing (30 000 strokes and labels) builds in seconds, not the pairwise minutes that hung Revit.
+        var bigPlan = new List<CadEntity>();
+        var bigTexts = new List<CadText>();
+        for (var gx = 0; gx < 100; gx++)
+        for (var gy = 0; gy < 150; gy++)
+        {
+            bigPlan.Add(new CadLine { Layer = "M-SAD", X0 = gx * 1000, Y0 = gy * 1000, X1 = gx * 1000 + 1000, Y1 = gy * 1000 });
+            bigPlan.Add(new CadLine { Layer = "M-SAD", X0 = gx * 1000, Y0 = gy * 1000, X1 = gx * 1000, Y1 = gy * 1000 + 1000 });
+            if ((gx + gy) % 7 == 0)
+                bigTexts.Add(new CadText { Value = "600x400", X = gx * 1000 + 500, Y = gy * 1000 + 200 });
+        }
+
+        var bigWatch = System.Diagnostics.Stopwatch.StartNew();
+        var bigNet = MepRoutePlanner.Build(bigPlan, null, new MepSize(400, 300, 0), bigTexts);
+        MepRoutePlanner.Parts(bigNet);
+        if (bigNet.Edges.Count != 30000 || bigWatch.Elapsed.TotalSeconds > 20)
+        {
+            message = $"mep big drawing: {bigNet.Edges.Count} edges in {bigWatch.Elapsed.TotalSeconds:0.0} s";
+            return false;
+        }
+
+        // Piles: distances square to the two grids that locate them are whole 5 mm, rotated grids too; a cap
+        // drawn around the pile picks its grids, not a third grid crossing nearby.
+        {
+            var gRad = 30 * Math.PI / 180;
+            double cs = Math.Cos(gRad), sn = Math.Sin(gRad);
+            GridSegment Rot(double ax, double ay, double bx, double by) =>
+                new(ax * cs - ay * sn + 0.3217, ax * sn + ay * cs + 0.7713, bx * cs - by * sn + 0.3217, bx * sn + by * cs + 0.7713);
+            var gridSet = new[]
+            {
+                Rot(0, -5000, 0, 20000), Rot(6000, -5000, 6000, 20000), Rot(-5000, 0, 20000, 0), Rot(-5000, 7500, 20000, 7500),
+                new GridSegment(-20000, 3000.4, 20000, 3000.4)
+            };
+            double lx = 2347.3, ly = 1251.9;
+            var wx = lx * cs - ly * sn + 0.3217;
+            var wy = lx * sn + ly * cs + 0.7713;
+            var (px, py, okSnap) = GridLineSnap.Snap(wx, wy, gridSet, 30);
+            var bx2 = px - 0.3217;
+            var by2 = py - 0.7713;
+            var localX = bx2 * cs + by2 * sn;
+            var localY = -bx2 * sn + by2 * cs;
+            if (!okSnap || Math.Abs(localX - 2345) > 1e-6 || Math.Abs(localY - 1250) > 1e-6)
+            {
+                message = $"pile grid snap: local ({localX:0.######},{localY:0.######})";
+                return false;
+            }
+
+            if (Math.Abs(GridLineSnap.AlignAngle(30.0004, gridSet) - 30) > 1e-9 || Math.Abs(GridLineSnap.AlignAngle(-59.9996, gridSet) + 60) > 1e-9 ||
+                Math.Abs(GridLineSnap.AlignAngle(0.0003, gridSet)) > 1e-9 || Math.Abs(GridLineSnap.AlignAngle(14, gridSet) - 14) > 1e-9)
+            {
+                message = $"grid align angle: {GridLineSnap.AlignAngle(30.0004, gridSet)} {GridLineSnap.AlignAngle(-59.9996, gridSet)}";
+                return false;
+            }
+
+            var (gqx, gqy, _) = GridLineSnap.Snap(4499.505 + 0.4, 501.3 - 0.25,
+                new[] { new GridSegment(0.4, -9000, 0.4, 9000), new GridSegment(-9000, -0.25, 9000, -0.25) });
+            if (Math.Abs(gqx - 0.4 - 4500) > 1e-6 || Math.Abs(gqy + 0.25 - 500) > 1e-6)
+            {
+                message = $"pile grid snap orthogonal: ({gqx - 0.4:0.######},{gqy + 0.25:0.######})";
+                return false;
+            }
+
+            // A pile near the far side of its cap measures from the cap's grid, not the nearer one 3500.4 away.
+            var capGrids = new[] { new GridSegment(0, -9000, 0, 9000), new GridSegment(-9000, 0, 9000, 0), new GridSegment(-9000, 3500.4, 9000, 3500.4) };
+            var (_, cpy, _) = GridLineSnap.Snap(330, 2000.6, capGrids, 0, 0, 1100);
+            if (Math.Abs(cpy - 2000) > 1e-6)
+            {
+                message = $"pile grid snap from its cap's grid: y={cpy:0.######}";
+                return false;
+            }
+        }
+
+        // Model against drawing: points pair by distance, lines by coverage, grids by name.
+        CompareItem Pt(string kind, double x, double y, string size = "", long id = 0) =>
+            new() { Kind = kind, Shape = CompareShape.Point, X0 = x, Y0 = y, X1 = x, Y1 = y, Size = size, Id = id };
+        CompareItem Ln(string kind, double x0, double y0, double x1, double y1, string name = "", long id = 0) =>
+            new() { Kind = kind, Shape = CompareShape.Line, X0 = x0, Y0 = y0, X1 = x1, Y1 = y1, Name = name, Id = id };
+        var cmp = DrawingCompare.Compare(
+            new[]
+            {
+                Pt("Cột", 0, 0, "400x400"), Pt("Cột", 6000, 0, "400x600"), Pt("Cột", 12000, 0, "400x400"), Pt("Cột", 18000, 0, "300x300"),
+                Ln("Tường", 0, 0, 10000, 0), Ln("Tường", 0, 3000, 5000, 3000), Ln("Tường", 0, 6000, 5000, 6000),
+                Ln("Trục", 0, -1000, 0, 9000, "1"), Ln("Trục", 6000, -1000, 6000, 9000, "2"), Ln("Trục", 12000, -1000, 12000, 9000, "3")
+            },
+            new[]
+            {
+                Pt("Cột", 3, 0, "400x400", 1), Pt("Cột", 6040, 0, "600x400", 2), Pt("Cột", 0, 9000, "400x400", 3), Pt("Cột", 18000, 0, "300x400", 4),
+                Ln("Tường", 0, 0, 4000, 0, id: 5), Ln("Tường", 4000, 0, 10000, 0, id: 6), Ln("Tường", 0, 3100, 5000, 3100, id: 7), Ln("Tường", 0, 9000, 5000, 9000, id: 8),
+                Ln("Trục", 0, -1000, 0, 9000, "1"), Ln("Trục", 6005, -1000, 6005, 9000, "2"), Ln("Trục", 12100, -1000, 12100, 9000, "3")
+            });
+        string Of(CompareStatus st, string kind) =>
+            string.Join(",", cmp.Where(r => r.Status == st && r.Kind == kind).Select(r => (r.Model?.Id ?? 0).ToString()).OrderBy(x => x));
+        var cmpWant = new[]
+        {
+            (Of(CompareStatus.Match, "Cột"), "1"), (Of(CompareStatus.Moved, "Cột"), "2"), (Of(CompareStatus.Missing, "Cột"), "0"),
+            (Of(CompareStatus.Extra, "Cột"), "3"), (Of(CompareStatus.Changed, "Cột"), "4"),
+            (Of(CompareStatus.Match, "Tường"), "6"), (Of(CompareStatus.Moved, "Tường"), "7"), (Of(CompareStatus.Missing, "Tường"), "0"),
+            (Of(CompareStatus.Extra, "Tường"), "8"),
+            (cmp.Count(r => r.Kind == "Trục" && r.Status == CompareStatus.Match).ToString(), "2"),
+            (cmp.Count(r => r.Kind == "Trục" && r.Status == CompareStatus.Moved && Math.Abs(r.OffsetMm - 100) < 0.5).ToString(), "1")
+        };
+        if (cmpWant.Any(w => w.Item1 != w.Item2))
+        {
+            message = "model compare: " + string.Join(" | ", cmp.Where(r => r.Status != CompareStatus.Match).Select(r => $"{r.Kind}/{r.Status}/{r.Model?.Id}: {r.Detail}"));
+            return false;
+        }
+
+        // Drawing against drawing: an edited text is one change, a new line far away is one addition, the rest matches.
+        var oldPlan = new CadGeometry();
+        oldPlan.Entities.Add(new CadLine { Layer = "A-WALL", X0 = 0, Y0 = 0, X1 = 5000, Y1 = 0 });
+        oldPlan.Entities.Add(new CadText { Layer = "A-TEXT", Value = "D1", X = 1000, Y = 500 });
+        oldPlan.Entities.Add(new CadInsert { Layer = "E-DEV", BlockName = "OC", X = 2000, Y = 100 });
+        var newPlan = new CadGeometry();
+        newPlan.Entities.Add(new CadLine { Layer = "A-WALL", X0 = 5000, Y0 = 0.5, X1 = 0, Y1 = 0 });
+        newPlan.Entities.Add(new CadText { Layer = "A-TEXT", Value = "D2", X = 1000, Y = 500 });
+        newPlan.Entities.Add(new CadInsert { Layer = "E-DEV", BlockName = "OC", X = 2000, Y = 100 });
+        newPlan.Entities.Add(new CadLine { Layer = "A-WALL", X0 = 0, Y0 = 20000, X1 = 3000, Y1 = 20000 });
+        var diff = CadDiff.Compare(oldPlan, newPlan);
+        if (diff.Count != 2 || diff.Count(r => r.Status == CompareStatus.Changed && r.Detail.Contains("«D1» → «D2»")) != 1 ||
+            diff.Count(r => r.Status == CompareStatus.Added && r.Kind == "A-WALL") != 1)
+        {
+            message = "cad diff: " + string.Join(" | ", diff.Select(r => $"{r.Status} {r.Detail}"));
+            return false;
+        }
+
+        // Materials named Bộ môn-Loại-Mã.
+        string Mat(string abbr) => MepSystemCatalog.MaterialName(MepSystemCatalog.All.First(x => x.Abbr == abbr));
+        if (Mat("SAD") != "EM-MAT-SAD Supply Air" || Mat("CWS") != "EP-MAT-CWS Cold Water Supply" || Mat("SP") != "EF-MAT-SP Sprinkler" ||
+            !Mat("CHWS").StartsWith("EM-MAT-CHWS "))
+        {
+            message = $"material names: {Mat("SAD")} {Mat("CWS")} {Mat("SP")} {Mat("CHWS")}";
+            return false;
+        }
+
+        // Existing system names take the standard code.
+        foreach (var (name, old, abbr, want) in new[]
+                 {
+                     ("M-KEA-Kitchen Exhaust Air (Gió Thải Nhà Bếp)", "KEA", "KEAD", "M-KEAD-Kitchen Exhaust Air (Gió Thải Nhà Bếp)"),
+                     ("M-TEA-Toilet Exhaust Air", "", "TEAD", "M-TEAD-Toilet Exhaust Air"),
+                     ("M-SAD-Supply Air", "SAD", "SAD", "M-SAD-Supply Air"),
+                     ("EP - Equalizer Pipe", "EP", "EP", "EP - Equalizer Pipe"),
+                     ("Smoke Exhaust", "SE", "SEAD", "Smoke Exhaust")
+                 })
+        {
+            if (MepSystemCatalog.SyncName(name, old, abbr) != want)
+            {
+                message = $"system rename {name}: {MepSystemCatalog.SyncName(name, old, abbr)}";
+                return false;
+            }
+        }
+
+        // Devices: the kind from the block name (else the layer), Vietnamese with or without accents.
+        var guesses = new (string Block, string Layer, DeviceKind? Kind)[]
+        {
+            ("Ổ CẮM ĐÔI", "0", DeviceKind.Socket), ("OC1", "E-POWER", DeviceKind.Socket), ("CONG_TAC_2", "0", DeviceKind.Switch),
+            ("DEN OP TUONG", "0", DeviceKind.WallLight), ("Downlight D90", "0", DeviceKind.CeilingLight),
+            ("SPK-PENDENT", "0", DeviceKind.Sprinkler), ("Đầu báo khói", "0", DeviceKind.FireAlarm),
+            ("A$C1234", "M-DIEU HOA", DeviceKind.SplitAc), ("VIDEO CAMERA", "0", null), ("DENSITY", "0", null)
+        };
+        foreach (var (block, layer, kind) in guesses)
+        {
+            if (DevicePlanner.Guess(block, layer) != kind)
+            {
+                message = $"device guess {block}/{layer}: {DevicePlanner.Guess(block, layer)}";
+                return false;
+            }
+        }
+
+        // A socket drawn 60 mm off a 200 mm wall lands on that wall's face, facing the block.
+        var socketWalls = new[] { new HostWallAxis("w1", 0, 0, 5000, 0, 200) };
+        var onFace = DevicePlanner.SnapToWall(1000, -160, socketWalls, 400);
+        if (onFace is null || Math.Abs(onFace.Y + 100) > 0.01 || Math.Abs(onFace.NormalY + 1) > 1e-9 || Math.Abs(onFace.GapMm - 60) > 0.01 ||
+            DevicePlanner.SnapToWall(1000, 700, socketWalls, 400) is not null)
+        {
+            message = $"device wall snap: {onFace?.X:0},{onFace?.Y:0} n=({onFace?.NormalX:0.##},{onFace?.NormalY:0.##})";
+            return false;
+        }
+
+        // Drainage: the outlet is the open end of the biggest pipe; nodes rise 1% per metre of pipe from it; the
+        // outlet sits so that the far head (10 m away, D150 on both runs) stays 50 mm under the slab at 3000:
+        // 3000 - 50 - 75 - 100 = 2775.
+        var drain = MepRoutePlanner.Build(new CadEntity[]
+        {
+            new CadLine { Layer = "0", X0 = 0, Y0 = 0, X1 = 6000, Y1 = 0 },
+            new CadLine { Layer = "0", X0 = 6000, Y0 = 0, X1 = 6000, Y1 = 4000 }
+        }, null, new MepSize(0, 0, 100), new[] { new CadText { Value = "D150", X = 3000, Y = 300 } });
+        var drainOutlet = MepRoutePlanner.DefaultOutlet(drain, MepRoutePlanner.Parts(drain)[0]);
+        var outletZ = MepRoutePlanner.OutletUnderStructure(drain, drainOutlet, 0.01, (x, y) => 3000.0, 50, 100, 0);
+        if (Math.Abs(drain.Nodes[drainOutlet].X) > 1 || Math.Abs(outletZ - 2775) > 0.5 ||
+            Math.Abs(MepRoutePlanner.DistancesFrom(drain, drainOutlet).Values.Max() - 10000) > 1)
+        {
+            message = $"drainage: outlet ({drain.Nodes[drainOutlet].X:0},{drain.Nodes[drainOutlet].Y:0}) z={outletZ:0}";
+            return false;
+        }
+
+        // Clash exchange: a BCF with one topic per clash; the Navisworks camera turns its −Z onto the view direction.
+        var clash = new ClashRecord { Index = 1, AId = 11, BId = 22, ACategory = "Ducts", BCategory = "Structural Framing", SharedX = 10, SharedY = 20, SharedZ = 3 };
+        var bcfPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"dsst-test-{Guid.NewGuid():N}.bcfzip");
+        ClashExchange.WriteBcf(bcfPath, new[] { clash }, "Test", null);
+        using (var zip = System.IO.Compression.ZipFile.OpenRead(bcfPath))
+        {
+            if (zip.Entries.Count != 4 || zip.GetEntry($"{clash.Guid}/markup.bcf") is null)
+            {
+                message = "bcf entries: " + string.Join(",", zip.Entries.Select(e => e.FullName));
+                return false;
+            }
+        }
+
+        System.IO.File.Delete(bcfPath);
+        var (_, camDir, camUp) = ClashExchange.Camera(clash);
+        var q = ClashExchange.Quaternion(camDir, camUp);
+        // Rotate (0,0,-1) by q.
+        double qx = q[0], qy = q[1], qz = q[2], qw = q[3];
+        var look = new[]
+        {
+            -(2 * (qx * qz + qw * qy)),
+            -(2 * (qy * qz - qw * qx)),
+            -(1 - 2 * (qx * qx + qy * qy))
+        };
+        if (Math.Abs(look[0] - camDir[0]) > 1e-6 || Math.Abs(look[1] - camDir[1]) > 1e-6 || Math.Abs(look[2] - camDir[2]) > 1e-6)
+        {
+            message = $"navisworks camera: looks ({look[0]:0.###},{look[1]:0.###},{look[2]:0.###})";
+            return false;
+        }
+
+        // Under a slab at 3500 with a beam bottom at 3000 between 2000 and 2300: center 3500-50-200 = 3250, drops to
+        // 2750 under the beam, the drop starting 150 before each face.
+        var under = Enumerable.Range(0, 51).Select(i => i * 100.0 is >= 2000 and <= 2300 ? 3000.0 : 3500.0).ToList();
+        var prof = MepRoutePlanner.Profile(under, 100, 5000, 400, 50);
+        if (prof.Count != 3 || Math.Abs(prof[0].Z - 3250) > 0.5 || Math.Abs(prof[1].Z - 2750) > 0.5 ||
+            Math.Abs(prof[1].From - 1800) > 0.5 || Math.Abs(prof[1].To - 2500) > 0.5 || Math.Abs(prof[2].To - 5000) > 0.5)
+        {
+            message = "mep profile: " + string.Join(" | ", prof.Select(p => $"{p.From:0}-{p.To:0}@{p.Z:0}"));
+            return false;
+        }
+
+        // System colour rules: same code is the same system; another name for it is similar; another domain is not.
+        var sad = MepSystemCatalog.All.First(x => x.Abbr == "SAD");
+        var existingSystems = new[]
+        {
+            new ExistingSystem { Id = "1", Name = "Cấp gió", Domain = MepDomain.Duct },
+            new ExistingSystem { Id = "2", Name = "Supply Air", Domain = MepDomain.Pipe }
+        };
+        var m1 = MepSystemCatalog.Match(sad, existingSystems);
+        var m2 = MepSystemCatalog.Match(sad, new[] { new ExistingSystem { Id = "3", Name = "M_SAD Gio cap", Domain = MepDomain.Duct } });
+        if (m1.Kind != SystemMatchKind.Similar || m1.System?.Id != "1" || m2.Kind != SystemMatchKind.Same)
+        {
+            message = $"system match: {m1.Kind}/{m1.System?.Id} {m2.Kind}";
+            return false;
+        }
+
+        // A passage between two walls on one line gets a separation line; a gap a third wall runs through does not.
+        var gapWalls = new[]
+        {
+            new HostWallAxis("1", 0, 0, 3000, 0, 200),
+            new HostWallAxis("2", 4500, 0, 9000, 0, 200),
+            new HostWallAxis("3", 0, 5000, 3000, 5000, 200),
+            new HostWallAxis("4", 4500, 5000, 9000, 5000, 200),
+            new HostWallAxis("5", 3700, 5000, 3700, 9000, 200)
+        };
+        var gaps = RoomPlanner.Gaps(gapWalls);
+        if (gaps.Count != 1 || Math.Abs(gaps[0].X0 - 3000) > 1 || Math.Abs(gaps[0].X1 - 4500) > 1 || Math.Abs(gaps[0].Y0) > 1)
+        {
+            message = $"room gaps: got {gaps.Count}";
+            return false;
+        }
+
+        // Ducts: 400x300 square through a 200 wall; 45° duct widens by the skew; a riser and a duct along the wall
+        // are left alone. Cabinet recessed in the wall gets its extent.
+        var penWall = new[] { new WallBand { Id = "w", X0 = 0, Y0 = 0, X1 = 10000, Y1 = 0, ThicknessMm = 200, BottomMm = 0, TopMm = 3300 } };
+        var penHoles = WallPenetrationPlanner.Ducts(penWall, new[]
+        {
+            new DuctRun { X0 = 2000, Y0 = -1000, Z0 = 2800, X1 = 2000, Y1 = 1000, Z1 = 2800, WidthMm = 400, HeightMm = 300 },
+            new DuctRun { X0 = 5000, Y0 = -1000, Z0 = 2800, X1 = 7000, Y1 = 1000, Z1 = 2800, WidthMm = 400, HeightMm = 300 },
+            new DuctRun { X0 = 8000, Y0 = 0, Z0 = 0, X1 = 8000, Y1 = 10, Z1 = 3000, WidthMm = 400, HeightMm = 300 },
+            new DuctRun { X0 = 1000, Y0 = 0, Z0 = 2800, X1 = 9000, Y1 = 0, Z1 = 2800, WidthMm = 400, HeightMm = 300 }
+        }, 50);
+        var skew = Math.Ceiling((400 / Math.Sqrt(0.5) + 200 + 100) / 10) * 10;
+        if (penHoles.Count != 2 || Math.Abs(penHoles[0].ToMm - penHoles[0].FromMm - 500) > 0.5 ||
+            Math.Abs(penHoles[0].TopMm - penHoles[0].BottomMm - 400) > 0.5 || Math.Abs(penHoles[0].BottomMm - 2600) > 0.5 ||
+            Math.Abs(penHoles[1].ToMm - penHoles[1].FromMm - skew) > 0.5)
+        {
+            message = "duct holes: got " + string.Join(" | ", penHoles.Select(h => $"{h.FromMm:0}-{h.ToMm:0} z {h.BottomMm:0}-{h.TopMm:0}"));
+            return false;
+        }
+
+        var cabinetPts = new List<(double X, double Y, double Z)>();
+        foreach (var x in new[] { 3000.0, 3700 })
+        foreach (var y in new[] { -100.0, 80 })
+        foreach (var z in new[] { 800.0, 1800 })
+            cabinetPts.Add((x, y, z));
+        var cabHoles = WallPenetrationPlanner.Cabinets(penWall, new[] { ("FHC", (IReadOnlyList<(double, double, double)>)cabinetPts) }, 0);
+        if (cabHoles.Count != 1 || Math.Abs(cabHoles[0].FromMm - 3000) > 0.5 || Math.Abs(cabHoles[0].ToMm - 3700) > 0.5 ||
+            Math.Abs(cabHoles[0].BottomMm - 800) > 0.5)
+        {
+            message = $"cabinet holes: got {cabHoles.Count}";
+            return false;
+        }
+
         // Piers of a lift core on the line of a core wall are walls; a column off that line is not.
         var core = new CadGeometry();
         core.Entities.Add(Outline("VACH", 0, 0, 350, 3000));
