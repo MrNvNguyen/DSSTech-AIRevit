@@ -7,6 +7,11 @@ public sealed class CadGeometry
     public int? InsUnits { get; set; }
     public string SourcePath { get; set; } = "";
     public List<CadEntity> Entities { get; } = new List<CadEntity>();
+    /// <summary>
+    /// Short number texts (1, 12, 1.1): grid bubble names. Kept apart from <see cref="Entities"/> because the
+    /// other readers take a bare number for a dimension, not a mark.
+    /// </summary>
+    public List<CadText> NumberTexts { get; } = new List<CadText>();
 }
 
 public abstract class CadEntity

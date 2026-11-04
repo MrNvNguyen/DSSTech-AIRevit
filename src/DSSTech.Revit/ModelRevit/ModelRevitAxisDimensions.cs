@@ -153,12 +153,10 @@ internal static class ModelRevitAxisDimensions
                 case FamilyInstance column when IsStructuralColumn(column):
                     SnapColumnToGridWholeMm(doc, column, grids);
                     break;
-                // Round piles measure rim = center ± radius; rectangular đài/footing have real faces like columns.
-                case FamilyInstance pile when IsStructuralFoundation(pile) && IsCircularPileLike(pile):
-                    SnapPileToGridWholeMm(doc, pile, grids);
-                    break;
-                case FamilyInstance footing when IsStructuralFoundation(footing):
-                    SnapPointFamilyToGrid(doc, footing, grids, MeasureColumn, "foundation");
+                // Piles, caps and footings are placed on their 5 mm stations square to the grids that locate them
+                // (pile: the cap's grid pair; cap: its own edges). This sweep measures from the family origin and
+                // the two nearest grids of any direction, which pulled them back off those stations.
+                case FamilyInstance foundation when IsStructuralFoundation(foundation):
                     break;
                 case FamilyInstance beam when IsStructuralFraming(beam):
                     SnapBeamToGridWholeMm(doc, beam, grids, allowRebuild);
@@ -166,8 +164,52 @@ internal static class ModelRevitAxisDimensions
                 case Wall wall:
                     SnapWallToGridWholeMm(doc, wall, grids, allowRebuild);
                     break;
+                case FamilyInstance opening when IsOpening(opening):
+                    SnapOpeningToGrid(doc, opening, grids);
+                    break;
             }
         }
+    }
+
+    private static bool IsOpening(FamilyInstance fi) =>
+        fi.Category?.Id.Value is (long)BuiltInCategory.OST_Doors or (long)BuiltInCategory.OST_Windows;
+
+    /// <summary>
+    /// Door / window center on a 5 mm step from the grid crossing its wall, moved along the wall only.
+    /// </summary>
+    private static void SnapOpeningToGrid(Document doc, FamilyInstance opening, List<GridSeg> grids)
+    {
+        if (opening.Host is not Wall { Location: LocationCurve { Curve: Line line } } ||
+            opening.Location is not LocationPoint lp)
+            return;
+        var dir = new XYZ(line.Direction.X, line.Direction.Y, 0).Normalize();
+        var grid = NearestGrid(lp.Point, dir, grids, SnapSearchMm);
+        if (grid is null)
+            return;
+        var along = grid.Normal.DotProduct(dir);
+        var offsetMm = UnitConv.ToMm((lp.Point - grid.Origin).DotProduct(grid.Normal));
+        var deltaMm = RoundStep(offsetMm) - offsetMm;
+        var moveMm = Math.Abs(deltaMm / along);
+        if (moveMm < 1e-9)
+            return;
+        if (!AllowSnapMove(moveMm, Math.Abs(deltaMm)))
+        {
+            DSSTech.Revit.DssTechLog.Write($"axis snap opening={opening.Id.Value} skip moveMm={moveMm:0.000}");
+            return;
+        }
+
+        try
+        {
+            ElementTransformUtils.MoveElement(doc, opening.Id, dir * UnitConv.MmToInternal(deltaMm / along));
+        }
+        catch (Autodesk.Revit.Exceptions.ApplicationException ex)
+        {
+            DSSTech.Revit.DssTechLog.Write($"axis snap opening={opening.Id.Value} move failed: {ex.Message}");
+            return;
+        }
+
+        DSSTech.Revit.DssTechLog.Write(
+            $"axis snap opening={opening.Id.Value} grid={grid.Grid.Name} before={offsetMm:0.000} after={RoundStep(offsetMm):0}");
     }
 
     /// <summary>Structural columns / framing / walls / foundations visible in the plan, not pinned, not in groups.</summary>
@@ -811,7 +853,9 @@ internal static class ModelRevitAxisDimensions
         var count = 0;
         foreach (var axis in DistinctAxes(grids))
         {
-            var nearest = NearestGrid(center, axis.Normal, grids, MaxDimOffsetMm);
+            // Both directions: the nearest grid the pile sits a whole 5 mm from (a pile is located from its cap's
+            // grid, which need not be the grid nearest the pile itself), else the nearest grid as before.
+            var nearest = PileDimGrid(pile, center, axis.Normal, grids) ?? NearestGrid(center, axis.Normal, grids, MaxDimOffsetMm);
             if (nearest is null)
                 continue;
             var measured = MeasurePile(pile, nearest);
@@ -1079,6 +1123,18 @@ internal static class ModelRevitAxisDimensions
     /// endless extension must not locate an element here. Without such a grid the nearest extension is still
     /// better than none.
     /// </summary>
+    private static GridSeg? PileDimGrid(FamilyInstance pile, XYZ center, XYZ axisNormal, List<GridSeg> grids)
+    {
+        var parallel = grids.Where(g => Math.Abs(g.Normal.DotProduct(axisNormal)) >= ParallelCos).ToList();
+        var reaching = parallel.Where(g => g.Reaches(center)).ToList();
+        return (reaching.Count > 0 ? reaching : parallel)
+            .Select(g => (Grid: g, Mm: Math.Abs(MeasurePile(pile, g).Mm)))
+            .Where(t => t.Mm >= 1 && t.Mm <= MaxDimOffsetMm && OnStep(t.Mm, TinyNudgeMm))
+            .OrderBy(t => t.Mm)
+            .Select(t => t.Grid)
+            .FirstOrDefault();
+    }
+
     private static GridSeg? NearestGrid(XYZ point, XYZ axisNormal, List<GridSeg> grids, double maxAbsMm) =>
         NearestGrid(point, axisNormal, grids.Where(g => g.Reaches(point)), maxAbsMm)
         ?? NearestGrid(point, axisNormal, (IEnumerable<GridSeg>)grids, maxAbsMm);

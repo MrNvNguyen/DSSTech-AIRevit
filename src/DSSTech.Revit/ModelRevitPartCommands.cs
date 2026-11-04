@@ -122,13 +122,3 @@ public sealed class ModelEquipmentCommand : ModelRevitPartCommand
     protected override ModelRevitPartKind Part => ModelRevitPartKind.Equipment;
 }
 
-/// <summary>Module Level: giữ chỗ trên ribbon, logic dựng Level sẽ bổ sung sau.</summary>
-[Transaction(TransactionMode.Manual)]
-public sealed class ModelLevelCommand : IExternalCommand
-{
-    public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
-    {
-        TaskDialog.Show("DSSTech", "Module Level chưa có chức năng.");
-        return Result.Cancelled;
-    }
-}

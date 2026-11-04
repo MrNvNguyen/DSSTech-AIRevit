@@ -13,6 +13,8 @@ public sealed class AccountCommand : IExternalCommand
         var dlg = new AccountWindow();
         dlg.SetOwner(commandData.Application.MainWindowHandle);
         dlg.ShowDialog();
+        if (dlg.Activated)
+            RibbonState.RefreshAi();
         return Result.Succeeded;
     }
 }

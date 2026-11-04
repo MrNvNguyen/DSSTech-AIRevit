@@ -10,6 +10,7 @@ internal static class ImportInstanceGeometryReader
     {
         try
         {
+            LayerNames.Clear();
             var obj = import.GetGeometryObjectFromReference(reference);
             return obj is null ? null : LayerName(obj, import.Document);
         }
@@ -35,6 +36,7 @@ internal static class ImportInstanceGeometryReader
             IncludeNonVisibleObjects = true
         };
 
+        LayerNames.Clear();
         var elementGeom = import.get_Geometry(opt);
         if (elementGeom is not null)
         {
@@ -204,14 +206,22 @@ internal static class ImportInstanceGeometryReader
         geom.Entities.Add(poly);
     }
 
+    /// <summary>Layer per graphics style during one read (a large drawing has hundreds of thousands of strokes on a few styles).</summary>
+    [ThreadStatic]
+    private static Dictionary<ElementId, string>? _layerNames;
+
+    private static Dictionary<ElementId, string> LayerNames => _layerNames ??= new Dictionary<ElementId, string>();
+
     private static string LayerName(GeometryObject obj, Document doc)
     {
         try
         {
             if (obj.GraphicsStyleId != null && obj.GraphicsStyleId != ElementId.InvalidElementId)
             {
+                if (LayerNames.TryGetValue(obj.GraphicsStyleId, out var known))
+                    return known;
                 if (doc.GetElement(obj.GraphicsStyleId) is GraphicsStyle gs && gs.GraphicsStyleCategory != null)
-                    return gs.GraphicsStyleCategory.Name;
+                    return LayerNames[obj.GraphicsStyleId] = gs.GraphicsStyleCategory.Name;
             }
         }
         catch

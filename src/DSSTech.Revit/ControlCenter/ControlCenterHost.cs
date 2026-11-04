@@ -36,6 +36,8 @@ internal static class ControlCenterHost
 
     public static void Post(Action<UIApplication> action)
     {
+        if (!License.LicenseService.Require())
+            return;
         lock (Gate)
             Pending.Enqueue(action);
         _event?.Raise();

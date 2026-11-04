@@ -31,14 +31,17 @@ Mỗi icon có thêm bản `*-32-dark.png` / `*-16-dark.png`: nét `#D6E2EE` (x�
 
 | Panel | Nút |
 |---|---|
-| Thiết lập · Setup | Bảng điều khiển (to) · [Tham số QS / Tài khoản / Hướng dẫn] |
-| Kiến trúc · Architecture | Trục · Level · Tường kiến trúc · Cửa · Cửa sổ · [Phòng / Trần] |
-| Kết cấu · Structure | Cột · Tường kết cấu · Dầm · Sàn |
+| Thiết lập · Setup | Giới thiệu (to) · [Tham số QS / Tài khoản / Hướng dẫn] |
+| Kiến trúc · Architecture | Trục · Level · Tường · Cửa · Cửa sổ · [Khớp kết cấu / Lanh tô / Lỗ mở] · [Phòng / Hoàn thiện / Trần] |
+| Kết cấu · Structure | Cột · Vách · Dầm · Sàn |
 | Móng & cọc · Foundation | [Đài cọc / Móng đơn / Móng băng] · [Móng bè / Cọc] |
-| MEPF | [Ống nước / Ống gió] · [Máng cáp / Thiết bị] |
+| MEPF | Hệ thống · Cơ · [Điện / Nước / PCCC] · Thiết bị tường ▾ (Tất cả / Ổ cắm / Công tắc / Đèn ốp tường / Điều hòa cục bộ) · Thiết bị trần ▾ (Tất cả / Đèn trần / Đầu phun sprinkler / Đầu báo cháy) |
+| Combine | Combine · Check clash · So sánh · [Nâng sát dầm / Xung đột] |
 | Khối lượng · Quantity | Chọn định mức · Ván khuôn · Xuất BOQ · Bảng khối lượng |
 | Trợ lý AI · AI | AI: Đang bật/Đã tắt (đổi icon + chữ theo trạng thái thật) · Kết nối AI |
 
 Mỗi nút module mở cửa sổ Dựng mô hình đúng loại đó, không có ô Loại và ô Layer (layer lấy từ nét pick trên bản vẽ); Bảng điều khiển vẫn mở cửa sổ đầy đủ như trước. Nút Link mặt bằng, Dựng mô hình và Dựng theo lô đã gỡ khỏi ribbon, lệnh phía sau giữ nguyên. Level chưa có logic dựng.
+
+**Bản quyền:** mọi nút cần key đã kích hoạt (Thiết lập ▸ Tài khoản), trừ Giới thiệu, Tài khoản và Hướng dẫn. Chưa có key thì các nút mờ và AI không mở cổng. Key do `tools/DSSTech.KeyGen` cấp, ký bằng khoá bí mật của DSSTech (không nằm trong repo).
 
 Tên nội bộ (ID) của các nút cũ giữ nguyên. Riêng tên panel đã đổi, nên phím tắt người dùng tự gán cho nút cũ có thể phải gán lại.

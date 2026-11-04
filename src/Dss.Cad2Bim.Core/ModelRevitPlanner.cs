@@ -65,6 +65,15 @@ public sealed class ModelRevitPlacement
     /// one of these or the outline is skipped (no CAD WxH invent).
     /// </summary>
     public IReadOnlyList<string>? FoundationTypeMarks { get; set; }
+    /// <summary>
+    /// Grid lines of the model (piles): each pile's distances to the two grids that locate it are whole 5 mm,
+    /// square to those grids. Without them piles keep the nearest-intersection rounding.
+    /// </summary>
+    public IReadOnlyList<GridSegment>? GridLines { get; set; }
+    /// <summary>Walls of the model at the base level: doors and windows go into these.</summary>
+    public IReadOnlyList<HostWallAxis>? HostWalls { get; set; }
+    /// <summary>Type Mark values of the loaded door (or window) types: the plan labels name them.</summary>
+    public IReadOnlyList<string>? InsertTypeMarks { get; set; }
     public Action<string>? Log { get; set; }
     /// <summary>Filled by the planner: layer of each column taken from outside the picked layer.</summary>
     public List<string> OtherLayerColumns { get; } = new();
@@ -134,10 +143,10 @@ public static class ModelRevitPlanner
             // Piles: host level = selected floor (BaseLevel); LengthMm drives depth. XY like columns (5 mm vs grids).
             ModelRevitPartKind.Pile => PlanPiles(geom, entities, baseLevel, size, place, gridPoints),
             ModelRevitPartKind.StripFoundation => PlanStripFoundations(geom, entities, baseLevel, size, place, gridPoints),
-            ModelRevitPartKind.Door => PlanInserts(geom, entities, baseLevel, "Doors", FirstNonEmpty(place.FamilyName, place.TypeName, equipmentFamilyType, size.Raw), size, place),
-            ModelRevitPartKind.Window => PlanInserts(geom, entities, baseLevel, "Windows", FirstNonEmpty(place.FamilyName, place.TypeName, equipmentFamilyType, size.Raw), size, place),
-            ModelRevitPartKind.Room => PlanRooms(entities, baseLevel, size.Raw),
-            ModelRevitPartKind.Ceiling => PlanCeilings(entities, baseLevel, size, place),
+            ModelRevitPartKind.Door => PlanOpenings(geom, entities, baseLevel, "Doors", FirstNonEmpty(place.FamilyName, place.TypeName, equipmentFamilyType), place),
+            ModelRevitPartKind.Window => PlanOpenings(geom, entities, baseLevel, "Windows", FirstNonEmpty(place.FamilyName, place.TypeName, equipmentFamilyType), place),
+            ModelRevitPartKind.Room => PlanRooms(entities, baseLevel, size.Raw, place),
+            ModelRevitPartKind.Ceiling => PlanCeilings(geom, entities, baseLevel, size, place),
             ModelRevitPartKind.Pipe => PlanMepLines(entities, baseLevel, "Pipes", size, place),
             ModelRevitPartKind.Duct => PlanMepLines(entities, baseLevel, "Ducts", size, place),
             ModelRevitPartKind.CableTray => PlanMepLines(entities, baseLevel, "CableTrays", size, place),
@@ -2397,19 +2406,36 @@ public static class ModelRevitPlanner
             var x = footprint.CenterX;
             var y = footprint.CenterY;
             var rot = footprint.RotationDeg;
-            var (ox, oy) = NearestGridPoint(x, y, gridPoints);
-            (x, y) = RoundColumnPosition(x, y, 0, ox, oy);
-            var (gx, gy, snapped) = SnapToGrid(x, y, gridPoints);
-            if (snapped && OnRoundModule(gx, gy, 0, ox, oy))
+            var boxX = footprint.BoxCenterX;
+            var boxY = footprint.BoxCenterY;
+            if (place.GridLines is { Count: > 0 } lines)
             {
-                x = gx;
-                y = gy;
+                // Square to its grids: the outline turned onto the grid's exact direction, and the outline's box
+                // (what the placed cap is laid over) on 5 mm steps square to the two grids that locate it.
+                rot = GridLineSnap.AlignAngle(rot, lines);
+                var (sx, sy, ok) = GridLineSnap.Snap(x, y, lines, rot);
+                if (ok)
+                    (x, y) = (sx, sy);
+                var (bx, by, boxOk) = GridLineSnap.Snap(boxX, boxY, lines, rot);
+                if (boxOk)
+                    (boxX, boxY) = (bx, by);
+            }
+            else
+            {
+                var (ox, oy) = NearestGridPoint(x, y, gridPoints);
+                (x, y) = RoundColumnPosition(x, y, 0, ox, oy);
+                var (gx, gy, snapped) = SnapToGrid(x, y, gridPoints);
+                if (snapped && OnRoundModule(gx, gy, 0, ox, oy))
+                {
+                    x = gx;
+                    y = gy;
+                }
             }
 
             if (!TryAddFoundationOp(
                     ops, geom, place, baseLevel, foundationKind, sourceFamily, uiType,
                     x, y, footprint.WidthMm, footprint.DepthMm, rot, resizeFromCad, resolveByTypeMark,
-                    new[] { footprint.BoxCenterX, footprint.BoxCenterY, footprint.WidthMm, footprint.DepthMm }))
+                    new[] { boxX, boxY, footprint.WidthMm, footprint.DepthMm }))
                 continue;
 
             placed.Add((x, y));
@@ -2520,6 +2546,7 @@ public static class ModelRevitPlanner
                     kind = foundationKind,
                     mark = instanceMark,
                     cadBoxMm,
+                    gridEdgeSnap = place.GridLines is { Count: > 0 } && cadBoxMm is not null,
                     exactMm = true
                 }, skipIfExists: true));
                 return true;
@@ -2553,6 +2580,7 @@ public static class ModelRevitPlanner
                 kind = foundationKind,
                 mark = instanceMark,
                 cadBoxMm,
+                gridEdgeSnap = place.GridLines is { Count: > 0 } && cadBoxMm is not null,
                 exactMm = true
             }, skipIfExists: true));
             return true;
@@ -2580,6 +2608,7 @@ public static class ModelRevitPlanner
                 kind = foundationKind,
                 mark = genericMark,
                 cadBoxMm,
+                gridEdgeSnap = place.GridLines is { Count: > 0 } && cadBoxMm is not null,
                 exactMm = true
             }, skipIfExists: true));
             return true;
@@ -2631,16 +2660,7 @@ public static class ModelRevitPlanner
         // at that pile center within PileClusterTolMm (concentric rings / nested outlines).
         foreach (var cluster in ClusterLargestPileSections(SectionFootprintReader.FromEntities(entities)))
         {
-            var x = cluster.CenterX;
-            var y = cluster.CenterY;
-            var (ox, oy) = NearestGridPoint(x, y, gridPoints);
-            (x, y) = RoundColumnPosition(x, y, 0, ox, oy);
-            var (gx, gy, snapped) = SnapToGrid(x, y, gridPoints);
-            if (snapped && OnRoundModule(gx, gy, 0, ox, oy))
-            {
-                x = gx;
-                y = gy;
-            }
+            var (x, y) = PilePosition(geom, entities, cluster.CenterX, cluster.CenterY, gridPoints, place);
 
             var w = Math.Max(1, (int)Math.Round(cluster.WidthMm));
             var d = Math.Max(1, (int)Math.Round(cluster.DepthMm));
@@ -2658,7 +2678,7 @@ public static class ModelRevitPlanner
             }
 
             var mark = place.AssignMark ? NearestMark(geom, x, y) : "";
-            ops.Add(PileOp(x, y, typeHint, sourceFamily, baseLevel, topOffsetMm, lengthMm, w, d, circular, mark, place.Material));
+            ops.Add(PileOp(x, y, typeHint, sourceFamily, baseLevel, topOffsetMm, lengthMm, w, d, circular, mark, place.Material, place.EmbedMm));
             placed.Add((x, y));
         }
 
@@ -2674,14 +2694,7 @@ public static class ModelRevitPlanner
             if (NearPlacedPile(placed, x, y))
                 continue;
 
-            var (ox, oy) = NearestGridPoint(x, y, gridPoints);
-            (x, y) = RoundColumnPosition(x, y, 0, ox, oy);
-            var (gx, gy, snapped) = SnapToGrid(x, y, gridPoints);
-            if (snapped && OnRoundModule(gx, gy, 0, ox, oy))
-            {
-                x = gx;
-                y = gy;
-            }
+            (x, y) = PilePosition(geom, entities, x, y, gridPoints, place);
 
             var mark = place.AssignMark ? NearestMark(geom, x, y) : "";
             ops.Add(Op("StructuralFoundation", new
@@ -2707,9 +2720,94 @@ public static class ModelRevitPlanner
     /// <summary>Centers within this distance share one pile; keep the largest CAD outline.</summary>
     private const double PileClusterTolMm = 150.0;
 
+    /// <summary>
+    /// Pile center: whole 5 mm square to the two grids that locate it (in the frame of the pile cap drawn around
+    /// it), when the model's grid lines are known; else the 5 mm steps from the nearest grid intersection.
+    /// </summary>
+    private static (double X, double Y) PilePosition(CadGeometry geom, List<CadEntity> pileEntities, double x, double y,
+        IReadOnlyList<CadPoint2>? gridPoints, ModelRevitPlacement place)
+    {
+        if (place.GridLines is { Count: > 0 } lines)
+        {
+            var cap = CapFrame(geom, pileEntities, x, y);
+            var (sx, sy, ok) = GridLineSnap.Snap(x, y, lines, cap?.Deg, cap?.X, cap?.Y);
+            if (ok)
+                return (sx, sy);
+        }
+
+        var (ox, oy) = NearestGridPoint(x, y, gridPoints);
+        (x, y) = RoundColumnPosition(x, y, 0, ox, oy);
+        var (gx, gy, snapped) = SnapToGrid(x, y, gridPoints);
+        return snapped && OnRoundModule(gx, gy, 0, ox, oy) ? (gx, gy) : (x, y);
+    }
+
+    /// <summary>
+    /// The smallest closed outline (another layer) around the pile — its cap: the direction of its longest side and
+    /// the middle of its box.
+    /// </summary>
+    internal static (double Deg, double X, double Y)? CapFrame(CadGeometry geom, List<CadEntity> pileEntities, double x, double y)
+    {
+        var pileLayers = new HashSet<string>(pileEntities.Select(e => e.Layer), StringComparer.OrdinalIgnoreCase);
+        CadPolyline? cap = null;
+        var capArea = double.MaxValue;
+        foreach (var pl in geom.Entities.OfType<CadPolyline>())
+        {
+            if (!(pl.Closed || SectionFootprintReaderNearlyClosed(pl)) || pl.Points.Count < 3 || pileLayers.Contains(pl.Layer))
+                continue;
+            var area = Math.Abs(PolygonArea(pl.Points));
+            if (area < 500_000 || area > 60_000_000 || area >= capArea || !Inside(pl.Points, x, y))
+                continue;
+            cap = pl;
+            capArea = area;
+        }
+
+        if (cap is null)
+            return null;
+        double best = 0, angle = 0;
+        for (var i = 0; i < cap.Points.Count; i++)
+        {
+            var a = cap.Points[i];
+            var b = cap.Points[(i + 1) % cap.Points.Count];
+            var len = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+            if (len <= best)
+                continue;
+            best = len;
+            angle = Math.Atan2(b.Y - a.Y, b.X - a.X) * 180 / Math.PI;
+        }
+
+        return (angle, (cap.Points.Min(p => p.X) + cap.Points.Max(p => p.X)) / 2,
+            (cap.Points.Min(p => p.Y) + cap.Points.Max(p => p.Y)) / 2);
+    }
+
+    private static double PolygonArea(List<CadPoint2> pts)
+    {
+        double s = 0;
+        for (var i = 0; i < pts.Count; i++)
+        {
+            var a = pts[i];
+            var b = pts[(i + 1) % pts.Count];
+            s += a.X * b.Y - b.X * a.Y;
+        }
+
+        return s / 2;
+    }
+
+    private static bool Inside(List<CadPoint2> pts, double x, double y)
+    {
+        var inside = false;
+        for (int i = 0, j = pts.Count - 1; i < pts.Count; j = i++)
+        {
+            if ((pts[i].Y > y) != (pts[j].Y > y) &&
+                x < (pts[j].X - pts[i].X) * (y - pts[i].Y) / (pts[j].Y - pts[i].Y) + pts[i].X)
+                inside = !inside;
+        }
+
+        return inside;
+    }
+
     private static CreateOperation PileOp(
         double x, double y, string typeHint, string sourceFamily, string baseLevel,
-        double topOffsetMm, double lengthMm, int widthMm, int depthMm, bool circular, string mark, string? material)
+        double topOffsetMm, double lengthMm, int widthMm, int depthMm, bool circular, string mark, string? material, double embedMm = 0)
     {
         if (circular)
         {
@@ -2725,6 +2823,7 @@ public static class ModelRevitPlanner
                 baseOffsetMm = topOffsetMm,
                 offsetMm = topOffsetMm,
                 lengthMm,
+                embedMm,
                 material = material ?? "",
                 kind = "Pile",
                 mark,
@@ -2743,6 +2842,7 @@ public static class ModelRevitPlanner
             baseOffsetMm = topOffsetMm,
             offsetMm = topOffsetMm,
             lengthMm,
+            embedMm,
             material = material ?? "",
             kind = "Pile",
             mark,
@@ -2942,12 +3042,80 @@ public static class ModelRevitPlanner
         return ops;
     }
 
+    /// <summary>Plan label to the opening it names: labels sit beside the door or inside the room in front of it.</summary>
+    private const double OpeningLabelReachMm = 1500;
+
+    /// <summary>
+    /// Doors / windows: one per opening drawn on the layer, centered in it on the host wall. The type is the loaded
+    /// type whose Type Mark is the plan label beside the opening (D1, S2); with no such label the type picked in the
+    /// dialog. A wall broken at the opening on the plan is run on through it, so Revit has a wall to cut.
+    /// </summary>
+    private static IReadOnlyList<CreateOperation> PlanOpenings(
+        CadGeometry geom,
+        List<CadEntity> entities,
+        string baseLevel,
+        string category,
+        string fallbackType,
+        ModelRevitPlacement place)
+    {
+        var walls = place.HostWalls ?? Array.Empty<HostWallAxis>();
+        var openings = OpeningReader.Read(entities, walls, place.Log);
+        var marks = OpeningReader.TypeMarks(
+            openings, geom.Entities.OfType<CadText>(), place.InsertTypeMarks ?? Array.Empty<string>(), OpeningLabelReachMm);
+        var ops = new List<CreateOperation>();
+        for (var i = 0; i < openings.Count; i++)
+        {
+            var o = openings[i];
+            var mark = marks[i];
+            if (mark.Length == 0 && string.IsNullOrWhiteSpace(fallbackType))
+            {
+                place.Log?.Invoke($"opening skip at ({o.X:0},{o.Y:0}): no Type Mark label and no type picked");
+                continue;
+            }
+
+            place.Log?.Invoke(
+                $"opening {category} at ({o.X:0},{o.Y:0}) width={o.WidthMm:0} host={o.HostId} " +
+                $"mark={(mark.Length > 0 ? mark : "-")} bridge={(o.Bridge ? $"({o.BridgeX:0},{o.BridgeY:0})" : "-")}");
+            ops.Add(Op(category, new
+            {
+                xyzMm = new[] { o.X, o.Y, 0 },
+                familyType = mark.Length > 0 ? mark : fallbackType,
+                typeMark = mark,
+                resolveByTypeMark = mark.Length > 0,
+                wallId = o.HostId,
+                bridgeEndMm = o.Bridge ? new[] { o.BridgeX, o.BridgeY, 0 } : null,
+                openingWidthMm = Math.Round(o.WidthMm),
+                // Point the leaves open toward, and the hinge jamb: the door is flipped to match the drawing.
+                swingMm = o.Side != 0 ? new[] { o.X - o.DirY * o.Side * 1000, o.Y + o.DirX * o.Side * 1000, 0 } : null,
+                hingeMm = o.HasHinge ? new[] { o.HingeX, o.HingeY, 0 } : null,
+                level = baseLevel,
+                offsetMm = place.BaseOffsetMm
+            }, skipIfExists: true));
+        }
+
+        return ops;
+    }
+
+    /// <summary>
+    /// Rooms: one per room-name text on the layer (number = the short code beside it); door/window marks, areas and
+    /// elevations are not names. A layer with no names but closed outlines gives one unnamed room per outline.
+    /// </summary>
     private static IReadOnlyList<CreateOperation> PlanRooms(
         List<CadEntity> entities,
         string baseLevel,
-        string roomName)
+        string roomName,
+        ModelRevitPlacement place)
     {
         var ops = new List<CreateOperation>();
+        foreach (var label in RoomPlanner.Labels(entities.OfType<CadText>(), place.InsertTypeMarks ?? Array.Empty<string>()))
+        {
+            place.Log?.Invoke($"room '{label.Name}' {label.Number} at ({label.X:0},{label.Y:0})");
+            ops.Add(Op("Rooms", new { xyzMm = new[] { label.X, label.Y, 0 }, level = baseLevel, name = label.Name, number = label.Number },
+                skipIfExists: true));
+        }
+
+        if (ops.Count > 0)
+            return ops;
         foreach (var pl in entities.OfType<CadPolyline>().Where(p => p.Closed && p.Points.Count >= 3))
         {
             var cx = pl.Points.Average(p => p.X);
@@ -2958,24 +3126,40 @@ public static class ModelRevitPlanner
         return ops;
     }
 
+    /// <summary>Ceiling height when neither the outline nor the dialog gives one.</summary>
+    private const double DefaultCeilingMm = 2700;
+
+    /// <summary>
+    /// Ceilings: each closed outline on the layer. Height = the elevation written inside the outline (+2.700,
+    /// CT+2700), else the height from the dialog.
+    /// </summary>
     private static IReadOnlyList<CreateOperation> PlanCeilings(
+        CadGeometry geom,
         List<CadEntity> entities,
         string baseLevel,
         AnnotationSize size,
         ModelRevitPlacement place)
     {
         var ceilingType = FirstNonEmpty(place.TypeName, string.IsNullOrWhiteSpace(size.Raw) ? "Generic" : size.Raw);
+        var texts = geom.Entities.OfType<CadText>().ToList();
         var ops = new List<CreateOperation>();
         foreach (var pl in entities.OfType<CadPolyline>().Where(p => p.Closed && p.Points.Count >= 3))
         {
+            var fromText = CeilingHeightReader.TryFind(pl.Points, texts, out var heightMm, out var source);
+            if (!fromText)
+                heightMm = place.BaseOffsetMm > 0 ? place.BaseOffsetMm : DefaultCeilingMm;
+            place.Log?.Invoke(
+                $"ceiling at ({pl.Points.Average(p => p.X):0},{pl.Points.Average(p => p.Y):0}) height={heightMm:0} " +
+                (fromText ? $"from '{source}'" : "from dialog"));
             var ring = pl.Points.Select(p => new[] { p.X, p.Y, 0.0 }).ToList();
             ops.Add(Op("Ceilings", new
             {
                 loops = new[] { ring },
                 level = baseLevel,
-                offsetMm = place.BaseOffsetMm,
+                offsetMm = heightMm,
+                heightFromText = fromText,
                 ceilingType
-            }));
+            }, skipIfExists: true));
         }
 
         return ops;
