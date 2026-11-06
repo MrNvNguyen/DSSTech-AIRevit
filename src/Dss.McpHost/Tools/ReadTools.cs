@@ -32,7 +32,8 @@ internal static class ReadTools
         ("MechanicalEquipment", BuiltInCategory.OST_MechanicalEquipment),
         ("ElectricalEquipment", BuiltInCategory.OST_ElectricalEquipment),
         ("PlumbingFixtures", BuiltInCategory.OST_PlumbingFixtures),
-        ("Sprinklers", BuiltInCategory.OST_Sprinklers)
+        ("Sprinklers", BuiltInCategory.OST_Sprinklers),
+        ("GenericModels", BuiltInCategory.OST_GenericModel)
     };
 
     public static McpResult GetDocument(UIApplication app)

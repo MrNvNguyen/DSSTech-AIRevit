@@ -15,7 +15,32 @@ Session file: `%LOCALAPPDATA%\DSSTech\mcp-session.json` (`pipeName`, `httpUrl`, 
 
 Read: `ping`, `get_document`, `get_levels`, `get_grids`, `get_view`, `list_categories`, `list_types`, `query_by_category` (pageSize ≤ 100).
 
-Write (Read+Create): `create_element`, `create_batch` — một Transaction `"DSSTech MCP create"`, Undo 1 lần. `skipIfExists` mặc định. `dryRun` mặc định khi > 20 ops.
+Write (Read+Create): `create_element`, `create_batch` — một Transaction `"DSSTech MCP create"`, Undo 1 lần; mỗi op một SubTransaction, op lỗi tự rollback riêng. `skipIfExists` mặc định. `dryRun` mặc định khi > 20 ops (chỉ `dryRun:false` cấp batch mới tạo thật). `units`: `mm` (mặc định) hoặc `m`.
+
+Không có delete/modify (`delete_element(s)` trả `forbidden_permission`). Quyền Host hiện cố định `ReadCreate`.
+
+### Category tạo được và `fields`
+
+Điểm là `[x,y,z]` mm. Tên type lấy từ `list_types`.
+
+| Category | fields |
+|---|---|
+| Levels | `name`, `elevationMm` |
+| Grids | `name`, `startMm`, `endMm` |
+| Walls | `startMm`, `endMm`, `sourceType`, `thicknessMm?`, `level`, `topLevel?`, `heightMm?`, `structural?`, `locationLine?` |
+| Floors | `loops: [[[x,y],…]]`, `floorType`, `level` |
+| Ceilings | `loops`, `ceilingType`, `level`, `offsetMm?` |
+| Doors / Windows | `familyType` \| `typeMark`, `wallId` \| `xyzMm` (cách tường < 200 mm), `level?`, `swingMm?`, `hingeMm?` |
+| Rooms | `xyzMm`, `level`, `name?`, `number?` |
+| StructuralColumns | `xyzMm`, `familyType` \| `widthMm`+`depthMm`, `sourceFamily?`, `rotationDeg?`, `baseLevel`, `topLevel?`, `mark?` |
+| StructuralFraming | `startMm`, `endMm`, `familyType` \| `widthMm`+`depthMm`, `sourceFamily?`, `level` |
+| StructuralFoundation | `xyzMm`, `familyType` \| `typeMark` \| `widthMm`+`depthMm` \| `diameterMm`, `kind?`, `level`, `embedMm?`, `rotationDeg?`, `mark?` |
+| Pipes | `startMm`, `endMm`, `pipeType`, `systemType`, `level`, `diameterMm?` |
+| Ducts | `startMm`, `endMm`, `ductType`, `systemType`, `level`, `widthMm`+`heightMm` \| `diameterMm` |
+| CableTrays | `startMm`, `endMm`, `type`, `level`, `widthMm?` |
+| MechanicalEquipment, ElectricalEquipment, PlumbingFixtures, LightingFixtures, Sprinklers, GenericModels | `xyzMm`, `familyType`, `level`, `rotationDeg?` |
+
+Chưa hỗ trợ: stairs, rebar, fittings, in-place.
 
 ## Cursor mcp.json
 
