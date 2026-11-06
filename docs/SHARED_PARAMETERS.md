@@ -69,3 +69,16 @@ Do not hard-code TT38 codes into families as the primary key. Prefer:
 `category + geometry + QS_* metadata → WorkItem → NormCode`
 
 `QS_WorkItemId` is an override only.
+
+
+## Asset information parameters (TS_*) — module "Tài sản · Asset Data"
+
+| Setting | Value |
+|---------|--------|
+| Shared Parameter file | `Config/TS_SharedParameters_FM.txt` (62 parameters, all Text, fixed GUIDs) |
+| Bound as | **Type** parameters, group **Data** (`GroupTypeId.Data`) |
+| Categories | keys of `familyByRevitCategory` in `Config/asset-spec-rules.json` (MEP equipment, fixtures, devices, generic models, doors, furniture…) |
+| Written by | Ribbon Tài sản › Asset Data, after the user confirms. QS_* are untouched |
+
+Values keep the unit text from the source (e.g. `22 kW`, `3P/380V/50Hz`). Column ↔ parameter map: row 5 of each sheet in the BIM form workbook.
+The binder restores the user's own shared-parameter file afterwards; a TS_* already bound with another GUID or as Instance is reported, never replaced.

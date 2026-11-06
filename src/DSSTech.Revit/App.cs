@@ -97,81 +97,86 @@ public sealed class App : IExternalApplication
 
         // ── Panel 5: MEPF ──────────────────────────────────────────────────
         var mepf = Panel(application, tab, "MEPF");
-        mepf.AddItem(Large(asm, "DSSTechMepSystems", "Hệ thống", "Systems", typeof(ModelRevit.MepSystemSetupCommand), "icon-params",
+        mepf.AddItem(Large(asm, "DSSTechMepSystems", "Hệ thống", "Systems", typeof(ModelRevit.MepSystemSetupCommand), "icon-mep-systems",
             "Tạo / đồng bộ system type ống gió, ống nước theo quy định màu; báo hệ đã có hoặc tương tự để không tạo trùng.",
             "Create or sync duct and pipe system types from the colour rules; flags existing or similar systems to avoid duplicates.", "dung-mo-hinh"));
         // Each discipline drops down to the kind of run; each then asks for the CAD link, the system and its layers.
         const string mepTip = " Chọn CAD, chọn system và tick layer của hệ (CAD có nhiều hệ); size theo chữ ghi cạnh nét, dưới đáy dầm/sàn và uốn né dầm.";
         const string mepTipEn = " Pick the CAD link, the system and its layers; size from labels, under beams and slabs with drops.";
-        Menu(mepf.AddItem(Pulldown("DSSTechMepMech", "Cơ\nMechanical", "icon-part-duct",
-                "Cơ (Mechanical) — ống gió, ống nước Cơ, thoát nước ngưng." + mepTip, "Ducts, mechanical pipes, condensate drains." + mepTipEn)),
+        Menu(mepf.AddItem(Pulldown("DSSTechMepMech", "ĐHKK\nHVAC", "icon-mep-mech",
+                "ĐHKK (HVAC) — ống gió, ống nước ĐHKK, thoát nước ngưng." + mepTip, "Ducts, mechanical pipes, condensate drains." + mepTipEn)),
             Item(asm, "DSSTechMepDuct", "Ống gió · Duct", typeof(ModelRevit.MepDuctCommand), "icon-part-duct",
                 "Cấp, hồi, gió tươi, thải (Duct)." + mepTip, "Supply, return, fresh air, exhaust ducts." + mepTipEn, "dung-mo-hinh"),
-            Item(asm, "DSSTechMepMechPipe", "Ống nước Cơ · Mechanical Pipe", typeof(ModelRevit.MepMechPipeCommand), "icon-part-pipe",
+            Item(asm, "DSSTechMepMechPipe", "Ống nước ĐHKK · HVAC Pipe", typeof(ModelRevit.MepMechPipeCommand), "icon-mep-chw",
                 "Nước Chiller, tháp giải nhiệt, gas (Pipe)." + mepTip, "Chilled, condenser water and refrigerant pipes." + mepTipEn, "dung-mo-hinh"),
-            Item(asm, "DSSTechMepCondensate", "Thoát nước ngưng · Condensate", typeof(ModelRevit.MepCondensateCommand), "icon-part-pipe",
-                "Ống thoát nước ngưng có độ dốc về điểm xả." + mepTip, "Condensate drains falling to their outlet." + mepTipEn, "dung-mo-hinh"));
-        var mepStack = mepf.AddStackedItems(
-            Small(asm, "DSSTechMepElec", "Điện", "Electrical", typeof(ModelRevit.MepElectricalCommand), "icon-part-tray",
-                "Máng / thang cáp, hệ ghi vào Service Type." + mepTip,
-                "Cable trays, system as Service Type." + mepTipEn, "dung-mo-hinh"),
-            Pulldown("DSSTechMepPlumb", "Nước", "icon-part-pipe",
-                "Nước (Plumbing) — cấp nước dưới đáy dầm/sàn; thoát nước có độ dốc về điểm xả và nối vào ống có sẵn.",
-                "Water supply under beams and slabs; drainage falling to its outlet and joined to the pipe there."),
-            Pulldown("DSSTechMepFire", "PCCC", "icon-part-pipe",
-                "PCCC (Fire Protection) — sprinkler (Pipe) và tăng áp / hút khói (Duct).",
-                "Sprinkler pipes and pressurisation / smoke exhaust ducts."));
-        Menu(mepStack.Count > 1 ? mepStack[1] : null,
-            Item(asm, "DSSTechMepSupply", "Cấp nước · Water Supply", typeof(ModelRevit.MepPlumbingCommand), "icon-part-pipe",
+            Item(asm, "DSSTechMepCondensate", "Thoát nước ngưng · Condensate", typeof(ModelRevit.MepCondensateCommand), "icon-mep-condensate",
+                "Ống thoát nước ngưng có độ dốc về điểm xả." + mepTip, "Condensate drains falling to their outlet." + mepTipEn, "dung-mo-hinh"),
+            Item(asm, "DSSTechHvacDevices", "Thiết bị ĐHKK · Air Devices", typeof(ModelRevit.HvacDevicesCommand), "icon-mep-terminal",
+                "Miệng gió, FCU, box gió từ block CAD: theo cao độ trần phía trên (hoặc cao độ chỉ định), rồi tự nối ống mềm tới ống gió cùng hệ.",
+                "Grilles, fan coils and air boxes from CAD blocks at the ceiling (or a typed height), joined to the ducts by flex duct.", "dung-mo-hinh"),
+            Item(asm, "DSSTechFlexConnect", "Nối ống mềm · Flex Connect", typeof(ModelRevit.FlexConnectCommand), "icon-mep-flex",
+                "Nối ống mềm từ miệng gió / FCU / box đang chọn (hoặc mọi thiết bị chưa nối của tầng) tới ống gió cùng hệ gần nhất.",
+                "Flex duct from the selected (or every unconnected) air devices of the level to the nearest duct of their system.", "dung-mo-hinh"));
+        mepf.AddItem(Large(asm, "DSSTechMepElec", "Điện", "Electrical", typeof(ModelRevit.MepElectricalCommand), "icon-mep-elec",
+            "Máng / thang cáp, hệ ghi vào Service Type." + mepTip,
+            "Cable trays, system as Service Type." + mepTipEn, "dung-mo-hinh"));
+        var plumbing = mepf.AddItem(Pulldown("DSSTechMepPlumb", "Nước\nPlumbing", "icon-mep-water",
+            "Nước (Plumbing) — cấp nước dưới đáy dầm/sàn; thoát nước có độ dốc về điểm xả và nối vào ống có sẵn.",
+            "Water supply under beams and slabs; drainage falling to its outlet and joined to the pipe there."));
+        var fire = mepf.AddItem(Pulldown("DSSTechMepFire", "PCCC\nFire", "icon-mep-fire",
+            "PCCC (Fire Protection) — sprinkler (Pipe) và tăng áp / hút khói (Duct).",
+            "Sprinkler pipes and pressurisation / smoke exhaust ducts."));
+        Menu(plumbing,
+            Item(asm, "DSSTechMepSupply", "Cấp nước · Water Supply", typeof(ModelRevit.MepPlumbingCommand), "icon-mep-supply",
                 "Nước lạnh, nóng, hồi nóng (Pipe)." + mepTip, "Cold, hot and hot return water." + mepTipEn, "dung-mo-hinh"),
-            Item(asm, "DSSTechMepDrain", "Thoát nước · Drainage", typeof(ModelRevit.MepDrainCommand), "icon-part-pipe",
+            Item(asm, "DSSTechMepDrain", "Thoát nước · Drainage", typeof(ModelRevit.MepDrainCommand), "icon-mep-drain",
                 "Thải đen, xám, bếp, mưa, thông hơi: độ dốc về điểm xả." + mepTip, "Soil, waste, kitchen, rain, vent: falling to the outlet." + mepTipEn, "dung-mo-hinh"));
-        Menu(mepStack.Count > 2 ? mepStack[2] : null,
-            Item(asm, "DSSTechMepSprinkler", "Sprinkler / chữa cháy · Sprinkler", typeof(ModelRevit.MepFireCommand), "icon-part-pipe",
+        Menu(fire,
+            Item(asm, "DSSTechMepSprinkler", "Sprinkler / chữa cháy · Sprinkler", typeof(ModelRevit.MepFireCommand), "icon-mep-sprinkler",
                 "Sprinkler, họng vách tường, màn ngăn (Pipe)." + mepTip, "Sprinkler, hose and drencher pipes." + mepTipEn, "dung-mo-hinh"),
-            Item(asm, "DSSTechMepSmoke", "Tăng áp / hút khói · Smoke Duct", typeof(ModelRevit.MepSmokeDuctCommand), "icon-part-duct",
+            Item(asm, "DSSTechMepSmoke", "Tăng áp / hút khói · Smoke Duct", typeof(ModelRevit.MepSmokeDuctCommand), "icon-mep-smoke",
                 "Ống gió tạo áp, hút khói (Duct)." + mepTip, "Pressurisation and smoke exhaust ducts." + mepTipEn, "dung-mo-hinh"));
-        Devices(mepf, asm, "DSSTechWallDevices", "Thiết bị tường", "Wall Devices",
+        Devices(mepf, asm, "DSSTechWallDevices", "Thiết bị tường", "Wall Devices", "icon-dev-wall",
             "Ổ cắm, công tắc, đèn ốp tường, điều hòa cục bộ từ block CAD: đặt lên mặt tường gần nhất ở cao độ lắp.",
             "Sockets, switches, wall lights and split AC units from CAD blocks, on the nearest wall face at mounting height.",
-            Item(asm, "DSSTechWallDevicesAll", "Tất cả thiết bị tường", typeof(ModelRevit.WallDevicesCommand), "icon-part-equipment",
+            Item(asm, "DSSTechWallDevicesAll", "Tất cả thiết bị tường", typeof(ModelRevit.WallDevicesCommand), "icon-dev-wall",
                 "Mọi block thiết bị tường trong CAD link, mỗi block gán một family.", "Every wall device block in the CAD link.", "dung-mo-hinh"),
-            Item(asm, "DSSTechSocket", "Ổ cắm", typeof(ModelRevit.SocketCommand), "icon-part-equipment",
+            Item(asm, "DSSTechSocket", "Ổ cắm", typeof(ModelRevit.SocketCommand), "icon-dev-socket",
                 "Ổ cắm trên mặt tường, mặc định cao 400 mm.", "Sockets on the wall face, 400 mm by default.", "dung-mo-hinh"),
-            Item(asm, "DSSTechSwitch", "Công tắc", typeof(ModelRevit.SwitchCommand), "icon-part-equipment",
+            Item(asm, "DSSTechSwitch", "Công tắc", typeof(ModelRevit.SwitchCommand), "icon-dev-switch",
                 "Công tắc trên mặt tường, mặc định cao 1250 mm.", "Switches on the wall face, 1250 mm by default.", "dung-mo-hinh"),
-            Item(asm, "DSSTechWallLight", "Đèn ốp tường", typeof(ModelRevit.WallLightCommand), "icon-part-equipment",
+            Item(asm, "DSSTechWallLight", "Đèn ốp tường", typeof(ModelRevit.WallLightCommand), "icon-dev-walllight",
                 "Đèn ốp tường, mặc định cao 2200 mm.", "Wall lights, 2200 mm by default.", "dung-mo-hinh"),
-            Item(asm, "DSSTechSplitAc", "Điều hòa cục bộ", typeof(ModelRevit.SplitAcCommand), "icon-part-equipment",
+            Item(asm, "DSSTechSplitAc", "Điều hòa cục bộ", typeof(ModelRevit.SplitAcCommand), "icon-dev-splitac",
                 "Dàn lạnh treo tường, mặc định cao 2500 mm.", "Wall-mounted indoor units, 2500 mm by default.", "dung-mo-hinh"));
-        Devices(mepf, asm, "DSSTechCeilingDevices", "Thiết bị trần", "Ceiling Devices",
+        Devices(mepf, asm, "DSSTechCeilingDevices", "Thiết bị trần", "Ceiling Devices", "icon-dev-ceiling",
             "Đèn trần, đầu phun sprinkler, đầu báo cháy từ block CAD: theo cao độ trần phía trên từng thiết bị.",
             "Ceiling lights, sprinklers and fire detectors from CAD blocks, at the ceiling over each one.",
-            Item(asm, "DSSTechCeilingDevicesAll", "Tất cả thiết bị trần", typeof(ModelRevit.CeilingDevicesCommand), "icon-part-equipment",
+            Item(asm, "DSSTechCeilingDevicesAll", "Tất cả thiết bị trần", typeof(ModelRevit.CeilingDevicesCommand), "icon-dev-ceiling",
                 "Mọi block thiết bị trần trong CAD link, mỗi block gán một family.", "Every ceiling device block in the CAD link.", "dung-mo-hinh"),
-            Item(asm, "DSSTechCeilingLight", "Đèn trần", typeof(ModelRevit.CeilingLightCommand), "icon-part-equipment",
+            Item(asm, "DSSTechCeilingLight", "Đèn trần", typeof(ModelRevit.CeilingLightCommand), "icon-dev-ceilinglight",
                 "Đèn gắn vào mặt trần phía trên.", "Lights on the ceiling above.", "dung-mo-hinh"),
-            Item(asm, "DSSTechSprinkler", "Đầu phun sprinkler", typeof(ModelRevit.SprinklerCommand), "icon-part-equipment",
+            Item(asm, "DSSTechSprinkler", "Đầu phun sprinkler", typeof(ModelRevit.SprinklerCommand), "icon-dev-sprinkler",
                 "Đầu phun theo cao độ trần phía trên.", "Sprinkler heads at the ceiling above.", "dung-mo-hinh"),
-            Item(asm, "DSSTechFireAlarm", "Đầu báo cháy", typeof(ModelRevit.FireAlarmCommand), "icon-part-equipment",
+            Item(asm, "DSSTechFireAlarm", "Đầu báo cháy", typeof(ModelRevit.FireAlarmCommand), "icon-dev-firealarm",
                 "Đầu báo khói / nhiệt gắn vào mặt trần.", "Smoke / heat detectors on the ceiling.", "dung-mo-hinh"));
 
         // ── Combine: phối hợp hệ thống sau khi dựng các bộ môn ─────────────
         var combine = Panel(application, tab, "Combine");
-        combine.AddItem(Build(asm, "DSSTechCombineAvoid", "Combine", typeof(ModelRevit.MepAvoidCommand), "icon-part-duct",
+        combine.AddItem(Build(asm, "DSSTechCombineAvoid", "Combine", typeof(ModelRevit.MepAvoidCommand), "icon-combine",
             "Chọn ống gió, ống nước, máng cáp ở khu vực va chạm; chọn loại phải né và đi dưới / đi trên: tự đổi tuyến bằng cút.",
             "Select the runs at a clash; pick which kind gives way and whether it passes under or over: it detours with elbows.", "dung-mo-hinh"));
-        combine.AddItem(Build(asm, "DSSTechClashCheck", "Clash Check", typeof(ModelRevit.ClashCheckCommand), "icon-params",
+        combine.AddItem(Build(asm, "DSSTechClashCheck", "Clash Check", typeof(ModelRevit.ClashCheckCommand), "icon-clash",
             "Kiểm tra va chạm nhóm A (model này) với nhóm B (model này và file link), rồi xem, sửa, tạo view, xuất BCF / Navisworks / Excel.",
             "Clash set A (this model) against set B (this model and links); review, fix, make views, export BCF / Navisworks / Excel.", "dung-mo-hinh"));
-        combine.AddItem(Large(asm, "DSSTechDrawingCompare", "So sánh", "Compare", typeof(ModelRevit.DrawingCompareCommand), "icon-params",
+        combine.AddItem(Large(asm, "DSSTechDrawingCompare", "So sánh", "Compare", typeof(ModelRevit.DrawingCompareCommand), "icon-compare",
             "So mô hình với bản vẽ (link hoặc bản cập nhật chưa link): thiếu, thừa, lệch, khác size; hoặc so bản vẽ cũ với bản mới. Đám mây, tô màu, dời theo bản vẽ, Excel.",
             "Model against the drawing (linked or a new revision), or old drawing against new: missing, extra, moved, changed; clouds, colours, moves, Excel.", "dung-mo-hinh"));
         combine.AddStackedItems(
-            Small(asm, "DSSTechMepRaise", "Nâng sát dầm", "Raise to Structure", typeof(ModelRevit.MepRaiseCommand), "icon-part-beam",
+            Small(asm, "DSSTechMepRaise", "Nâng sát dầm", "Raise to Structure", typeof(ModelRevit.MepRaiseCommand), "icon-raise",
                 "Nâng ống / máng đang chọn (hoặc cả một loại trên tầng) lên sát đáy dầm/sàn − 50 mm; mạng nối liền nâng cùng mức.",
                 "Raise the selected runs (or one kind on the level) to the beam/slab underside less 50 mm, each network as one.", "dung-mo-hinh"),
-            Small(asm, "DSSTechClashResults", "Xung đột", "Clash Results", typeof(ModelRevit.ClashResultsCommand), "icon-params",
+            Small(asm, "DSSTechClashResults", "Xung đột", "Clash Results", typeof(ModelRevit.ClashResultsCommand), "icon-clash-results",
                 "Mở lại kết quả check clash gần nhất: xem, sửa, tạo view 3D, xuất BCF, viewpoint Navisworks, Excel.",
                 "Reopen the last clash results: review, fix, 3D views, BCF, Navisworks viewpoints, Excel.", "dung-mo-hinh"));
 
@@ -189,6 +194,12 @@ public sealed class App : IExternalApplication
         qty.AddItem(Large(asm, "QSQuantitySchedule", "Bảng khối lượng", "Qty Schedule", typeof(QuantityScheduleCommand), "icon-schedule",
             "Tạo / cập nhật bảng thống kê 'QS-BIM Khối lượng cấu kiện' (nhiều loại cấu kiện, chạy lại không bị trùng).",
             "Create / update the 'QS-BIM element quantities' schedule (multi-category, safe to re-run).", "bang-khoi-luong"));
+
+        // ── Tài sản (FM / vận hành): Form BIM Excel + catalogue PDF → TS_* trên Type ─
+        var assets = Panel(application, tab, "Tài sản · Assets");
+        assets.AddItem(Large(asm, "DSSTechAssetInfo", "Tài sản", "Asset Data", typeof(AssetInfo.AssetInfoImportCommand), "icon-asset",
+            "Nhập thông tin tài sản từ Form BIM (Excel) và catalogue PDF vào tham số Type TS_*: xem trước, khớp Type, chỉ ghi sau khi xác nhận.",
+            "Import asset data from the BIM form (Excel) and catalogue PDFs into TS_* type parameters: preview, match types, write on confirm.", "tai-san"));
 
         // ── Panel 7: Trợ lý AI ─────────────────────────────────────────────
         var ai = Panel(application, tab, "Trợ lý AI · AI");
@@ -239,14 +250,14 @@ public sealed class App : IExternalApplication
         ?? application.CreateRibbonPanel(tab, name);
 
     /// <summary>Nút to xổ xuống: mỗi mục là một modul thiết bị riêng.</summary>
-    private static void Devices(RibbonPanel panel, string asm, string id, string vi, string en, string tipVi, string tipEn,
+    private static void Devices(RibbonPanel panel, string asm, string id, string vi, string en, string icon, string tipVi, string tipEn,
         params PushButtonData[] items)
     {
-        RibbonState.IconById[id] = "icon-part-equipment";
+        RibbonState.IconById[id] = icon;
         var data = new PulldownButtonData(id, $"{vi}\n{en}")
         {
-            LargeImage = RibbonIcons.Load("icon-part-equipment", 32),
-            Image = RibbonIcons.Load("icon-part-equipment", 16),
+            LargeImage = RibbonIcons.Load(icon, 32),
+            Image = RibbonIcons.Load(icon, 16),
             ToolTip = tipVi,
             LongDescription = tipEn
         };

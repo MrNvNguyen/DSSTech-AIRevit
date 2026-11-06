@@ -17,6 +17,8 @@ public sealed class CadGeometry
 public abstract class CadEntity
 {
     public string Layer { get; set; } = "0";
+    /// <summary>The block reference the stroke was drawn in (all strokes of one insert share it); 0 in model space.</summary>
+    public int BlockRef { get; set; }
 }
 
 public sealed class CadLine : CadEntity
@@ -37,6 +39,13 @@ public sealed class CadCircle : CadEntity
 public sealed class CadPolyline : CadEntity
 {
     public bool Closed { get; set; }
+    /// <summary>An arc cut into chords (a bend drawn round), not a polyline drawn as such.</summary>
+    public bool FromArc { get; set; }
+    /// <summary>
+    /// Bulge of the segment from each point to the next (tan of a quarter of its arc, + counter-clockwise), as a DWG
+    /// polyline stores its round parts; null when read without them.
+    /// </summary>
+    public List<double>? Bulges { get; set; }
     public List<CadPoint2> Points { get; } = new List<CadPoint2>();
 }
 

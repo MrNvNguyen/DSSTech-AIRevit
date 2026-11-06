@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Asset information (FM / AIR) import engine. Revit-API-free, same rule as DSSTech.Core. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Dss.AssetInfo.Core</RootNamespace>
+    <AssemblyName>Dss.AssetInfo.Core</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Same ClosedXML version as DSSTech.Core to avoid two OpenXml versions inside Revit. -->
+    <PackageReference Include="ClosedXML" Version="0.104.2" />
+    <!-- Pure .NET PDF text reader (Apache-2.0). No OCR: scanned PDFs are reported, not read. -->
+    <PackageReference Include="PdfPig" Version="0.1.9" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Dss.AssetInfo.Core.Tests" />
+  </ItemGroup>
+</Project>

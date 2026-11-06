@@ -99,9 +99,14 @@ internal static class CadLinkText
             case CadLine line:
                 var a = ToModel(line.X0, line.Y0, transform);
                 var b = ToModel(line.X1, line.Y1, transform);
-                return new CadLine { Layer = line.Layer, X0 = a.X, Y0 = a.Y, X1 = b.X, Y1 = b.Y };
+                return new CadLine { Layer = line.Layer, BlockRef = line.BlockRef, X0 = a.X, Y0 = a.Y, X1 = b.X, Y1 = b.Y };
             case CadPolyline poly:
-                var placed = new CadPolyline { Layer = poly.Layer, Closed = poly.Closed };
+                var mirror = transform.BasisX.X * transform.BasisY.Y - transform.BasisX.Y * transform.BasisY.X < 0;
+                var placed = new CadPolyline
+                {
+                    Layer = poly.Layer, BlockRef = poly.BlockRef, Closed = poly.Closed, FromArc = poly.FromArc,
+                    Bulges = poly.Bulges?.Select(x => mirror ? -x : x).ToList()
+                };
                 foreach (var point in poly.Points)
                     placed.Points.Add(ToModel(point.X, point.Y, transform));
                 return placed;
@@ -271,6 +276,7 @@ internal static class CadLinkText
                 return new DwgContent(new List<(string, double, double, double, double, double, string, bool)>(), new List<CadEntity>());
 
             var units = doc.Header.InsUnits;
+            _blocks = 0;
             var labels = new List<(string, double, double, double, double, double, string, bool)>();
             var curves = new List<CadEntity>();
             foreach (var entity in doc.Entities)
@@ -333,6 +339,10 @@ internal static class CadLinkText
         }
     }
 
+    /// <summary>Block inserts met so far in this read: each insert's strokes get its number (nested ones the outermost's).</summary>
+    [ThreadStatic]
+    private static int _blocks;
+
     private static void Collect(
         Entity entity,
         UnitsType units,
@@ -382,8 +392,12 @@ internal static class CadLinkText
                     Add(attribute.Value, transform.Apply(attribute.InsertPoint), units, labels, WorldRotationDeg(transform.Then(insert), attribute.Rotation),
                         transform.Apply(TextCenter(attribute)), ResolveLayer(attribute.Layer?.Name, layer));
                 var next = transform.Then(insert);
+                var block = ++_blocks;
+                var from = curves.Count;
                 foreach (var child in insert.Block.Entities)
                     Collect(child, units, labels, curves, next, depth + 1, layer);
+                for (var i = from; i < curves.Count; i++)
+                    curves[i].BlockRef = block;
                 break;
         }
     }
@@ -488,11 +502,18 @@ internal static class CadLinkText
     private static void AddPolyline(string layer, IPolyline poly, Transform2 transform, UnitsType units, List<CadEntity> curves)
     {
         var placed = new CadPolyline { Layer = layer, Closed = poly.IsClosed };
+        // A mirrored insert turns a counter-clockwise bulge clockwise.
+        var mirrored = transform.M11 * transform.M22 - transform.M12 * transform.M21 < 0;
+        var bulges = new List<double>();
         foreach (var vertex in poly.Vertices)
         {
             var point = transform.Apply(new CadPoint(vertex.Location[0], vertex.Location[1], 0));
             placed.Points.Add(new CadPoint2(ToMm(point.X, units), ToMm(point.Y, units)));
+            bulges.Add(mirrored ? -vertex.Bulge : vertex.Bulge);
         }
+
+        if (bulges.Any(b => Math.Abs(b) > 1e-9))
+            placed.Bulges = bulges;
 
         if (!placed.Closed && placed.Points.Count >= 4)
         {

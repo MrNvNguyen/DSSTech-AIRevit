@@ -3196,6 +3196,142 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // Ducts drawn with both sides: a 600 main with a bend and a 400 branch (its sides stop short of the main,
+        // the main's near side broken there) become their axes, joined as a bend and a tee, sized from the labels.
+        CadLine L(double x0, double y0, double x1, double y1) => new() { Layer = "M-DUCT", X0 = x0, Y0 = y0, X1 = x1, Y1 = y1 };
+        var twoLine = MepRoutePlanner.Build(new CadEntity[]
+            {
+                L(0, 600, 9400, 600), L(0, 0, 4800, 0), L(5200, 0, 9400, 0),
+                L(9700, 1200, 9700, 6000), L(10300, 1200, 10300, 6000),
+                L(4800, -200, 4800, -4000), L(5200, -200, 5200, -4000)
+            }, null, new MepSize(400, 300, 0), new[]
+            {
+                new CadText { Value = "600x300", X = 2000, Y = 300 }, new CadText { Value = "600x300", X = 10000, Y = 3000 },
+                new CadText { Value = "400x250", X = 5000, Y = -2000 }
+            });
+        var twoSizes = twoLine.Edges.Select(e => $"{e.Size}/{e.SizeFrom}").OrderBy(x => x).ToList();
+        var degree3 = Enumerable.Range(0, twoLine.Nodes.Count).Count(n => twoLine.Edges.Count(e => e.A == n || e.B == n) == 3);
+        if (twoLine.Edges.Count != 4 || degree3 != 1 || MepRoutePlanner.Parts(twoLine).Count != 1 ||
+            string.Join(",", twoSizes) != "400x250/text,600x300/drawn,600x300/text,600x300/text")
+        {
+            message = $"mep two-line ducts: {twoLine.Edges.Count} edges, {degree3} tees, {MepRoutePlanner.Parts(twoLine).Count} parts: " +
+                      string.Join(" | ", twoSizes);
+            return false;
+        }
+
+        // As drawn by the HVAC consultant: a 600 duct with joints drawn across it, bending round (arcs) into a 600
+        // drop; a 400 duct 300 mm beside it (the gap is not a duct); grilles as a block and as a closed square with
+        // its cross (devices, not runs); a single-line layer kept as drawn.
+        CadPolyline Arc(double cx, double cy, double r, double from, double to)
+        {
+            var arc = new CadPolyline { Layer = "M-DUCT", FromArc = true };
+            for (var k = 0; k <= 8; k++)
+            {
+                var t = (from + (to - from) * k / 8) * Math.PI / 180;
+                arc.Points.Add(new CadPoint2(cx + r * Math.Cos(t), cy + r * Math.Sin(t)));
+            }
+
+            return arc;
+        }
+
+        var square = new CadPolyline { Layer = "M-DUCT", Closed = true };
+        foreach (var (sqx, sqy) in new[] { (8000.0, -3000.0), (8500.0, -3000.0), (8500.0, -2500.0), (8000.0, -2500.0), (8000.0, -3000.0) })
+            square.Points.Add(new CadPoint2(sqx, sqy));
+        var consultant = new List<CadEntity>
+        {
+            L(0, 0, 4000, 0), L(0, 600, 4000, 600), L(1200, 0, 1200, 600), L(2400, 0, 2400, 600), L(4000, 0, 4000, 600),
+            Arc(4000, -300, 300, 90, 0), Arc(4000, -300, 900, 90, 0), L(4300, -300, 4900, -300),
+            L(4300, -300, 4300, -4000), L(4900, -300, 4900, -4000),
+            L(0, 900, 4000, 900), L(0, 1300, 4000, 1300),
+            square, L(8000, -3000, 8500, -2500), L(8000, -2500, 8500, -3000),
+            new CadLine { Layer = "M-PIPE", X0 = 0, Y0 = -6000, X1 = 3000, Y1 = -6000 }
+        };
+        foreach (var (gx0, gy0, gx1, gy1) in new[] { (8000.0, 0.0, 8600.0, 0.0), (8600.0, 0.0, 8600.0, 600.0), (8600.0, 600.0, 8000.0, 600.0), (8000.0, 600.0, 8000.0, 0.0), (8000.0, 0.0, 8600.0, 600.0) })
+            consultant.Add(new CadLine { Layer = "M-DUCT", BlockRef = 7, X0 = gx0, Y0 = gy0, X1 = gx1, Y1 = gy1 });
+        var runs = MepRoutePlanner.WithoutDevices(consultant, out var deviceCount);
+        var drawn = MepRoutePlanner.Build(runs, null, new MepSize(400, 300, 0), new[]
+        {
+            new CadText { Value = "600x300", X = 600, Y = 300 }, new CadText { Value = "400x250", X = 2000, Y = 1100 }
+        });
+        var drawnSizes = drawn.Edges.Select(e => $"{e.Size}/{e.SizeFrom}").OrderBy(x => x).ToList();
+        var corner = drawn.Nodes.Any(n => Math.Abs(n.X - 4600) < 1 && Math.Abs(n.Y - 300) < 1);
+        if (deviceCount != 2 || drawn.Edges.Count != 4 || !corner || MepRoutePlanner.Parts(drawn).Count != 3 ||
+            string.Join(",", drawnSizes) != "400x250/text,400x300/default,600x300/drawn,600x300/text")
+        {
+            message = $"mep consultant ducts: {deviceCount} devices, {drawn.Edges.Count} edges, corner {corner}, " +
+                      $"{MepRoutePlanner.Parts(drawn).Count} parts: " + string.Join(" | ", drawnSizes);
+            return false;
+        }
+
+        // Centerlines drawn between the sides; a D250 round branch off an 1800x300 main, the grille's 450x450 beside it
+        // (not the branch's size: the branch is drawn 250 wide).
+        var centered = MepRoutePlanner.Build(new CadEntity[]
+            {
+                L(0, 0, 0, 8000), L(1800, 0, 1800, 8000), L(900, 0, 900, 8000),
+                L(1800, 4000, 5000, 4000), L(1800, 4250, 5000, 4250), L(1800, 4125, 5000, 4125)
+            }, null, new MepSize(400, 300, 0), new[]
+            {
+                new CadText { Value = "1800x300", X = 600, Y = 2000 }, new CadText { Value = "450x450", X = 4000, Y = 4500 },
+                new CadText { Value = "D250", X = 3000, Y = 3700 }
+            });
+        var centeredSizes = centered.Edges.Select(e => $"{e.Size}/{e.SizeFrom}").OrderBy(x => x).ToList();
+        if (centered.Edges.Count != 3 || MepRoutePlanner.Parts(centered).Count != 1 ||
+            string.Join(",", centeredSizes) != "1800x300/drawn,1800x300/text,Ø250/text")
+        {
+            message = $"mep centerlines: {centered.Edges.Count} edges, {MepRoutePlanner.Parts(centered).Count} parts: " + string.Join(" | ", centeredSizes);
+            return false;
+        }
+
+        // Labels written beside the ducts, in the 600 gap between an 800 and a 600 duct: both ducts, not the gap. A
+        // D250 run ending in a flex (corrugations drawn across it every 40 mm): the flex is not a duct.
+        var besideParts = new List<CadEntity>
+        {
+            L(0, 0, 6000, 0), L(0, 800, 6000, 800), L(0, -600, 6000, -600), L(0, -1200, 6000, -1200),
+            L(0, -3000, 2000, -3000), L(0, -2750, 2000, -2750), L(2000, -3000, 3500, -3000), L(2000, -2750, 3500, -2750)
+        };
+        for (var fx = 2040.0; fx < 3500; fx += 40)
+            besideParts.Add(L(fx, -3000, fx, -2750));
+        var beside = MepRoutePlanner.Build(besideParts, null, new MepSize(400, 300, 0), new[]
+        {
+            new CadText { Value = "800x300", X = 3000, Y = 1000 }, new CadText { Value = "600x250", X = 3000, Y = -300 },
+            new CadText { Value = "D250", X = 1000, Y = -3300 }
+        });
+        var besideSizes = beside.Edges.Select(e => $"{e.Size}/{e.SizeFrom}").OrderBy(x => x).ToList();
+        if (beside.Edges.Count != 3 || string.Join(",", besideSizes) != "600x250/text,800x300/text,Ø250/text")
+        {
+            message = $"mep labels beside / flex: {beside.Edges.Count} edges, {beside.FlexSkipped} flex: " + string.Join(" | ", besideSizes);
+            return false;
+        }
+
+        // Ducts drawn as boxes: a 1000 main, a 400 branch off its bottom through a shoe (not a 150 duct between the
+        // shoe and the main's side), and a reducer to 500 drawn top-flat (both runs straight, a transition between).
+        static CadPolyline Box(bool closed, params double[] xy)
+        {
+            var p = new CadPolyline { Layer = "AC - Duct", Closed = closed };
+            for (var k = 0; k + 1 < xy.Length; k += 2)
+                p.Points.Add(new CadPoint2(xy[k], xy[k + 1]));
+            return p;
+        }
+
+        var boxes = MepRoutePlanner.Build(new CadEntity[]
+        {
+            Box(true, 0, 0, 6000, 0, 6000, 1000, 0, 1000),
+            Box(false, 6000, 0, 6500, 500, 6500, 1000, 6000, 1000),
+            Box(false, 6500, 1000, 10000, 1000, 10000, 500, 6500, 500),
+            Box(false, 1800, 0, 2000, -150, 2400, -150, 2400, 0),
+            L(2000, -150, 2000, -3000), L(2400, -150, 2400, -3000)
+        }, null, new MepSize(400, 300, 0), Array.Empty<CadText>(), true);
+        var boxEdges = boxes.Edges.Select(e =>
+                $"({boxes.Nodes[e.A].X:0},{boxes.Nodes[e.A].Y:0})-({boxes.Nodes[e.B].X:0},{boxes.Nodes[e.B].Y:0}){(e.IsTransition ? " transition" : $" w{e.DrawnWidthMm:0}")}")
+            .ToList();
+        if (boxes.Edges.Count != 5 || boxes.Edges.Count(e => e.IsTransition) != 1 || MepRoutePlanner.Parts(boxes).Count != 1 ||
+            boxes.Edges.Any(e => !e.IsTransition && e.DrawnWidthMm is not (1000 or 500 or 400)) ||
+            boxes.Edges.Where(e => !e.IsTransition).Any(e => Math.Abs(boxes.Nodes[e.A].Y - boxes.Nodes[e.B].Y) > 1 && Math.Abs(boxes.Nodes[e.A].X - boxes.Nodes[e.B].X) > 1))
+        {
+            message = "mep box-drawn ducts: " + string.Join(" | ", boxEdges);
+            return false;
+        }
+
         // A whole drawing (30 000 strokes and labels) builds in seconds, not the pairwise minutes that hung Revit.
         var bigPlan = new List<CadEntity>();
         var bigTexts = new List<CadText>();
@@ -3353,7 +3489,10 @@ public static class SectionFootprintSelfTest
             ("Ổ CẮM ĐÔI", "0", DeviceKind.Socket), ("OC1", "E-POWER", DeviceKind.Socket), ("CONG_TAC_2", "0", DeviceKind.Switch),
             ("DEN OP TUONG", "0", DeviceKind.WallLight), ("Downlight D90", "0", DeviceKind.CeilingLight),
             ("SPK-PENDENT", "0", DeviceKind.Sprinkler), ("Đầu báo khói", "0", DeviceKind.FireAlarm),
-            ("A$C1234", "M-DIEU HOA", DeviceKind.SplitAc), ("VIDEO CAMERA", "0", null), ("DENSITY", "0", null)
+            ("A$C1234", "M-DIEU HOA", DeviceKind.SplitAc), ("VIDEO CAMERA", "0", null), ("DENSITY", "0", null),
+            ("MIỆNG GIÓ KHUẾCH TÁN 600x600", "0", DeviceKind.AirTerminal), ("SAD-1", "M-AC", DeviceKind.AirTerminal),
+            ("FCU-03", "0", DeviceKind.FanCoil), ("Cassette 4 way", "0", DeviceKind.FanCoil), ("VAV-200", "0", DeviceKind.AirBox),
+            ("Box gió cấp", "0", DeviceKind.AirBox)
         };
         foreach (var (block, layer, kind) in guesses)
         {

@@ -147,8 +147,50 @@ public sealed class MepSystemSetupCommand : IExternalCommand
         if (material is null)
             return;
         material.Color = color;
+        Appearance(doc, material, color);
         type.MaterialId = material.Id;
     }
+
+    /// <summary>
+    /// The material's render look (Appearance tab) in the rule colour too: an appearance asset of its own, named as the
+    /// material (a new material shares «Generic»; recolouring that would recolour every material using it).
+    /// </summary>
+    private static void Appearance(Document doc, Material material, Color color)
+    {
+        var assets = new FilteredElementCollector(doc).OfClass(typeof(AppearanceAssetElement)).Cast<AppearanceAssetElement>().ToList();
+        var own = assets.FirstOrDefault(a => a.Name == material.Name);
+        if (own is null)
+        {
+            var source = doc.GetElement(material.AppearanceAssetId) as AppearanceAssetElement;
+            if (source is not null && IsGeneric(source.GetRenderingAsset()))
+                own = source.Duplicate(material.Name);
+            else if (assets.FirstOrDefault(a => IsGeneric(a.GetRenderingAsset())) is { } anyGeneric)
+                own = anyGeneric.Duplicate(material.Name);
+            else if (doc.Application.GetAssets(Autodesk.Revit.DB.Visual.AssetType.Appearance).FirstOrDefault(IsGeneric) is { } library)
+                own = AppearanceAssetElement.Create(doc, material.Name, library);
+        }
+
+        if (own is null)
+            return;
+        using (var scope = new Autodesk.Revit.DB.Visual.AppearanceAssetEditScope(doc))
+        {
+            var asset = scope.Start(own.Id);
+            if (asset.FindByName(Autodesk.Revit.DB.Visual.Generic.GenericDiffuse) is Autodesk.Revit.DB.Visual.AssetPropertyDoubleArray4d diffuse)
+            {
+                // A texture on the colour would hide it.
+                if (diffuse.NumberOfConnectedProperties > 0)
+                    diffuse.RemoveConnectedAsset();
+                diffuse.SetValueAsColor(color);
+            }
+
+            scope.Commit(true);
+        }
+
+        material.AppearanceAssetId = own.Id;
+    }
+
+    private static bool IsGeneric(Autodesk.Revit.DB.Visual.Asset? asset) =>
+        asset?.FindByName(Autodesk.Revit.DB.Visual.Generic.GenericDiffuse) is Autodesk.Revit.DB.Visual.AssetPropertyDoubleArray4d;
 
     private static List<(MEPSystemType Type, ExistingSystem Info)> Existing(Document doc)
     {

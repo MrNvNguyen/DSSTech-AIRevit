@@ -9,7 +9,9 @@ namespace Dss.Cad2Bim.Core;
 public enum DeviceMount
 {
     Wall,
-    Ceiling
+    Ceiling,
+    /// <summary>Air-conditioning devices: at the ceiling (or a typed height), joined to the ducts by flex duct.</summary>
+    Hvac
 }
 
 public enum DeviceKind
@@ -20,7 +22,10 @@ public enum DeviceKind
     SplitAc,
     CeilingLight,
     Sprinkler,
-    FireAlarm
+    FireAlarm,
+    AirTerminal,
+    FanCoil,
+    AirBox
 }
 
 /// <summary>One kind of device: where it mounts, its Revit category and the default height.</summary>
@@ -42,7 +47,7 @@ public sealed class DeviceSpec
     public string Label { get; }
     /// <summary>Revit BuiltInCategory name (OST_…).</summary>
     public string Category { get; }
-    /// <summary>Wall: mounting height above the level. Ceiling: distance below the ceiling.</summary>
+    /// <summary>Wall: mounting height above the level. Ceiling, Hvac: distance below the ceiling (Hvac: negative = above it).</summary>
     public double DefaultMm { get; }
     /// <summary>Phrases found anywhere in a block or layer name (unaccented, upper case).</summary>
     public string[] Words { get; }
@@ -88,6 +93,14 @@ public static class DevicePlanner
         new DeviceSpec(DeviceKind.FireAlarm, DeviceMount.Ceiling, "Đầu báo cháy", "OST_FireAlarmDevices", 0,
             new[] { "BAO KHOI", "BAOKHOI", "BAO NHIET", "BAONHIET", "BAO CHAY", "BAOCHAY", "DAU BAO", "SMOKE", "HEAT", "DETECTOR", "DETECT" },
             new[] { "FA", "SD", "HD", "BK", "BN" }),
+        // Air conditioning: a box and a fan coil before the grilles they feed.
+        new DeviceSpec(DeviceKind.AirBox, DeviceMount.Hvac, "Box gió (VAV / CAV / plenum)", "OST_MechanicalEquipment", -200,
+            new[] { "BOX GIO", "BOXGIO", "HOP GIO", "HOPGIO", "PLENUM", "VAV BOX", "CAV BOX", "VARIABLE AIR" }, new[] { "VAV", "CAV", "PB" }),
+        new DeviceSpec(DeviceKind.FanCoil, DeviceMount.Hvac, "FCU / AHU treo trần", "OST_MechanicalEquipment", -100,
+            new[] { "FAN COIL", "FANCOIL", "CASSETTE", "DAN LANH AM TRAN", "AIR HANDLING" }, new[] { "FCU", "AHU", "PAU", "FCB", "FC" }),
+        new DeviceSpec(DeviceKind.AirTerminal, DeviceMount.Hvac, "Miệng gió", "OST_DuctTerminal", 0,
+            new[] { "MIENG GIO", "MIENGGIO", "CUA GIO", "CUAGIO", "DIFFUSER", "DIFFUSOR", "GRILLE", "LOUVER", "LOUVRE", "REGISTER", "KHUECH TAN", "SLOT DIFF", "LINEAR SLOT" },
+            new[] { "SAD", "RAD", "EAD", "FAD", "SAG", "RAG", "EAG", "OAG", "DIF", "MG", "CG" }),
         new DeviceSpec(DeviceKind.Switch, DeviceMount.Wall, "Công tắc", "OST_LightingDevices", 1250,
             new[] { "CONG TAC", "CONGTAC", "SWITCH" }, new[] { "CT", "SW" }),
         new DeviceSpec(DeviceKind.Socket, DeviceMount.Wall, "Ổ cắm", "OST_ElectricalFixtures", 400,
