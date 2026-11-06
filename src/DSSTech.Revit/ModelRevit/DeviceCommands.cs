@@ -82,6 +82,22 @@ public sealed class FireAlarmCommand : IExternalCommand
         DeviceTool.Run(data.Application, DeviceMount.Ceiling, DeviceKind.FireAlarm);
 }
 
+// ── Thiết bị ĐHKK: miệng gió, FCU, box gió, nối ống mềm ─────────────────
+[Transaction(TransactionMode.Manual)]
+public sealed class HvacDevicesCommand : IExternalCommand
+{
+    public Result Execute(ExternalCommandData data, ref string message, ElementSet elements) =>
+        DeviceTool.Run(data.Application, DeviceMount.Hvac, null);
+}
+
+/// <summary>Flex duct from the selected (else every unconnected) air devices of the level to the nearest duct.</summary>
+[Transaction(TransactionMode.Manual)]
+public sealed class FlexConnectCommand : IExternalCommand
+{
+    public Result Execute(ExternalCommandData data, ref string message, ElementSet elements) =>
+        HvacFlex.Run(data.Application);
+}
+
 /// <summary>One block name mapped to the family type it becomes.</summary>
 internal sealed record DeviceRow(DeviceBlockGroup Group, DeviceSpec Spec, FamilySymbol Symbol, double Mm);
 
@@ -107,7 +123,8 @@ internal static class DeviceTool
             return Result.Failed;
         }
 
-        var title = "DSSTech — " + (only is DeviceKind k ? DevicePlanner.Spec(k).Label : mount == DeviceMount.Wall ? "Thiết bị tường" : "Thiết bị trần");
+        var title = "DSSTech — " + (only is DeviceKind k ? DevicePlanner.Spec(k).Label
+            : mount switch { DeviceMount.Wall => "Thiết bị tường", DeviceMount.Hvac => "Thiết bị ĐHKK", _ => "Thiết bị trần" });
         if (!ModelRevitLevelContext.TryResolve(view, doc, out var level, out var topLevel, out var levelErr))
         {
             TaskDialog.Show(title, levelErr);
@@ -141,7 +158,11 @@ internal static class DeviceTool
             DeviceMemory.Save(dlg.Rows);
 
             var view3D = DeviceView(doc);
-            var report = Place(doc, view3D, level, topLevel, mount, blocks, dlg.Rows, dlg.ReachMm, dlg.DefaultCeilingMm);
+            var placed = new List<ElementId>();
+            var report = Place(doc, view3D, level, topLevel, mount, blocks, dlg.Rows, dlg.ReachMm, dlg.DefaultCeilingMm,
+                dlg.IgnoreCeiling, placed);
+            if (mount == DeviceMount.Hvac && dlg.ConnectFlex && placed.Count > 0)
+                report += "\n" + HvacFlex.Connect(doc, placed, dlg.FlexReachMm);
             TaskDialog.Show(title, report);
             return Result.Succeeded;
         }
@@ -152,7 +173,8 @@ internal static class DeviceTool
     }
 
     private static string Place(Document doc, View3D view3D, Level level, Level topLevel, DeviceMount mount,
-        List<DeviceBlocks.Hit> blocks, IReadOnlyList<DeviceRow> rows, double reachMm, double defaultCeilingMm)
+        List<DeviceBlocks.Hit> blocks, IReadOnlyList<DeviceRow> rows, double reachMm, double defaultCeilingMm,
+        bool ignoreCeiling = false, List<ElementId>? placed = null)
     {
         var byName = rows.ToDictionary(r => r.Group.Name, StringComparer.OrdinalIgnoreCase);
         // A block inside a chosen block is part of its symbol, not a device of its own.
@@ -191,7 +213,7 @@ internal static class DeviceTool
                 var cat = row.Spec.Category;
                 if (!existing.TryGetValue(cat, out var points))
                 {
-                    points = Existing(doc, cat, level.Elevation, topLevel.Elevation);
+                    points = Existing(doc, cat, level.ProjectElevation, topLevel.ProjectElevation);
                     existing[cat] = points;
                 }
 
@@ -206,7 +228,7 @@ internal static class DeviceTool
                 {
                     var outcome = mount == DeviceMount.Wall
                         ? OnWall(doc, view3D, level, row, walls, x, y, hit.Insert.RotationDeg, reachMm, notes)
-                        : OnCeiling(doc, view3D, level, storey, row, x, y, hit.Insert.RotationDeg, defaultCeilingMm, notes);
+                        : OnCeiling(doc, view3D, level, storey, row, x, y, hit.Insert.RotationDeg, defaultCeilingMm, notes, ignoreCeiling, placed);
                     if (outcome is null)
                         continue;
                     points.Add(plan);
@@ -237,7 +259,9 @@ internal static class DeviceTool
         sb.AppendLine($"Gắn vào mặt {(mount == DeviceMount.Wall ? "tường" : "trần")}: {hosted}; đặt tự do theo cao độ: {free}.");
         if (mount == DeviceMount.Wall && noWall > 0)
             sb.AppendLine($"Không thấy tường trong {reachMm:0} mm: {noWall} (đặt tại điểm block, theo hướng block).");
-        if (mount == DeviceMount.Ceiling && noCeiling > 0)
+        if (mount != DeviceMount.Wall && ignoreCeiling)
+            sb.AppendLine($"Cao độ chỉ định: trần tính ở {defaultCeilingMm:0} mm từ level cho mọi thiết bị.");
+        else if (mount != DeviceMount.Wall && noCeiling > 0)
             sb.AppendLine($"Không có trần phía trên: {noCeiling} (đặt ở cao độ trần mặc định {defaultCeilingMm:0} mm).");
         if (skipped > 0)
             sb.AppendLine($"Đã có thiết bị cùng loại tại chỗ (bỏ qua): {skipped}.");
@@ -249,7 +273,7 @@ internal static class DeviceTool
     private static (bool Hosted, bool Missing)? OnWall(Document doc, View3D view3D, Level level, DeviceRow row, List<HostWallAxis> walls,
         double x, double y, double rotationDeg, double reachMm, List<string> notes)
     {
-        var z = level.Elevation + UnitConv.MmToInternal(row.Mm);
+        var z = level.ProjectElevation + UnitConv.MmToInternal(row.Mm);
         var snap = DevicePlanner.SnapToWall(x, y, walls, reachMm);
         var placement = row.Symbol.Family.FamilyPlacementType;
         if (snap is null)
@@ -299,16 +323,18 @@ internal static class DeviceTool
 
     /// <summary>Under the ceiling over the block (else at the default ceiling height), less the row's drop.</summary>
     private static (bool Hosted, bool Missing)? OnCeiling(Document doc, View3D view3D, Level level, double storey, DeviceRow row,
-        double x, double y, double rotationDeg, double defaultCeilingMm, List<string> notes)
+        double x, double y, double rotationDeg, double defaultCeilingMm, List<string> notes, bool ignoreCeiling = false,
+        List<ElementId>? placed = null)
     {
-        var start = new XYZ(UnitConv.MmToInternal(x), UnitConv.MmToInternal(y), level.Elevation + UnitConv.MmToInternal(RayLeadMm));
-        var hit = Nearest(view3D, BuiltInCategory.OST_Ceilings, start, XYZ.BasisZ, storey - UnitConv.MmToInternal(RayLeadMm));
+        var start = new XYZ(UnitConv.MmToInternal(x), UnitConv.MmToInternal(y), level.ProjectElevation + UnitConv.MmToInternal(RayLeadMm));
+        // A typed height stands for every device: no ceiling is looked for.
+        var hit = ignoreCeiling ? null : Nearest(view3D, BuiltInCategory.OST_Ceilings, start, XYZ.BasisZ, storey - UnitConv.MmToInternal(RayLeadMm));
         var turn = Turn(rotationDeg);
-        if (hit is not null && row.Mm < 1 && row.Symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased)
+        if (hit is not null && Math.Abs(row.Mm) < 1 && row.Symbol.Family.FamilyPlacementType == FamilyPlacementType.WorkPlaneBased)
         {
             try
             {
-                doc.Create.NewFamilyInstance(hit.Value.Reference, hit.Value.Point, turn, row.Symbol);
+                placed?.Add(doc.Create.NewFamilyInstance(hit.Value.Reference, hit.Value.Point, turn, row.Symbol).Id);
                 return (true, false);
             }
             catch (Autodesk.Revit.Exceptions.ApplicationException ex)
@@ -323,15 +349,16 @@ internal static class DeviceTool
             return null;
         }
 
-        var ceilingMm = hit is not null ? UnitConv.ToMm(hit.Value.Point.Z - level.Elevation) : defaultCeilingMm;
-        Free(doc, row.Symbol, level, new XYZ(start.X, start.Y, 0), DevicePlanner.Snap(ceilingMm - row.Mm), turn);
-        return (false, hit is null);
+        var ceilingMm = hit is not null ? UnitConv.ToMm(hit.Value.Point.Z - level.ProjectElevation) : defaultCeilingMm;
+        var fi = Free(doc, row.Symbol, level, new XYZ(start.X, start.Y, 0), DevicePlanner.Snap(ceilingMm - row.Mm), turn);
+        placed?.Add(fi.Id);
+        return (false, hit is null && !ignoreCeiling);
     }
 
     /// <summary>A free-standing instance on the level at <paramref name="heightMm"/>, its face turned to <paramref name="facing"/>.</summary>
-    private static void Free(Document doc, FamilySymbol symbol, Level level, XYZ plan, double heightMm, XYZ facing)
+    private static FamilyInstance Free(Document doc, FamilySymbol symbol, Level level, XYZ plan, double heightMm, XYZ facing)
     {
-        var at = new XYZ(plan.X, plan.Y, level.Elevation);
+        var at = new XYZ(plan.X, plan.Y, level.ProjectElevation);
         var fi = doc.Create.NewFamilyInstance(at, symbol, level, StructuralType.NonStructural);
         Offset(fi, heightMm);
         doc.Regenerate();
@@ -339,6 +366,7 @@ internal static class DeviceTool
         var angle = Math.Atan2(current.X * facing.Y - current.Y * facing.X, current.X * facing.X + current.Y * facing.Y);
         if (Math.Abs(angle) > 1e-6)
             ElementTransformUtils.RotateElement(doc, fi.Id, Line.CreateBound(at, at + XYZ.BasisZ), angle);
+        return fi;
     }
 
     private static void Offset(FamilyInstance fi, double mm)
@@ -500,7 +528,7 @@ internal static class DeviceWalls
     public static List<HostWallAxis> Collect(Document doc, Level level)
     {
         var result = ModelRevitHostWalls.At(doc, level.Name);
-        var probe = level.Elevation + UnitConv.MmToInternal(ProbeMm);
+        var probe = level.ProjectElevation + UnitConv.MmToInternal(ProbeMm);
         foreach (var link in new FilteredElementCollector(doc).OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>())
         {
             var linkDoc = link.GetLinkDocument();
@@ -589,12 +617,22 @@ internal sealed class DeviceSetupWindow : DssDialog
     public List<DeviceRow> Rows { get; } = new();
     public double ReachMm { get; private set; } = 400;
     public double DefaultCeilingMm { get; private set; } = 2700;
+    public bool IgnoreCeiling { get; private set; }
+    public bool ConnectFlex { get; private set; }
+    public double FlexReachMm { get; private set; } = 3000;
+    private readonly CheckBox? _ignoreCeiling;
+    private readonly CheckBox? _flex;
+    private readonly TextBox? _flexReach;
 
     public DeviceSetupWindow(Document doc, string title, DeviceMount mount, IReadOnlyList<DeviceSpec> kinds, List<DeviceBlockGroup> groups, string levelName)
         : base(title,
-            mount == DeviceMount.Wall
-                ? $"Level {levelName}. Mỗi block của CAD thành một loại thiết bị: đặt lên mặt tường gần nhất (model hoặc link), cao độ lắp tính từ level."
-                : $"Level {levelName}. Mỗi block của CAD thành một loại thiết bị: đặt dưới mặt trần phía trên (model hoặc link); khoảng dưới trần 0 thì gắn vào mặt trần.",
+            mount switch
+            {
+                DeviceMount.Wall => $"Level {levelName}. Mỗi block của CAD thành một loại thiết bị: đặt lên mặt tường gần nhất (model hoặc link), cao độ lắp tính từ level.",
+                DeviceMount.Hvac => $"Level {levelName}. Miệng gió, FCU, box gió từ block CAD: theo mặt trần phía trên (hoặc cao độ chỉ định); số âm = nằm trên trần. " +
+                                    "Sau khi đặt, tự nối ống mềm từ cổng gió của thiết bị tới ống gió cùng hệ gần nhất.",
+                _ => $"Level {levelName}. Mỗi block của CAD thành một loại thiết bị: đặt dưới mặt trần phía trên (model hoặc link); khoảng dưới trần 0 thì gắn vào mặt trần."
+            },
             860, 680)
     {
         _mount = mount;
@@ -610,7 +648,7 @@ internal sealed class DeviceSetupWindow : DssDialog
         var memory = DeviceMemory.Load();
         var rows = new StackPanel();
         var header = Row(Muted("Block CAD (số lượng)"), Muted("Loại thiết bị"), Muted("Family : Type"),
-            Muted(mount == DeviceMount.Wall ? "Cao lắp (mm)" : "Dưới trần (mm)"));
+            Muted(mount switch { DeviceMount.Wall => "Cao lắp (mm)", DeviceMount.Hvac => "Dưới trần (mm, âm = trên)", _ => "Dưới trần (mm)" }));
         foreach (var g in groups.Take(MaxRows))
         {
             DeviceSpec? spec = null;
@@ -651,8 +689,21 @@ internal sealed class DeviceSetupWindow : DssDialog
         };
         _extra = DssTheme.Input(mount == DeviceMount.Wall ? "400" : "2700");
         AddSection(1, "Block → thiết bị", header, rows, note);
-        AddSection(2, "Thiết lập",
-            DssTheme.Field(mount == DeviceMount.Wall ? "Khoảng tìm tường quanh block (mm)" : "Cao độ trần khi chưa có trần (mm, từ level)", _extra));
+        var settings = new List<UIElement>
+        {
+            DssTheme.Field(mount == DeviceMount.Wall ? "Khoảng tìm tường quanh block (mm)" : "Cao độ trần khi chưa có trần (mm, từ level)", _extra)
+        };
+        if (mount == DeviceMount.Hvac)
+        {
+            _ignoreCeiling = DssTheme.Option("Cao độ chỉ định: bỏ qua trần, mọi thiết bị theo cao độ trần ở trên", false);
+            _flex = DssTheme.Option("Tự nối ống mềm từ thiết bị tới ống gió cùng hệ gần nhất", true);
+            _flexReach = DssTheme.Input("3000");
+            settings.Add(_ignoreCeiling);
+            settings.Add(_flex);
+            settings.Add(DssTheme.Field("Khoảng tìm ống gió quanh thiết bị (mm, mặt bằng)", _flexReach));
+        }
+
+        AddSection(2, "Thiết lập", settings.ToArray());
         PrimaryButton.Content = "Dựng";
         PrimaryButton.Click += (_, _) =>
         {
@@ -707,6 +758,18 @@ internal sealed class DeviceSetupWindow : DssDialog
             ReachMm = extra;
         else
             DefaultCeilingMm = extra;
+        IgnoreCeiling = _ignoreCeiling?.IsChecked == true;
+        ConnectFlex = _flex?.IsChecked == true;
+        if (_flexReach is not null)
+        {
+            if (!double.TryParse(_flexReach.Text.Trim(), out var reach) || reach <= 0)
+            {
+                error = "Khoảng tìm ống gió phải là số mm > 0.";
+                return false;
+            }
+
+            FlexReachMm = reach;
+        }
         foreach (var (group, kindBox, typeBox, mmBox) in _items)
         {
             var spec = SpecOf(kindBox);
@@ -719,7 +782,7 @@ internal sealed class DeviceSetupWindow : DssDialog
                 return false;
             }
 
-            if (!double.TryParse(mmBox.Text.Trim(), out var mm) || mm < 0)
+            if (!double.TryParse(mmBox.Text.Trim(), out var mm) || (mm < 0 && _mount != DeviceMount.Hvac))
             {
                 error = $"Block {group.Name}: cao độ phải là số mm ≥ 0.";
                 return false;

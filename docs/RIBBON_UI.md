@@ -38,6 +38,7 @@ Mỗi icon có thêm bản `*-32-dark.png` / `*-16-dark.png`: nét `#D6E2EE` (x�
 | MEPF | Hệ thống · Cơ · [Điện / Nước / PCCC] · Thiết bị tường ▾ (Tất cả / Ổ cắm / Công tắc / Đèn ốp tường / Điều hòa cục bộ) · Thiết bị trần ▾ (Tất cả / Đèn trần / Đầu phun sprinkler / Đầu báo cháy) |
 | Combine | Combine · Check clash · So sánh · [Nâng sát dầm / Xung đột] |
 | Khối lượng · Quantity | Chọn định mức · Ván khuôn · Xuất BOQ · Bảng khối lượng |
+| Tài sản · Assets | Tài sản (Asset Data): Form BIM Excel + catalogue PDF → tham số Type `TS_*`, ghi sau khi xác nhận |
 | Trợ lý AI · AI | AI: Đang bật/Đã tắt (đổi icon + chữ theo trạng thái thật) · Kết nối AI |
 
 Mỗi nút module mở cửa sổ Dựng mô hình đúng loại đó, không có ô Loại và ô Layer (layer lấy từ nét pick trên bản vẽ); Bảng điều khiển vẫn mở cửa sổ đầy đủ như trước. Nút Link mặt bằng, Dựng mô hình và Dựng theo lô đã gỡ khỏi ribbon, lệnh phía sau giữ nguyên. Level chưa có logic dựng.

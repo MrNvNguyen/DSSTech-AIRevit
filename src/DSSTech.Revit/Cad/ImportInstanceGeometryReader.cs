@@ -37,6 +37,7 @@ internal static class ImportInstanceGeometryReader
         };
 
         LayerNames.Clear();
+        _blocks = 0;
         var elementGeom = import.get_Geometry(opt);
         if (elementGeom is not null)
         {
@@ -46,10 +47,10 @@ internal static class ImportInstanceGeometryReader
                 if (obj is GeometryInstance gi)
                 {
                     foreach (var child in gi.GetSymbolGeometry())
-                        Walk(child, link, geom, import.Document);
+                        Walk(child, link, geom, import.Document, 0);
                 }
                 else
-                    Walk(obj, Transform.Identity, geom, import.Document);
+                    Walk(obj, Transform.Identity, geom, import.Document, 0);
             }
         }
 
@@ -80,14 +81,27 @@ internal static class ImportInstanceGeometryReader
         return geom;
     }
 
-    private static void Walk(GeometryObject obj, Transform transform, CadGeometry geom, Document doc)
+    /// <summary>Block references met so far in this read: each insert's strokes get its number (nested ones the outer's).</summary>
+    [ThreadStatic]
+    private static int _blocks;
+
+    private static void Walk(GeometryObject obj, Transform transform, CadGeometry geom, Document doc, int block)
+    {
+        var count = geom.Entities.Count;
+        WalkOne(obj, transform, geom, doc, block);
+        for (var i = count; block != 0 && i < geom.Entities.Count; i++)
+            geom.Entities[i].BlockRef = block;
+    }
+
+    private static void WalkOne(GeometryObject obj, Transform transform, CadGeometry geom, Document doc, int block)
     {
         switch (obj)
         {
             case GeometryInstance gi:
                 var t = transform.Multiply(gi.Transform);
+                var inner = block != 0 ? block : ++_blocks;
                 foreach (var child in gi.GetSymbolGeometry())
-                    Walk(child, t, geom, doc);
+                    Walk(child, t, geom, doc, inner);
                 break;
             case Line line:
                 if (!line.IsBound)
@@ -119,7 +133,7 @@ internal static class ImportInstanceGeometryReader
                     break;
                 }
 
-                var polyArc = new CadPolyline { Layer = layer, Closed = false };
+                var polyArc = new CadPolyline { Layer = layer, Closed = false, FromArc = true };
                 var n = 8;
                 for (var i = 0; i <= n; i++)
                 {

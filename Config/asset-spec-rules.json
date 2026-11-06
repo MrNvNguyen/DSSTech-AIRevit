@@ -1,0 +1,831 @@
+{
+ "version": 1,
+ "description": "Quy tắc tách thông số kỹ thuật từ đoạn mô tả (Excel cột Quy cách) và text PDF catalogue. Dùng chung cho C# (Dss.AssetInfo.Core) và tools/validate_rules.py. Regex .NET/Python; IgnoreCase cho nhãn, phân biệt hoa thường cho đơn vị.",
+ "separator": "(?=\\n|\\s[-–*•]\\s|\\s\\*|;|\\s'-|[ \\t]+(?:[-–][ \\t]*)?(?!(?-i:(?:Hz|kHz|MHz|GHz|V|VA|VAC|VDC|AC|DC|W|A|Ah|Bar|C|K|Pa|PA|kW|KW|kVA|KVA|HP|RT|L|dB|dBA|Gbps|Mbps|GB|TB|MB|IP\\d*|Ph)\\b))(?-i:[A-ZĐÂĂÊÔƠƯÀÁẢÃẠẰẮẲẴẶẦẤẨẪẬÈÉẺẼẸỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌỒỐỔỖỘỜỚỞỠỢÙÚỦŨỤỪỨỬỮỰỲÝỶỸỴ])[^\\s:;,]*(?:[ \\t]+[^\\s:;,]+){1,4}[ \\t]?:[ \\t]|[-–][ \\t]*(?!(?-i:(?:Hz|kHz|MHz|GHz|V|VA|VAC|VDC|AC|DC|W|A|Ah|Bar|C|K|Pa|PA|kW|KW|kVA|KVA|HP|RT|L|dB|dBA|Gbps|Mbps|GB|TB|MB|IP\\d*|Ph)\\b))(?-i:[A-ZĐÂĂÊÔƠƯÀÁẢÃẠẰẮẲẴẶẦẤẨẪẬÈÉẺẼẸỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌỒỐỔỖỘỜỚỞỠỢÙÚỦŨỤỪỨỬỮỰỲÝỶỸỴ])[^\\s:;,]*(?:[ \\t]+[^\\s:;,]+){1,4}[ \\t]?:[ \\t]|\\.[ \\t]+(?!(?-i:(?:Hz|kHz|MHz|GHz|V|VA|VAC|VDC|AC|DC|W|A|Ah|Bar|C|K|Pa|PA|kW|KW|kVA|KVA|HP|RT|L|dB|dBA|Gbps|Mbps|GB|TB|MB|IP\\d*|Ph)\\b))(?-i:[A-ZĐÂĂÊÔƠƯÀÁẢÃẠẰẮẲẴẶẦẤẨẪẬÈÉẺẼẸỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌỒỐỔỖỘỜỚỞỠỢÙÚỦŨỤỪỨỬỮỰỲÝỶỸỴ])[^\\s:;,]*(?:[ \\t]+[^\\s:;,]+){1,4}[ \\t]?:[ \\t]|$)",
+ "prefixes": [
+  "(?:^|[\\n\\-*•;])\\s*",
+  "(?:^|[\\n\\-*•;,(]|\\s)\\s*"
+ ],
+ "valueTail": "[^:\\n]{0,25}?[:=]\\s*(.+?)",
+ "maxValueLength": 70,
+ "commonFields": [
+  {
+   "param": "TS_CongSuat",
+   "header": "Công suất",
+   "labels": [
+    "công suất danh định",
+    "công suất(?: đầu vào| định mức| motor)?(?! lạnh| sưởi| điện| tiêu thụ| POE| tối đa)",
+    "\\bP\\b"
+   ],
+   "unit": "\\d+(?:[.,]\\d+)?\\s*(?:kVA|KVA|kW|KW|HP|W)\\b",
+   "labelsEn": [
+    "rated (?:output )?power",
+    "output power",
+    "power rating",
+    "motor power"
+   ]
+  },
+  {
+   "param": "TS_DienAp",
+   "header": "Điện áp",
+   "labels": [
+    "điện áp(?: danh định| làm việc| định mức)?",
+    "nguồn điện",
+    "điện cấp nguồn",
+    "power supply"
+   ],
+   "unit": "\\d+(?:[.,]\\d+)?\\s*(?:kV|V)(?:AC|DC)?\\b",
+   "labelsEn": [
+    "rated voltage",
+    "(?:input |output |nominal )?voltage",
+    "power supply"
+   ]
+  },
+  {
+   "param": "TS_DongDien",
+   "header": "Dòng điện",
+   "labels": [
+    "dòng(?: điện)?(?: định mức| danh định)?",
+    "\\bIn\\b"
+   ],
+   "unit": "\\d+(?:[.,]\\d+)?\\s*A\\b",
+   "labelsEn": [
+    "rated current",
+    "(?:input |output |nominal )?current"
+   ]
+  },
+  {
+   "param": "TS_TanSo",
+   "header": "Tần số",
+   "labels": [
+    "tần số(?! đáp ứng)"
+   ],
+   "unit": "\\d+(?:[.,]\\d+)?(?:/\\d+(?:[.,]\\d+)?)?\\s*Hz",
+   "labelsEn": [
+    "(?:rated |input |output )?frequency"
+   ]
+  },
+  {
+   "param": "TS_ApSuat",
+   "header": "Áp suất làm việc",
+   "labels": [
+    "áp (?:suất|lực)(?! tĩnh)(?: làm việc| nước)?"
+   ],
+   "unit": "PN\\s?\\d+|\\d+(?:[.,]\\d+)?\\s*(?:bar|MPa|kPa)\\b",
+   "labelsEn": [
+    "(?:max\\.? |rated |working )?pressure"
+   ]
+  },
+  {
+   "param": "TS_LuuLuongNuoc",
+   "header": "Lưu lượng nước",
+   "labels": [
+    "lưu lượng nước",
+    "\\bQ\\b"
+   ],
+   "unit": "\\d+(?:[.,]\\d+)?\\s*(?:m3/h|m³/h|l/s|l/min|lít/phút)",
+   "labelsEn": [
+    "(?:water )?flow(?: rate)?"
+   ]
+  },
+  {
+   "param": "TS_LuuLuongGio",
+   "header": "Lưu lượng gió",
+   "labels": [
+    "lưu lượng(?: gió)?(?! nước)"
+   ],
+   "unit": "\\d+(?:[.,]\\d+)?\\s*(?:CMH|m3/min|CFM)",
+   "labelsEn": [
+    "air ?flow(?: rate)?",
+    "air volume"
+   ]
+  },
+  {
+   "param": "TS_CapBaoVeIP",
+   "header": "Mức bảo vệ thiết bị (IP)",
+   "labels": [
+    "cấp bảo vệ",
+    "chỉ số bảo vệ"
+   ],
+   "unit": "\\bIP\\s?\\d{2}\\b",
+   "labelsEn": [
+    "(?:degree of )?protection(?: class| degree)?",
+    "IP rating"
+   ]
+  }
+ ],
+ "tailFields": [
+  {
+   "param": "TS_KichThuoc",
+   "header": "Kích thước thiết bị",
+   "labels": [
+    "kích thước(?: tủ| thiết bị)?",
+    "DxRxC",
+    "WxDxH"
+   ],
+   "unit": "\\d+(?:[.,]\\d+)?\\s*[x×]\\s*\\d+(?:[.,]\\d+)?(?:\\s*[x×]\\s*\\d+(?:[.,]\\d+)?)?\\s*mm",
+   "labelsEn": [
+    "dimensions?(?: \\(?W ?x ?D ?x ?H\\)?)?",
+    "overall dimensions"
+   ]
+  },
+  {
+   "param": "TS_KhoiLuong",
+   "header": "Khối lượng",
+   "labels": [
+    "khối lượng",
+    "trọng lượng(?: máy)?"
+   ],
+   "unit": "\\d+(?:[.,]\\d+)?\\s*kg\\b",
+   "labelsEn": [
+    "(?:net |gross )?weight",
+    "mass"
+   ]
+  }
+ ],
+ "families": {
+  "HVAC": {
+   "extraFields": [
+    {
+     "param": "TS_CongSuatLanh",
+     "header": "Công suất lạnh / sưởi",
+     "labels": [
+      "công suất lạnh/ ?sưởi \\(kW\\)",
+      "công suất lạnh \\(kW\\)",
+      "công suất lạnh(?:/ ?sưởi)?",
+      "năng suất lạnh"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*(?:RT|HP)\\b",
+     "labelsEn": [
+      "(?:nominal )?cooling capacity"
+     ]
+    },
+    {
+     "param": "TS_CongSuatHP",
+     "header": "Công suất lạnh (HP)",
+     "labels": [
+      "công suất lạnh(?= ?:\\s*\\d+[.,]?\\d*\\s*HP)"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*HP\\b"
+    },
+    {
+     "param": "TS_MoiChatLanh",
+     "header": "Môi chất lạnh",
+     "labels": [
+      "môi chất(?: lạnh)?",
+      "gas"
+     ],
+     "unit": "\\bR\\s?(?:32|410a|410A|134a|407C|22)\\b",
+     "labelsEn": [
+      "refrigerant"
+     ]
+    },
+    {
+     "param": "TS_EER_COP",
+     "header": "Hệ số EER/COP",
+     "labels": [
+      "hệ số EER(?: \\(100% tải\\))?",
+      "EER",
+      "COP"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "EER",
+      "COP"
+     ]
+    },
+    {
+     "param": "TS_DoOn",
+     "header": "Độ ồn",
+     "labels": [
+      "độ ồn(?: dàn lạnh)?"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*dB\\(?A?\\)?",
+     "labelsEn": [
+      "(?:sound|noise)(?: pressure| power)?(?: level)?"
+     ]
+    },
+    {
+     "param": "TS_CotAp",
+     "header": "Cột áp",
+     "labels": [
+      "cột áp",
+      "áp suất tĩnh"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*Pa\\b",
+     "labelsEn": [
+      "(?:external )?static pressure",
+      "\\bhead\\b"
+     ]
+    },
+    {
+     "param": "TS_TocDo",
+     "header": "Tốc độ quay",
+     "labels": [
+      "tốc độ"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*RPM",
+     "labelsEn": [
+      "(?:rated )?speed",
+      "RPM"
+     ]
+    }
+   ],
+   "overrides": {
+    "TS_CongSuat": {
+     "labels": [
+      "công suất điện(?: tiêu thụ)?(?: \\(lạnh/ ?sưởi\\))?",
+      "điện năng tiêu thụ(?: \\(lạnh/ ?sưởi\\))?",
+      "công suất(?: motor| động cơ)?(?! lạnh| sưởi)"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "rated (?:output )?power",
+      "output power",
+      "power rating",
+      "motor power"
+     ]
+    }
+   }
+  },
+  "BOM": {
+   "extraFields": [
+    {
+     "param": "TS_CotAp",
+     "header": "Cột áp (H)",
+     "labels": [
+      "cột áp",
+      "\\bH\\b"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*m\\b",
+     "labelsEn": [
+      "(?:external )?static pressure",
+      "\\bhead\\b"
+     ]
+    },
+    {
+     "param": "TS_KieuBom",
+     "header": "Kiểu bơm",
+     "labels": [
+      "kiểu bơm",
+      "loại bơm"
+     ],
+     "unit": null
+    },
+    {
+     "param": "TS_DungTich",
+     "header": "Dung tích",
+     "labels": [
+      "dung tích"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*(?:L|lít)\\b",
+     "labelsEn": [
+      "capacity(?! factor)"
+     ]
+    },
+    {
+     "param": "TS_VatLieu",
+     "header": "Vật liệu",
+     "labels": [
+      "vật liệu(?: vỏ| thân)?"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "(?:body )?material"
+     ]
+    }
+   ],
+   "overrides": {}
+  },
+  "VAN": {
+   "extraFields": [
+    {
+     "param": "TS_DuongKinh",
+     "header": "Đường kính (DN)",
+     "labels": [
+      "đường kính",
+      "kích thước"
+     ],
+     "unit": "DN\\s?\\d+(?:\\s*[-–~đến]+\\s*DN\\s?\\d+)?",
+     "labelsEn": [
+      "(?:nominal )?size",
+      "\\bDN\\b"
+     ]
+    },
+    {
+     "param": "TS_VatLieu",
+     "header": "Vật liệu thân",
+     "labels": [
+      "thân(?: van)?",
+      "vật liệu"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "(?:body )?material"
+     ]
+    },
+    {
+     "param": "TS_KetNoi",
+     "header": "Kiểu kết nối",
+     "labels": [
+      "kết nối",
+      "kiểu nối"
+     ],
+     "unit": "nối (?:bích|ren|hàn)",
+     "labelsEn": [
+      "(?:end )?connection"
+     ]
+    },
+    {
+     "param": "TS_NhietDoLamViec",
+     "header": "Nhiệt độ làm việc",
+     "labels": [
+      "nhiệt độ làm việc"
+     ],
+     "unit": null
+    }
+   ],
+   "overrides": {}
+  },
+  "ONG": {
+   "extraFields": [
+    {
+     "param": "TS_DuongKinh",
+     "header": "Đường kính",
+     "labels": [
+      "đường kính"
+     ],
+     "unit": "(?:DN|D)\\s?\\d+",
+     "labelsEn": [
+      "(?:nominal )?size",
+      "\\bDN\\b"
+     ]
+    },
+    {
+     "param": "TS_VatLieu",
+     "header": "Vật liệu",
+     "labels": [
+      "vật liệu",
+      "chất liệu"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "(?:body )?material"
+     ]
+    },
+    {
+     "param": "TS_DoDay",
+     "header": "Độ dày",
+     "labels": [
+      "độ dày",
+      "dày"
+     ],
+     "unit": "dày\\s*\\d+(?:[.,]\\d+)?\\s*mm"
+    }
+   ],
+   "overrides": {}
+  },
+  "CAP": {
+   "extraFields": [
+    {
+     "param": "TS_TietDien",
+     "header": "Tiết diện",
+     "labels": [
+      "tiết diện"
+     ],
+     "unit": "\\d+\\s*[xX]\\s*\\d+(?:[.,]\\d+)?\\s*mm2|\\d+(?:[.,]\\d+)?\\s*mm2"
+    },
+    {
+     "param": "TS_CapDienAp",
+     "header": "Cấp điện áp",
+     "labels": [
+      "cấp điện áp"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?/\\d+(?:[.,]\\d+)?\\s*k?V"
+    },
+    {
+     "param": "TS_VatLieu",
+     "header": "Vật liệu ruột / cách điện",
+     "labels": [
+      "vật liệu",
+      "ruột"
+     ],
+     "unit": "Cu/[A-Z/]+",
+     "labelsEn": [
+      "(?:body )?material"
+     ]
+    }
+   ],
+   "overrides": {}
+  },
+  "DEN": {
+   "extraFields": [
+    {
+     "param": "TS_QuangThong",
+     "header": "Quang thông",
+     "labels": [
+      "quang thông",
+      "lumen"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*lm\\b",
+     "labelsEn": [
+      "luminous flux"
+     ]
+    },
+    {
+     "param": "TS_NhietDoMau",
+     "header": "Nhiệt độ màu",
+     "labels": [
+      "nhiệt độ màu",
+      "CCT"
+     ],
+     "unit": "\\d{4}\\s*K\\b",
+     "labelsEn": [
+      "colou?r temperature",
+      "CCT"
+     ]
+    },
+    {
+     "param": "TS_CRI",
+     "header": "Chỉ số hoàn màu (CRI)",
+     "labels": [
+      "CRI",
+      "chỉ số hoàn màu"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "colou?r rendering(?: index)?"
+     ]
+    },
+    {
+     "param": "TS_GocChieu",
+     "header": "Góc chiếu",
+     "labels": [
+      "góc chiếu",
+      "góc chùm"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "beam angle"
+     ]
+    },
+    {
+     "param": "TS_HeSoCongSuat",
+     "header": "Hệ số công suất",
+     "labels": [
+      "hệ số công suất",
+      "PF"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "power factor"
+     ]
+    },
+    {
+     "param": "TS_ThoiGianLuuDien",
+     "header": "Thời gian lưu điện",
+     "labels": [
+      "thời gian lưu điện"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "(?:backup|autonomy|back-up) time"
+     ]
+    }
+   ],
+   "overrides": {}
+  },
+  "TU": {
+   "extraFields": [
+    {
+     "param": "TS_SoCuc",
+     "header": "Số cực",
+     "labels": [
+      "số cực",
+      "số pha"
+     ],
+     "unit": "\\b[1-4]P\\b",
+     "labelsEn": [
+      "(?:number of )?poles"
+     ]
+    },
+    {
+     "param": "TS_DongCat",
+     "header": "Dòng cắt ngắn mạch",
+     "labels": [
+      "dòng cắt",
+      "Icu",
+      "khả năng cắt"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*kA",
+     "labelsEn": [
+      "breaking capacity"
+     ]
+    },
+    {
+     "param": "TS_DangTu",
+     "header": "Dạng tủ / Form",
+     "labels": [
+      "form(?: tủ)?",
+      "loại tủ"
+     ],
+     "unit": "form\\s?\\d[ab]?"
+    },
+    {
+     "param": "TS_ThoiGianLuuDien",
+     "header": "Thời gian lưu điện",
+     "labels": [
+      "thời gian lưu điện",
+      "lưu điện"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "(?:backup|autonomy|back-up) time"
+     ]
+    }
+   ],
+   "overrides": {}
+  },
+  "DIENNHE": {
+   "extraFields": [
+    {
+     "param": "TS_GiaoThuc",
+     "header": "Giao thức / kết nối",
+     "labels": [
+      "giao thức",
+      "giao diện kết nối",
+      "kiểu kết nối",
+      "cổng truyền thông"
+     ],
+     "unit": null
+    },
+    {
+     "param": "TS_NguonCap",
+     "header": "Nguồn cấp",
+     "labels": [
+      "nguồn(?: điện)?",
+      "nguồn cấp"
+     ],
+     "unit": "PoE|\\d+\\s*VDC"
+    },
+    {
+     "param": "TS_CauHinh",
+     "header": "Cấu hình (CPU/RAM/ổ cứng)",
+     "labels": [
+      "CPU"
+     ],
+     "unit": null
+    }
+   ],
+   "overrides": {}
+  },
+  "TBVS": {
+   "extraFields": [
+    {
+     "param": "TS_VatLieu",
+     "header": "Vật liệu",
+     "labels": [
+      "vật liệu",
+      "chất liệu"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "(?:body )?material"
+     ]
+    },
+    {
+     "param": "TS_BeMat",
+     "header": "Bề mặt / màu",
+     "labels": [
+      "bề mặt",
+      "màu"
+     ],
+     "unit": null
+    },
+    {
+     "param": "TS_DungTich",
+     "header": "Dung tích / lưu lượng xả",
+     "labels": [
+      "dung tích",
+      "lượng nước xả"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*(?:L|lít)\\b",
+     "labelsEn": [
+      "capacity(?! factor)"
+     ]
+    }
+   ],
+   "overrides": {}
+  },
+  "TM": {
+   "extraFields": [
+    {
+     "param": "TS_TaiTrong",
+     "header": "Tải trọng",
+     "labels": [
+      "tải trọng"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*kg",
+     "labelsEn": [
+      "(?:rated )?load"
+     ]
+    },
+    {
+     "param": "TS_TocDo",
+     "header": "Tốc độ",
+     "labels": [
+      "tốc độ"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*m/s",
+     "labelsEn": [
+      "(?:rated )?speed",
+      "RPM"
+     ]
+    },
+    {
+     "param": "TS_SoDiemDung",
+     "header": "Số điểm dừng",
+     "labels": [
+      "số điểm dừng",
+      "số tầng phục vụ"
+     ],
+     "unit": null
+    }
+   ],
+   "overrides": {}
+  },
+  "KT": {
+   "extraFields": [
+    {
+     "param": "TS_VatLieu",
+     "header": "Vật liệu",
+     "labels": [
+      "vật liệu",
+      "chất liệu"
+     ],
+     "unit": null,
+     "labelsEn": [
+      "(?:body )?material"
+     ]
+    },
+    {
+     "param": "TS_MauSac",
+     "header": "Màu / mã màu",
+     "labels": [
+      "màu"
+     ],
+     "unit": null
+    },
+    {
+     "param": "TS_DoDay",
+     "header": "Độ dày",
+     "labels": [
+      "độ dày"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*mm"
+    }
+   ],
+   "overrides": {}
+  },
+  "SAC": {
+   "extraFields": [
+    {
+     "param": "TS_LoaiSac",
+     "header": "Loại sạc",
+     "labels": [
+      "loại sạc",
+      "thiết bị sạc"
+     ],
+     "unit": null
+    },
+    {
+     "param": "TS_SungSac",
+     "header": "Số súng sạc / đầu ra",
+     "labels": [
+      "loại súng sạc",
+      "đầu ra"
+     ],
+     "unit": null
+    }
+   ],
+   "overrides": {}
+  },
+  "MAY": {
+   "extraFields": [
+    {
+     "param": "TS_DungTich",
+     "header": "Dung tích",
+     "labels": [
+      "dung tích"
+     ],
+     "unit": "\\d+(?:[.,]\\d+)?\\s*(?:L|lít)\\b",
+     "labelsEn": [
+      "capacity(?! factor)"
+     ]
+    },
+    {
+     "param": "TS_NhietDoMax",
+     "header": "Nhiệt độ tối đa",
+     "labels": [
+      "nhiệt độ tối đa"
+     ],
+     "unit": null
+    }
+   ],
+   "overrides": {}
+  }
+ },
+ "defaultFamily": "DIENNHE",
+ "familyBySheet": [
+  {
+   "pattern": "-C-BOM|-D-NL",
+   "family": "BOM"
+  },
+  {
+   "pattern": "-C-VAN|-C-TUOI",
+   "family": "VAN"
+  },
+  {
+   "pattern": "-C-ONH|-C-OTH",
+   "family": "ONG"
+  },
+  {
+   "pattern": "-C-PTS|-C-TBVS",
+   "family": "TBVS"
+  },
+  {
+   "pattern": "-C-BNL",
+   "family": "MAY"
+  },
+  {
+   "pattern": "-D-CAP|-D-TBA",
+   "family": "CAP"
+  },
+  {
+   "pattern": "-D-DCS|-D-DMD|-D-DTT|-P-EXIT",
+   "family": "DEN"
+  },
+  {
+   "pattern": "-D-THT|-D-TTT|-D-MBA|-D-MPD|-D-UPS|-D-BUS|-D-CTOC",
+   "family": "TU"
+  },
+  {
+   "pattern": "-D-CS|-K-|-X-",
+   "family": "KT"
+  },
+  {
+   "pattern": "-D-SAC",
+   "family": "SAC"
+  },
+  {
+   "pattern": "-H-",
+   "family": "HVAC"
+  },
+  {
+   "pattern": "-T-",
+   "family": "TM"
+  }
+ ],
+ "familyByRevitCategory": {
+  "OST_MechanicalEquipment": "HVAC",
+  "OST_DuctTerminal": "HVAC",
+  "OST_DuctAccessory": "HVAC",
+  "OST_PipeAccessory": "VAN",
+  "OST_PipeCurves": "ONG",
+  "OST_PipeFitting": "ONG",
+  "OST_PlumbingFixtures": "TBVS",
+  "OST_Sprinklers": "VAN",
+  "OST_ElectricalEquipment": "TU",
+  "OST_ElectricalFixtures": "TU",
+  "OST_LightingFixtures": "DEN",
+  "OST_LightingDevices": "DEN",
+  "OST_CableTray": "CAP",
+  "OST_Conduit": "CAP",
+  "OST_Wire": "CAP",
+  "OST_DataDevices": "DIENNHE",
+  "OST_CommunicationDevices": "DIENNHE",
+  "OST_SecurityDevices": "DIENNHE",
+  "OST_FireAlarmDevices": "DIENNHE",
+  "OST_TelephoneDevices": "DIENNHE",
+  "OST_NurseCallDevices": "DIENNHE",
+  "OST_SpecialityEquipment": "TM",
+  "OST_GenericModel": "KT",
+  "OST_Doors": "KT",
+  "OST_Furniture": "KT",
+  "OST_Casework": "KT"
+ },
+ "pdf": {
+  "minTextCharsPerPage": 40,
+  "maxPagesPerFile": 400,
+  "linesBefore": 3,
+  "linesAfter": 40,
+  "tableModelThreshold": 3,
+  "minModelTokenLength": 4,
+  "useUnitFallback": false,
+  "valueTailNoColon": "[ \\t]+(\\d[^\\n]{0,30}?)",
+  "note": "Đọc PDF: luôn tìm model -> gắn file + trang vào TS_Catalogue. proposeValues=true thì tách thêm 'nhãn: giá trị' (tiếng Việt + labelsEn), không đoán theo đơn vị; kết quả chỉ là ĐỀ XUẤT, người dùng tích chọn mới ghi. Thử trên catalogue thật: dạng bảng nhiều model cho nhiều giá trị sai (vd. suất tiêu hao nhiên liệu bị nhận là công suất) nên mặc định tắt.",
+  "proposeValues": false
+ },
+ "separatorNote": "Giá trị dừng ở: xuống dòng, gạch đầu dòng, ';', hoặc trước nhãn kế tiếp khi mô tả viết liền một dòng: cụm 2-5 từ, bắt đầu bằng chữ hoa (không phải đơn vị như Hz, V, Bar), kết thúc bằng ':'.",
+ "valueTrim": " .,;-/"
+}

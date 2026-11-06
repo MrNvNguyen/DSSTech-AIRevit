@@ -32,6 +32,7 @@
     <ProjectReference Include="..\DSSTech.Core\DSSTech.Core.csproj" />
     <ProjectReference Include="..\Dss.McpHost\Dss.McpHost.csproj" />
     <ProjectReference Include="..\Dss.Cad2Bim.Core\Dss.Cad2Bim.Core.csproj" />
+    <ProjectReference Include="..\Dss.AssetInfo.Core\Dss.AssetInfo.Core.csproj" />
     <PackageReference Include="ACadSharp" Version="3.2.1" />
     <Content Include="..\..\Data\norm-engine-runtime.json" Link="Data\norm-engine-runtime.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\Config\norm-engine.config.json" Link="Config\norm-engine.config.json" CopyToOutputDirectory="PreserveNewest" />
@@ -43,6 +44,8 @@
     <Content Include="..\..\Config\cad-layer-map.str.json" Link="Config\cad-layer-map.str.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\Config\cad-layer-map.arch.json" Link="Config\cad-layer-map.arch.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\Config\cad-layer-map.mepf.json" Link="Config\cad-layer-map.mepf.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\asset-spec-rules.json" Link="Config\asset-spec-rules.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Config\TS_SharedParameters_FM.txt" Link="Config\TS_SharedParameters_FM.txt" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\*.png" CopyToOutputDirectory="PreserveNewest" TargetPath="Assets\%(Filename)%(Extension)" />
     <Content Include="Help\*.html" CopyToOutputDirectory="PreserveNewest" TargetPath="Help\%(Filename)%(Extension)" />
   </ItemGroup>

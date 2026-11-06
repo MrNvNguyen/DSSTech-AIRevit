@@ -32,6 +32,7 @@
     <a href="#thiet-lap">Thiết lập</a>
     <a href="#cad-bim">CAD → BIM</a>
     <a href="#khoi-luong">Khối lượng</a>
+    <a href="#tai-san-nhom">Tài sản</a>
     <a href="#tro-ly-ai">Trợ lý AI</a>
   </nav>
 
@@ -85,6 +86,17 @@
     <h3>Bảng khối lượng · Qty Schedule</h3>
     <p>Tạo hoặc cập nhật bảng thống kê "QS-BIM Khối lượng cấu kiện" trong Revit. Chạy lại nhiều lần không sinh bảng trùng.</p>
     <p class="en">Creates / updates the "QS-BIM element quantities" schedule; safe to re-run.</p>
+  </section>
+
+  <h2 id="tai-san-nhom">Tài sản · Assets</h2>
+  <section class="cmd" id="tai-san">
+    <h3>Tài sản · Asset Data</h3>
+    <p>Nhập thông tin thiết bị phục vụ vận hành, bảo trì (Form thông tin BIM dạng Excel và catalogue PDF) vào tham số Type <b>TS_*</b>.</p>
+    <p>1. <b>Mở file Excel</b>: lệnh tự khớp từng loại thiết bị với Revit Type (theo TS_ID, tên Type hoặc model). Dòng "cần xác nhận" không tự chọn; đổi ô Revit Type để gán tay.<br>
+       2. <b>Thêm PDF catalogue</b> (tuỳ chọn): tìm model trong PDF và gắn đường dẫn file + trang vào TS_Catalogue. PDF scan cần OCR trước.<br>
+       3. <b>Ghi vào Revit Type</b>: chỉ ghi sau khi bấm xác nhận, mặc định không ghi đè giá trị đã có; một lần Undo hoàn tác toàn bộ.<br>
+       4. <b>Xuất Excel đối chiếu</b> để lưu kết quả.</p>
+    <p class="en">Imports asset data (BIM form in Excel, catalogue PDFs) into TS_* type parameters. Matches types, previews, writes only after you confirm; one Undo reverts it.</p>
   </section>
 
   <h2 id="tro-ly-ai">Trợ lý AI · AI</h2>

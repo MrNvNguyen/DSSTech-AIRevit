@@ -11,10 +11,38 @@ internal sealed class HostBuiltInProvider : IMcpToolProvider
         "{\"type\":\"object\",\"properties\":{\"category\":{\"type\":\"string\"}},\"required\":[\"category\"]}";
     private const string QuerySchema =
         "{\"type\":\"object\",\"properties\":{\"category\":{\"type\":\"string\"},\"pageSize\":{\"type\":\"integer\"},\"pageToken\":{\"type\":\"string\"}},\"required\":[\"category\"]}";
+    private const string CreatableCategories =
+        "Levels, Grids, Walls, Floors, Ceilings, Doors, Windows, Rooms, StructuralColumns, StructuralFraming, " +
+        "StructuralFoundation, Pipes, Ducts, CableTrays, MechanicalEquipment, ElectricalEquipment, " +
+        "PlumbingFixtures, LightingFixtures, Sprinklers, GenericModels";
+
+    // Points are [x,y,z] in mm (or in `units`). Type names come from list_types.
+    private const string FieldsHint =
+        "Per category: Levels{name,elevationMm}; Grids{name,startMm,endMm}; " +
+        "Walls{startMm,endMm,sourceType,thicknessMm?,level,topLevel?,heightMm?,structural?,locationLine?}; " +
+        "Floors{loops:[[[x,y],...]],floorType,level}; Ceilings{loops,ceilingType,level,offsetMm?}; " +
+        "Doors/Windows{familyType|typeMark,wallId|xyzMm,level?,swingMm?,hingeMm?}; Rooms{xyzMm,level,name?,number?}; " +
+        "StructuralColumns{xyzMm,familyType|widthMm+depthMm,sourceFamily?,rotationDeg?,baseLevel,topLevel?,mark?}; " +
+        "StructuralFraming{startMm,endMm,familyType|widthMm+depthMm,sourceFamily?,level}; " +
+        "StructuralFoundation{xyzMm,familyType|typeMark|widthMm+depthMm|diameterMm,kind?,level,embedMm?,rotationDeg?,mark?}; " +
+        "Pipes{startMm,endMm,pipeType,systemType,level,diameterMm?}; " +
+        "Ducts{startMm,endMm,ductType,systemType,level,widthMm+heightMm|diameterMm}; CableTrays{startMm,endMm,type,level,widthMm?}; " +
+        "Equipment/Fixtures/Sprinklers/GenericModels{xyzMm,familyType,level,rotationDeg?}.";
+
+    private const string OperationProperties =
+        "\"category\":{\"type\":\"string\",\"description\":\"One of: " + CreatableCategories + "\"}," +
+        "\"fields\":{\"type\":\"object\",\"description\":\"" + FieldsHint + "\"}," +
+        "\"skipIfExists\":{\"type\":\"boolean\",\"description\":\"Default true: skip a same-name or same-position element.\"}," +
+        "\"dryRun\":{\"type\":\"boolean\"}," +
+        "\"units\":{\"type\":\"string\",\"description\":\"mm (default) or m.\"}";
+
     private const string CreateElementSchema =
-        "{\"type\":\"object\",\"properties\":{\"category\":{\"type\":\"string\"},\"fields\":{\"type\":\"object\"},\"skipIfExists\":{\"type\":\"boolean\"},\"dryRun\":{\"type\":\"boolean\"},\"units\":{\"type\":\"string\"}},\"required\":[\"category\",\"fields\"]}";
+        "{\"type\":\"object\",\"properties\":{" + OperationProperties + "},\"required\":[\"category\",\"fields\"]}";
     private const string CreateBatchSchema =
-        "{\"type\":\"object\",\"properties\":{\"operations\":{\"type\":\"array\"},\"dryRun\":{\"type\":\"boolean\"}},\"required\":[\"operations\"]}";
+        "{\"type\":\"object\",\"properties\":{\"operations\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{" +
+        "\"opId\":{\"type\":\"string\"}," + OperationProperties + "},\"required\":[\"category\",\"fields\"]}}," +
+        "\"dryRun\":{\"type\":\"boolean\",\"description\":\"More than 20 operations stay a dry run unless this is false.\"}}," +
+        "\"required\":[\"operations\"]}";
 
     public string ModuleId => "dss.host";
 
@@ -25,11 +53,14 @@ internal sealed class HostBuiltInProvider : IMcpToolProvider
         Tool("get_levels", "Levels with elevation in millimetres", EmptySchema),
         Tool("get_grids", "Grids with start/end in millimetres", EmptySchema),
         Tool("get_view", "Active view id, name, type, level", EmptySchema),
-        Tool("list_categories", "Allow-listed categories for later create", EmptySchema),
-        Tool("list_types", "Type names for one category", CategorySchema),
+        Tool("list_categories", "Allow-listed categories for list_types, query_by_category and create", EmptySchema),
+        Tool("list_types", "Type names for one category (call before create)", CategorySchema),
         Tool("query_by_category", "Page elements of one category (max 100)", QuerySchema),
-        Tool("create_element", "Create one Level/Grid/Wall/Column/Pipe (pilot)", CreateElementSchema),
-        Tool("create_batch", "Create many elements in one Undoable transaction", CreateBatchSchema)
+        Tool("create_element", "Create one element: " + CreatableCategories, CreateElementSchema),
+        Tool("create_batch",
+            "Create many elements in one Undoable transaction; each op rolls back alone on failure. " +
+            "More than 20 ops is a dry run unless dryRun is false. No delete/modify.",
+            CreateBatchSchema)
     };
 
     public McpResult Invoke(string tool, JsonElement args, McpCallContext ctx)

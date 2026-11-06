@@ -1,0 +1,296 @@
+{
+ "specCases": [
+  {
+   "family": "HVAC",
+   "text": "- Dàn nóng ngoài nhà Outdoor Unit cho hệ máy VRF, 2 chiều\n- Công suất lạnh: 22HP\n- Công suất lạnh/ sưởi (kW): 63/ 63 kW\n- Công suất điện (Lạnh/ Sưởi): 14,25/ 15,51 kW\n- Chỉ số hiệu quả năng lượng (COP): 4,42\n- Môi chất lạnh: R410a\n- Chiều dài ống môi chất lạnh thực tế (m): 165 m\n- Độ ồn: 63 dB(A)\n- Nguồn điện: 3P/380V/50Hz\n- Áp suất tĩnh: 60 Pa",
+   "expected": {
+    "TS_CongSuat": "14,25/ 15,51 kW",
+    "TS_DienAp": "3P/380V/50Hz",
+    "TS_TanSo": "50Hz",
+    "TS_CongSuatLanh": "63/ 63 kW",
+    "TS_CongSuatHP": "22HP",
+    "TS_MoiChatLanh": "R410a",
+    "TS_EER_COP": "4,42",
+    "TS_DoOn": "63 dB(A)",
+    "TS_CotAp": "60 Pa"
+   }
+  },
+  {
+   "family": "HVAC",
+   "text": "Điều hòa cục bộ loại treo tường (2 chiều) công suất lạnh/ sưởi: 5,0/ 5,4 kW\n* Môi chất lạnh: R32\n* Điện năng tiêu thụ (lạnh/sưởi): 2,05/1,48 kW\n* Độ ồn:\n Dàn nóng: 51 dBA\n* Điện cấp nguồn (Power Supply) V/Ph/Hz: 220/1Ph/50Hz",
+   "expected": {
+    "TS_CongSuat": "2,05/1,48 kW",
+    "TS_DienAp": "220/1Ph/50Hz",
+    "TS_TanSo": "50Hz",
+    "TS_CongSuatLanh": "5,0/ 5,4 kW",
+    "TS_MoiChatLanh": "R32",
+    "TS_DoOn": "Dàn nóng: 51 dBA"
+   }
+  },
+  {
+   "family": "HVAC",
+   "text": "- Chủng loại: Quạt gắn tường\n- Lưu lượng: 4161CMH - Công suất: 0.35kW\n- Cột áp: 30PA\n- Tốc độ: 1370RPM\n- IP54\n- Nguồn điện V/Ph/Hz: 230/1/50",
+   "expected": {
+    "TS_CongSuat": "0.35kW",
+    "TS_DienAp": "230/1/50",
+    "TS_LuuLuongGio": "4161CMH",
+    "TS_CapBaoVeIP": "IP54",
+    "TS_CotAp": "30PA",
+    "TS_TocDo": "1370RPM"
+   }
+  },
+  {
+   "family": "BOM",
+   "text": "- Q = 21m3/h; H= 50m; 5.5kW\n- Điện áp: 3x380V, 50Hz\n- Kiểu bơm: Bơm ly tâm trục ngang đa tầng cánh\n- Vật liệu vỏ: Gang",
+   "expected": {
+    "TS_CongSuat": "5.5kW",
+    "TS_DienAp": "3x380V, 50Hz",
+    "TS_TanSo": "50Hz",
+    "TS_LuuLuongNuoc": "21m3/h",
+    "TS_CotAp": "50m",
+    "TS_KieuBom": "Bơm ly tâm trục ngang đa tầng cánh",
+    "TS_VatLieu": "Gang"
+   }
+  },
+  {
+   "family": "BOM",
+   "text": "- Dung tích: 500L\n- Kích thước:",
+   "expected": {
+    "TS_DungTich": "500L"
+   }
+  },
+  {
+   "family": "VAN",
+   "text": "- Đường kính: DN50\n- Thân van: Đồng thau\n- Kết nối: Nối ren\n- Áp suất làm việc: PN16\n- Nhiệt độ làm việc: -10-110°C",
+   "expected": {
+    "TS_ApSuat": "PN16",
+    "TS_DuongKinh": "DN50",
+    "TS_VatLieu": "Đồng thau",
+    "TS_KetNoi": "Nối ren",
+    "TS_NhietDoLamViec": "10-110°C"
+   }
+  },
+  {
+   "family": "VAN",
+   "text": "- Kích thước: DN65 đến DN300\n-Van bướm tích hợp động cơ điện loại ON/OFF\n- Thân bằng gang, đĩa Inox 304\n- Động cơ điện 1 Pha/220V/ 50Hz, IP67",
+   "expected": {
+    "TS_DienAp": "220V",
+    "TS_TanSo": "50Hz",
+    "TS_CapBaoVeIP": "IP67",
+    "TS_DuongKinh": "DN65 đến DN300",
+    "TS_KichThuoc": "DN65 đến DN300"
+   }
+  },
+  {
+   "family": "DEN",
+   "text": "Chip LED: Nichia\nCông suất danh định: 12W (± 5%)\nNguồn điện danh định: 220V-240V/50Hz-60Hz\nHệ số công suất: ≥0.9\nNhiệt độ màu danh định: 3000K/4000K/6500K (± 5%)\nQuang thông danh định bộ đèn: ≥1200 lm\nChỉ số hoàn màu danh định: Ra≥90, R9≥50\nCấp bảo vệ: IP20, Class I (II)",
+   "expected": {
+    "TS_CongSuat": "12W (± 5%)",
+    "TS_DienAp": "220V-240V/50Hz-60Hz",
+    "TS_TanSo": "50Hz",
+    "TS_CapBaoVeIP": "IP20, Class I (II)",
+    "TS_QuangThong": "≥1200 lm",
+    "TS_NhietDoMau": "3000K/4000K/6500K (± 5%)",
+    "TS_CRI": "Ra≥90, R9≥50",
+    "TS_HeSoCongSuat": "≥0.9"
+   }
+  },
+  {
+   "family": "DEN",
+   "text": "- Công suất: 2x3W\n- Điện áp: AC220V\n- PIN: Ni-Cd, 4.8V 1.8Ah\n- Thời gian lưu điện: 2-3 giờ; sạc đầy: 16-24 giờ",
+   "expected": {
+    "TS_CongSuat": "2x3W",
+    "TS_DienAp": "AC220V",
+    "TS_ThoiGianLuuDien": "2-3 giờ"
+   }
+  },
+  {
+   "family": "TU",
+   "text": "Điện áp: AC 400/415 V\nDòng định mức (AC-22): 63A\nSố cực: 4 cực\nCấp bảo vệ: IP66\nVật liệu vỏ: Polycarbonate",
+   "expected": {
+    "TS_DienAp": "AC 400/415 V",
+    "TS_DongDien": "63A",
+    "TS_CapBaoVeIP": "IP66",
+    "TS_SoCuc": "4 cực"
+   }
+  },
+  {
+   "family": "TU",
+   "text": "UPS Online Rack Công suất 3KVA Điện áp vào: 120~295 V AC Tần số: 50/60± 10% Lưu điện: 17 phút với 100% tải",
+   "expected": {
+    "TS_CongSuat": "120~295 V AC",
+    "TS_DienAp": "120~295 V AC",
+    "TS_TanSo": "50/60± 10%",
+    "TS_ThoiGianLuuDien": "17 phút với 100% tải"
+   }
+  },
+  {
+   "family": "SAC",
+   "text": "- Thiết bị sạc: 20kW - loại sạc 1 chiều DC\n* Đầu vào:\n- Nguồn điện: 3ф, 400VAC (+/- 15%)\n- Công suất đầu vào: 20kW\n- Dòng điện: 0-54A\n- Tần số đầu vào: 50/60Hz\n- Loại súng sạc: 1 x DC Fast Charging CCS2 - 20kW\n- Khả năng chống nước: IP55/IK10\n- Kích thước: 1290x710x350mm\n- Trọng lượng: ≤60kg",
+   "expected": {
+    "TS_CongSuat": "20kW",
+    "TS_DienAp": "3ф, 400VAC (+/- 15%)",
+    "TS_DongDien": "0-54A",
+    "TS_TanSo": "50/60Hz",
+    "TS_CapBaoVeIP": "IP55",
+    "TS_LoaiSac": "20kW",
+    "TS_SungSac": "1 x DC Fast Charging CCS2",
+    "TS_KichThuoc": "1290x710x350mm",
+    "TS_KhoiLuong": "≤60kg"
+   }
+  },
+  {
+   "family": "MAY",
+   "text": "Dung tích: 50L Kiểu lắp đặt: Ngang Kích thước: 450x480x570 mm Áp lực nước: 8 Bar Công suất: 2500W Nguồn điện : 220V Tần số : 50 Hz Nhiệt độ tối đa: 75 độ C Trọng lượng máy: 17 kg",
+   "expected": {
+    "TS_CongSuat": "2500W",
+    "TS_DienAp": "220V",
+    "TS_TanSo": "50 Hz",
+    "TS_ApSuat": "8 Bar",
+    "TS_DungTich": "50L",
+    "TS_NhietDoMax": "75 độ C",
+    "TS_KichThuoc": "450x480x570 mm",
+    "TS_KhoiLuong": "17 kg"
+   }
+  },
+  {
+   "family": "CAP",
+   "text": "Cáp Cu/XLPE/PVC 4x95mm2 0,6/1kV",
+   "expected": {
+    "TS_DienAp": "1kV",
+    "TS_TietDien": "4x95mm2",
+    "TS_CapDienAp": "0,6/1kV",
+    "TS_VatLieu": "Cu/XLPE/PVC",
+    "TS_KichThuoc": "4x95mm"
+   }
+  },
+  {
+   "family": "TBVS",
+   "text": "+ Thép không gỉ\n+ Kích thước: 700x160mm",
+   "expected": {
+    "TS_KichThuoc": "700x160mm"
+   }
+  },
+  {
+   "family": "DIENNHE",
+   "text": "- Băng thông chuyển mạch: 128 Gbps\n- Giao diện kết nối: 24 x 10/100/1000BASE-T ports, 4 x 1/10Gb SFP+ uplink ports\n- Nguồn: PoE+",
+   "expected": {
+    "TS_GiaoThuc": "24 x 10/100/1000BASE-T ports, 4 x 1/10Gb SFP+ uplink ports",
+    "TS_NguonCap": "PoE+"
+   }
+  },
+  {
+   "family": "KT",
+   "text": "- Độ dày 2mm, sơn tĩnh điện theo màu phê duyệt\n- Màu vàng nhũ, mã màu E14320",
+   "expected": {
+    "TS_DoDay": "2mm"
+   }
+  },
+  {
+   "family": "TM",
+   "text": "- Tải trọng: 100 kg\n- Tốc độ: 0,4 m/s\n- Số điểm dừng: 3",
+   "expected": {
+    "TS_TaiTrong": "100 kg",
+    "TS_TocDo": "0,4 m/s",
+    "TS_SoDiemDung": "3",
+    "TS_KhoiLuong": "100 kg"
+   }
+  },
+  {
+   "family": "DEN",
+   "text": "Kích thước: Ø108xL170 mm- Điều khiển: ON/OFF",
+   "expected": {
+    "TS_KichThuoc": "Ø108xL170 mm"
+   }
+  },
+  {
+   "family": "DEN",
+   "text": "Kích thước: 600x125x60mm. Chất liệu: Nhựa PVC",
+   "expected": {
+    "TS_KichThuoc": "600x125x60mm"
+   }
+  },
+  {
+   "family": "DIENNHE",
+   "text": "-Thông số phần cứng: CPU: NXP i.MX8 QuadXPlus, 1.2GHz; Bộ nhớ: 2GB RAM, 8 GB eMMC",
+   "expected": {
+    "TS_CauHinh": "NXP i.MX8 QuadXPlus, 1.2GHz"
+   }
+  },
+  {
+   "family": "TU",
+   "text": "+ Kích thước: + Đường kính: 8 cm",
+   "expected": {}
+  }
+ ],
+ "pdfCases": [
+  {
+   "family": "TU",
+   "text": "Rated power 2330 kVA\nRated voltage 400 V\nFrequency: 50 Hz\nWeight: 18 500 kg",
+   "expected": {
+    "TS_CongSuat": "2330 kVA",
+    "TS_DienAp": "400 V",
+    "TS_TanSo": "50 Hz",
+    "TS_KhoiLuong": "18 500 kg"
+   }
+  }
+ ],
+ "tokenCases": [
+  {
+   "model": "UPS SDU 4000 A5",
+   "expected": [
+    "UPSSDU4000A5",
+    "SDU4000",
+    "4000A5"
+   ]
+  },
+  {
+   "model": "APL 450 4P-1 1SA",
+   "expected": [
+    "APL4504P11SA",
+    "APL450",
+    "4504P1",
+    "4P11SA"
+   ]
+  },
+  {
+   "model": "MTU 16V4000 DS2250",
+   "expected": [
+    "MTU16V4000DS2250",
+    "16V4000",
+    "DS2250",
+    "MTU16V4000",
+    "16V4000DS2250"
+   ]
+  },
+  {
+   "model": "Dàn lanh: MSY-JY50VF Dàn nóng: MUY-JY50VF",
+   "expected": [
+    "DANLANHMSYJY50VFDANNONGMUYJY50VF",
+    "MSYJY50VF",
+    "MUYJY50VF",
+    "LANHMSYJY50VF",
+    "MSYJY50VFDAN",
+    "NONGMUYJY50VF"
+   ]
+  },
+  {
+   "model": "Fig.121",
+   "expected": [
+    "FIG121"
+   ]
+  },
+  {
+   "model": "19022",
+   "expected": []
+  },
+  {
+   "model": "Quạt treo tường Vinawind QTT-400EĐ",
+   "expected": [
+    "QUATTREOTUONGVINAWINDQTT400E",
+    "QTT400E",
+    "VINAWINDQTT400E"
+   ]
+  }
+ ]
+}

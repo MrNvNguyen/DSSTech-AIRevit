@@ -35,6 +35,7 @@ Open `DSSTech.sln`. Namespaces are `DSSTech.*` and `Dss.*`. The installed assemb
 | `src/DSSTech.Revit` | Add-in (ribbon, facts adapter, UI, export, CAD commands) |
 | `src/Dss.McpContracts` · `src/Dss.McpHost` · `src/Dss.RevitMcp` | MCP contracts, in-Revit host, stdio sidecar for Cursor |
 | `src/Dss.Cad2Bim.Core` | DXF parse / preflight / intent (no Revit API) |
+| `src/Dss.AssetInfo.Core` | Asset info import (Excel/PDF → TS_*), no Revit API |
 | `Database/` | Original SQLite + ENGINE_v1 snapshot |
 | `Data/` | Generated runtime JSON |
 | `Config/` | Engine / project defaults |
