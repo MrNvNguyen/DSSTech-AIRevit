@@ -3332,6 +3332,31 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // A pipe drawn single-line: a valve's gap in the main closed, the main one run, a branch stopping short of it
+        // made a tee, the fall written on the branch (i=2%) taken by it alone.
+        var pipe = MepRoutePlanner.Build(new CadEntity[]
+        {
+            L(0, 0, 4000, 0), L(4250, 0, 8000, 0), L(6000, 200, 6000, 3000)
+        }, null, new MepSize(0, 0, 100), new[] { new CadText { Value = "i=2%", X = 6300, Y = 1500 } }, false);
+        var pipeEdges = pipe.Edges.Select(e => $"({pipe.Nodes[e.A].X:0},{pipe.Nodes[e.A].Y:0})-({pipe.Nodes[e.B].X:0},{pipe.Nodes[e.B].Y:0}) {e.SlopePercent}").ToList();
+        if (pipe.Edges.Count != 3 || MepRoutePlanner.Parts(pipe).Count != 1 || pipe.Edges.Count(e => e.SlopePercent == 2) != 1 ||
+            pipe.Edges.Any(e => e.SlopePercent == 2 && Math.Abs(pipe.Nodes[e.A].X - pipe.Nodes[e.B].X) > 1))
+        {
+            message = "mep single-line pipe: " + string.Join(" | ", pipeEdges);
+            return false;
+        }
+
+        // A shoe drawn slanting to -x where a 200 branch leaves a 450 main downward: -1 along +x.
+        var shoe = new CadPolyline { Closed = true };
+        foreach (var (x, y) in new[] { (-100.0, -341.0), (100.0, -341.0), (100.0, -225.0), (-224.0, -225.0) })
+            shoe.Points.Add(new CadPoint2(x, y));
+        var shoeSide = MepRoutePlanner.ShoeSide(new CadEntity[] { shoe, L(-1000, -225, 1000, -225) }, 0, 0, 0, -1, 1, 0, 200, 450);
+        if (shoeSide != -1)
+        {
+            message = "mep shoe side: " + shoeSide;
+            return false;
+        }
+
         // A whole drawing (30 000 strokes and labels) builds in seconds, not the pairwise minutes that hung Revit.
         var bigPlan = new List<CadEntity>();
         var bigTexts = new List<CadText>();

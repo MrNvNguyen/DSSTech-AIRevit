@@ -90,12 +90,27 @@ internal static class HvacFlex
         group.Start();
         foreach (var id in deviceIds)
         {
-            if (doc.GetElement(id) is not FamilyInstance device)
+            if (doc.GetElement(id) is not FamilyInstance { IsValidObject: true } first)
                 continue;
-            var name = $"{device.Symbol?.FamilyName} #{id.Value}";
-            foreach (var connector in OpenAir(device).ToList())
+            var name = $"{first.Symbol?.FamilyName} #{id.Value}";
+            // Connectors read afresh for each one: a transaction rolled back for the one before leaves them stale.
+            foreach (var connectorId in OpenAir(first).Select(c => c.Id).ToList())
             {
-                var target = NearestDuct(ducts, connector, reachMm);
+                if (doc.GetElement(id) is not FamilyInstance { IsValidObject: true } device ||
+                    OpenAir(device).FirstOrDefault(c => c.Id == connectorId) is not { } connector)
+                    continue;
+                (Duct Duct, XYZ Tap)? target;
+                try
+                {
+                    target = NearestDuct(ducts, connector, reachMm);
+                }
+                catch (Autodesk.Revit.Exceptions.ApplicationException ex)
+                {
+                    notes.Add($"{name}: {ex.Message}");
+                    continue;
+                }
+
+
                 if (target is null)
                 {
                     noDuct++;

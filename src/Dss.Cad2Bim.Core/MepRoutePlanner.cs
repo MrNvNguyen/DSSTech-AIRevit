@@ -40,6 +40,8 @@ public sealed class MepEdge
     /// B with a transition fitting.
     /// </summary>
     public bool IsTransition { get; set; }
+    /// <summary>Fall written on the run (i=1%, i = 0,5%): percent; null where none is written or carried on.</summary>
+    public double? SlopePercent { get; set; }
 }
 
 public sealed class MepNetwork
@@ -48,6 +50,8 @@ public sealed class MepNetwork
     public List<MepEdge> Edges { get; } = new();
     /// <summary>Flex ducts drawn on the picked layers, left out (joined later by the flex tool).</summary>
     public int FlexSkipped { get; set; }
+    /// <summary>Short two-line boxes standing alone with no size written (openings, louvers through a wall), left out.</summary>
+    public int OpeningsSkipped { get; set; }
     /// <summary>
     /// Bends drawn round (two-line ducts): the corner and the radius drawn to the duct's centre (mm), for the elbow
     /// to follow the drawing rather than its family's default.
@@ -178,6 +182,9 @@ public static class MepRoutePlanner
 
         var minRun = family is null ? MinRunInLinkMm : NodeTolMm;
         var bends = new List<(double X, double Y, double RadiusMm)>();
+        var joints = new List<(double X, double Y)>();
+        var axisStart = int.MaxValue;
+        var singleLine = false;
         // A whole link read with its linetypes comes as dashes: each line's dashes are one line again.
         if (family is null && doubleLine != false)
             segs = Undash(segs);
@@ -206,7 +213,7 @@ public static class MepRoutePlanner
                 }
 
                 var found = DoubleLines(layer.Select(x => new Seg(x.X0, x.Y0, x.X1, x.Y1) { Size = x.Size, From = x.From, Layer = x.Layer, Arc = x.Arc }).ToList(),
-                    fine[layer.Key], labels, doubleLine == true, ref flexSkipped);
+                    fine[layer.Key], labels, doubleLine == true, ref flexSkipped, joints);
                 if (found is null)
                 {
                     kept.AddRange(layer);
@@ -225,12 +232,27 @@ public static class MepRoutePlanner
                     arcEnds.Add(k, arcPoints[k].Item1, arcPoints[k].Item2, arcPoints[k].Item1, arcPoints[k].Item2);
                 bool RoundNear(double x, double y, double reach) =>
                     arcEnds.Query(x - reach, y - reach, x + reach, y + reach).Any(k => Math.Sqrt(Sq(arcPoints[k].Item1 - x) + Sq(arcPoints[k].Item2 - y)) <= reach);
+                WholeDegrees(axes);
                 JoinAxisEnds(axes, RoundNear, bends);
+                axisStart = kept.Count;
                 kept.AddRange(axes.Select(a => (a.X0, a.Y0, a.X1, a.Y1, a.Size, a.Transition ? TransitionFrom : a.From, a.Layer, false)));
                 keptWidths.AddRange(axes.Select(a => a.Width));
                 segs = kept;
                 widths = keptWidths;
             }
+        }
+
+        // A whole link read single-line (pipes): the lines are the runs, joined as two-line axes are (with no width,
+        // within 300 mm): across the gap a valve's symbol leaves, to the corner of a bend drawn round, onto the main a
+        // branch stops short of. The round parts of bends are left out.
+        if (family is null && doubleLine == false && segs.Count > 0)
+        {
+            var lines = segs.Where(x => !x.Arc).Select(x => new Seg(x.X0, x.Y0, x.X1, x.Y1) { Size = x.Size, From = x.From, Layer = x.Layer }).ToList();
+            WholeDegrees(lines);
+            JoinAxisEnds(lines, (_, _, _) => false, bends);
+            segs = lines.Select(a => (a.X0, a.Y0, a.X1, a.Y1, a.Size, a.From, a.Layer, false)).ToList();
+            widths = segs.Select(_ => 0.0).ToList();
+            singleLine = true;
         }
 
         // Tees: an end landing on another run splits that run there. Runs are looked up by plan cell (a whole
@@ -261,6 +283,33 @@ public static class MepRoutePlanner
                     var dy = s.Y0 + (s.Y1 - s.Y0) * t - py;
                     if (Math.Sqrt(dx * dx + dy * dy) <= NodeTolMm)
                         cuts[j].Add(t);
+                }
+            }
+        }
+
+        // Two-line runs cut at their joints for now (a run labelled 600x250 above a joint and 600x200 below it changes
+        // there); pieces of one size are made one again once sized.
+        if (joints.Count > 0)
+        {
+            var jointCells = new Buckets(CellMm);
+            for (var k = 0; k < joints.Count; k++)
+                jointCells.Add(k, joints[k].X, joints[k].Y, joints[k].X, joints[k].Y);
+            for (var i = axisStart; i < segs.Count; i++)
+            {
+                var s = segs[i];
+                if (widths[i] <= 0 || s.From == TransitionFrom)
+                    continue;
+                var len = Math.Sqrt(Sq(s.X1 - s.X0) + Sq(s.Y1 - s.Y0));
+                if (len < 1)
+                    continue;
+                double ux = (s.X1 - s.X0) / len, uy = (s.Y1 - s.Y0) / len;
+                foreach (var k in jointCells.Query(Math.Min(s.X0, s.X1), Math.Min(s.Y0, s.Y1), Math.Max(s.X0, s.X1), Math.Max(s.Y0, s.Y1)))
+                {
+                    var (jx, jy) = joints[k];
+                    var along = (jx - s.X0) * ux + (jy - s.Y0) * uy;
+                    if (along <= NodeTolMm || along >= len - NodeTolMm || Math.Abs((jx - s.X0) * -uy + (jy - s.Y0) * ux) > NodeTolMm)
+                        continue;
+                    cuts[i].Add(along / len);
                 }
             }
         }
@@ -311,13 +360,17 @@ public static class MepRoutePlanner
         {
             var (x0, y0) = net.Nodes[net.Edges[i].A];
             var (x1, y1) = net.Nodes[net.Edges[i].B];
-            var reach = LabelReachMm + 0.1 * Math.Sqrt(Sq(x1 - x0) + Sq(y1 - y0));
+            var reach = LabelReachMm + net.Edges[i].DrawnWidthMm / 2 + 0.1 * Math.Sqrt(Sq(x1 - x0) + Sq(y1 - y0));
             edgeCells.Add(i, Math.Min(x0, x1) - reach, Math.Min(y0, y1) - reach, Math.Max(x0, x1) + reach, Math.Max(y0, y1) + reach);
         }
 
+        // The label each edge took: how far its width is from the drawn one, then how far it is from the edge.
+        var taken = new Dictionary<MepEdge, (double Misfit, double D)>();
+        var labelAt = new Dictionary<MepEdge, (double X, double Y)>();
         foreach (var text in textList)
         {
-            if (!TryParseSize(text.Value, out var size))
+            // A grille's or diffuser's label (EAG+OBD 450x450, SAG 1200x150) gives its face, not the duct's size.
+            if (!TryParseSize(text.Value, out var size) || GrilleLabel.IsMatch(text.Value))
                 continue;
             var tx = text.CenterX ?? text.X;
             var ty = text.CenterY ?? text.Y;
@@ -334,19 +387,30 @@ public static class MepRoutePlanner
                 var t = ((tx - x0) * (x1 - x0) + (ty - y0) * (y1 - y0)) / (len * len);
                 if (t < -0.1 || t > 1.1)
                     continue;
-                var d = Math.Abs((tx - x0) * -(y1 - y0) / len + (ty - y0) * (x1 - x0) / len);
+                // From the duct's side when drawn with both (a label beside a wide duct sits far from its axis), and
+                // past its end by as far (the label of the duct round the corner is not this one's).
+                var across = Math.Max(0, Math.Abs((tx - x0) * -(y1 - y0) / len + (ty - y0) * (x1 - x0) / len) - e.DrawnWidthMm / 2);
+                var past = Math.Max(0, Math.Max(-t, t - 1)) * len;
+                var d = Math.Sqrt(across * across + past * past);
                 if (d >= bestD)
                     continue;
                 bestD = d;
                 best = e;
             }
 
-            if (best is not null)
-            {
-                best.Size = size;
-                best.SizeFrom = "text";
-            }
+            if (best is null)
+                continue;
+            // Two labels by one duct: the one as wide as drawn, then the nearer.
+            var misfit = best.DrawnWidthMm > 0 ? Misfit(size, best.DrawnWidthMm) : 0;
+            if (taken.TryGetValue(best, out var had) && (had.Misfit < misfit - 25 || had.Misfit <= misfit + 25 && had.D <= bestD))
+                continue;
+            taken[best] = (misfit, bestD);
+            labelAt[best] = (tx, ty);
+            best.Size = size;
+            best.SizeFrom = "text";
         }
+
+        SpreadAlongRuns(net, labelAt);
 
         // Runs with no label continue the run before them: through bends and joints, and straight on through a tee.
         var adjacent = Adjacency(net);
@@ -393,9 +457,188 @@ public static class MepRoutePlanner
             e.SizeFrom = "drawn";
         }
 
+        if (axisStart != int.MaxValue || singleLine)
+            MergeStraight(net, singleLine);
+        Falls(net, textList);
+        net.OpeningsSkipped = DropOpenings(net);
         net.FlexSkipped = flexSkipped;
         net.Bends.AddRange(bends);
         return net;
+    }
+
+    private static readonly Regex FallLabel = new(@"\bi\s*=\s*(\d+(?:[.,]\d+)?)\s*%", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// The fall written on a run (i=1%, i = 0,5%) goes to the run nearest to it, then on through plain joints (a node
+    /// of two runs) to the runs after it that have none of their own.
+    /// </summary>
+    private static void Falls(MepNetwork net, List<CadText> texts)
+    {
+        foreach (var text in texts)
+        {
+            var m = FallLabel.Match(text.Value);
+            if (!m.Success || !double.TryParse(m.Groups[1].Value.Replace(',', '.'), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var percent) || percent <= 0 || percent > 20)
+                continue;
+            var tx = text.CenterX ?? text.X;
+            var ty = text.CenterY ?? text.Y;
+            MepEdge? best = null;
+            var bestD = LabelReachMm;
+            foreach (var e in net.Edges.Where(x => !x.IsTransition))
+            {
+                var (x0, y0) = net.Nodes[e.A];
+                var (x1, y1) = net.Nodes[e.B];
+                var len = Math.Sqrt(Sq(x1 - x0) + Sq(y1 - y0));
+                if (len < 1)
+                    continue;
+                var t = Math.Max(0, Math.Min(1, ((tx - x0) * (x1 - x0) + (ty - y0) * (y1 - y0)) / (len * len)));
+                var d = Math.Max(0, Math.Sqrt(Sq(x0 + (x1 - x0) * t - tx) + Sq(y0 + (y1 - y0) * t - ty)) - e.DrawnWidthMm / 2);
+                if (d >= bestD)
+                    continue;
+                bestD = d;
+                best = e;
+            }
+
+            if (best is not null)
+                best.SlopePercent = percent;
+        }
+
+        var adjacent = Adjacency(net);
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var e in net.Edges.Where(x => x.SlopePercent is null))
+            {
+                foreach (var node in new[] { e.A, e.B })
+                {
+                    var at = adjacent[node].Where(x => x != e).ToList();
+                    if (at.Count != 1 || at[0].SlopePercent is not { } carried)
+                        continue;
+                    e.SlopePercent = carried;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// How far each node a network reaches stands above <paramref name="outlet"/> (mm): along the shortest way there,
+    /// each run falling by its own written fall, else <paramref name="slopePercent"/>.
+    /// </summary>
+    public static Dictionary<int, double> RisesFrom(MepNetwork net, int outlet, double slopePercent)
+    {
+        var adjacent = Adjacency(net);
+        var dist = new Dictionary<int, double> { [outlet] = 0 };
+        var rise = new Dictionary<int, double> { [outlet] = 0 };
+        var open = new SortedSet<(double D, int N)> { (0, outlet) };
+        while (open.Count > 0)
+        {
+            var (dn, n) = open.Min;
+            open.Remove(open.Min);
+            foreach (var e in adjacent[n])
+            {
+                var m = e.A == n ? e.B : e.A;
+                var len = Length(net, e);
+                var d = dn + len;
+                if (dist.TryGetValue(m, out var known))
+                {
+                    if (known <= d)
+                        continue;
+                    open.Remove((known, m));
+                }
+
+                dist[m] = d;
+                rise[m] = rise[n] + (e.SlopePercent ?? slopePercent) / 100 * len;
+                open.Add((d, m));
+            }
+        }
+
+        return rise;
+    }
+
+    /// <summary>
+    /// Along each straight two-line run (pieces in line, as wide as each other), a piece with no label of its own takes
+    /// the size of the label nearest to it on that run: the size changes at the joint between two labels.
+    /// </summary>
+    private static void SpreadAlongRuns(MepNetwork net, Dictionary<MepEdge, (double X, double Y)> labelAt)
+    {
+        var adjacent = Adjacency(net);
+        var run = new Dictionary<MepEdge, int>();
+        var runs = new List<List<MepEdge>>();
+        foreach (var start in net.Edges.Where(e => e.DrawnWidthMm > 0 && !e.IsTransition))
+        {
+            if (run.ContainsKey(start))
+                continue;
+            var members = new List<MepEdge>();
+            var stack = new Stack<MepEdge>();
+            stack.Push(start);
+            run[start] = runs.Count;
+            while (stack.Count > 0)
+            {
+                var e = stack.Pop();
+                members.Add(e);
+                foreach (var node in new[] { e.A, e.B })
+                {
+                    foreach (var x in adjacent[node])
+                    {
+                        if (x == e || run.ContainsKey(x) || x.IsTransition || x.DrawnWidthMm <= 0 ||
+                            Math.Abs(x.DrawnWidthMm - e.DrawnWidthMm) > 25 || !Straight(net, e, x, node))
+                            continue;
+                        run[x] = runs.Count;
+                        stack.Push(x);
+                    }
+                }
+            }
+
+            runs.Add(members);
+        }
+
+        foreach (var members in runs)
+        {
+            var labelled = members.Where(e => e.SizeFrom == "text" && labelAt.ContainsKey(e)).ToList();
+            if (labelled.Count == 0)
+                continue;
+            foreach (var e in members.Where(e => e.SizeFrom.Length == 0))
+            {
+                var (ax, ay) = net.Nodes[e.A];
+                var (bx, by) = net.Nodes[e.B];
+                double mx = (ax + bx) / 2, my = (ay + by) / 2;
+                var nearest = labelled.OrderBy(l => Sq(labelAt[l].X - mx) + Sq(labelAt[l].Y - my)).First();
+                e.Size = nearest.Size;
+                e.SizeFrom = "inherited";
+            }
+        }
+    }
+
+    /// <summary>Pieces of one straight two-line run with one size made one edge again (the run cut at its joints).</summary>
+    private static void MergeStraight(MepNetwork net, bool singleLine = false)
+    {
+        var merged = true;
+        while (merged)
+        {
+            merged = false;
+            var adjacent = Adjacency(net);
+            for (var n = 0; n < net.Nodes.Count && !merged; n++)
+            {
+                if (adjacent[n].Count != 2)
+                    continue;
+                var (a, b) = (adjacent[n][0], adjacent[n][1]);
+                if (a.IsTransition || b.IsTransition || !singleLine && (a.DrawnWidthMm <= 0 || b.DrawnWidthMm <= 0) ||
+                    !a.Size.Equals(b.Size) || !Straight(net, a, b, n))
+                    continue;
+                var far = b.A == n ? b.B : b.A;
+                if (a.A == n)
+                    a.A = far;
+                else
+                    a.B = far;
+                if (a.SizeFrom != "text" && b.SizeFrom == "text")
+                    a.SizeFrom = "text";
+                net.Edges.Remove(b);
+                merged = true;
+            }
+        }
     }
 
     private const string TransitionFrom = "transition";
@@ -476,10 +719,16 @@ public static class MepRoutePlanner
         return result;
     }
 
-    /// <summary>Largest device drawn as a block (grille, diffuser, fan coil, VAV box): a bigger block draws runs.</summary>
-    public const double MaxDeviceMm = 3000;
+    /// <summary>
+    /// Largest device drawn as a block (grille, diffuser, fan coil, VAV box, a 3000 louver with its damper): a bigger
+    /// block draws runs. Past 3000 so a 3000 louver read a hair over it still counts.
+    /// </summary>
+    public const double MaxDeviceMm = 3200;
     /// <summary>Largest closed outline taken for a device drawn without a block (a grille drawn as a square).</summary>
     private const double MaxOutlineMm = 1500;
+    /// <summary>A flex collar drawn on a box's side: at most this deep and this wide.</summary>
+    private const double CollarDepthMm = 150;
+    private const double CollarMaxMm = 600;
 
     /// <summary>
     /// The strokes of a duct drawing without its devices: small blocks (grilles, diffusers, fan coils, boxes), small
@@ -540,6 +789,18 @@ public static class MepRoutePlanner
             var big = Math.Max(c.MaxX - c.MinX, c.MaxY - c.MinY);
             if (big > MaxOutlineMm)
                 continue;
+            // A collar (spigot for a flex) on the side of a box drawn bigger: thin, short, outside the box but touching it.
+            var thin = Math.Min(c.MaxX - c.MinX, c.MaxY - c.MinY);
+            if (thin <= CollarDepthMm && big <= CollarMaxMm && closed.Any(o => o.I != c.I &&
+                    (o.MaxX - o.MinX) * (o.MaxY - o.MinY) > 3 * big * thin &&
+                    o.MinX <= c.MaxX + 5 && o.MaxX >= c.MinX - 5 && o.MinY <= c.MaxY + 5 && o.MaxY >= c.MinY - 5 &&
+                    !(o.MinX <= c.MinX + 5 && o.MaxX >= c.MaxX - 5 && o.MinY <= c.MinY + 5 && o.MaxY >= c.MaxY - 5)))
+            {
+                drop[c.I] = true;
+                outlines.Add((c.MinX, c.MinY, c.MaxX, c.MaxY));
+                continue;
+            }
+
             // A piece of duct between two others: most of its corners are theirs too.
             if (((CadPolyline)list[c.I]).Points.Count(q => Shared(c.I, q.X, q.Y, (c.MinX, c.MinY, c.MaxX, c.MaxY))) >= 3)
                 continue;
@@ -617,7 +878,8 @@ public static class MepRoutePlanner
     /// two-line when most of its length pairs and the labels inside the bands (when there are a few) mostly agree with
     /// their widths.
     /// </summary>
-    private static List<Seg>? DoubleLines(List<Seg> strokes, List<Seg> fine, List<(double X, double Y, MepSize Size)> labels, bool sure, ref int flexSkipped)
+    private static List<Seg>? DoubleLines(List<Seg> strokes, List<Seg> fine, List<(double X, double Y, MepSize Size)> labels, bool sure,
+        ref int flexSkipped, List<(double X, double Y)> joints)
     {
         var segs = strokes.Where(s => !s.Arc && s.Length >= MinSideMm).ToList();
         // A hatch's pattern lines (the cross-hatch of a hopper, a filter) are not sides.
@@ -661,6 +923,9 @@ public static class MepRoutePlanner
         bool Glued(Seg a, Seg b) => Hanging(fine, strokeCells, a, b) || Hanging(fine, strokeCells, b, a);
         var pairs = SidePairs(segs, labelCells, labels, Glued);
         var across = AcrossPairs(segs, pairs);
+        // Joints (a line across the duct, a face two boxes share): where a run may change size.
+        joints.AddRange(across.Select(k => ((segs[k].X0 + segs[k].X1) / 2, (segs[k].Y0 + segs[k].Y1) / 2)));
+        joints.AddRange(faceList.Select(f => ((f.X0 + f.X1) / 2, (f.Y0 + f.Y1) / 2)));
         if (across.Count > 0)
         {
             segs = segs.Where((_, i) => !across.Contains(i)).ToList();
@@ -856,6 +1121,13 @@ public static class MepRoutePlanner
 
     private static readonly double[] RoundSizes = { 80, 100, 125, 150, 160, 200, 250, 300, 315, 350, 400, 450, 500, 550, 600, 650, 700, 800, 900, 1000, 1250 };
 
+    // Also a box's or equipment's three sizes (W D H: 850X400X300, 500X500X800): not a duct's section.
+    private static readonly Regex GrilleLabel = new(@"\b[A-Z]{0,2}AG\b|GRILLE|LOUVER|LOUVRE|DIFFUSER|\d\s*[xX×*]\s*\d+\s*[xX×*]\s*\d", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>How far a label's width (the nearer of its two sides, or its diameter) is from the drawn width.</summary>
+    private static double Misfit(MepSize size, double w) =>
+        size.IsRound ? Math.Abs(size.DiameterMm - w) : Math.Min(Math.Abs(size.WidthMm - w), Math.Abs(size.HeightMm - w));
+
     /// <summary>A label as wide as a duct drawn <paramref name="w"/> mm across: W or H of a rectangle, D of a round one.</summary>
     private static bool Fits(MepSize size, double w)
     {
@@ -1024,8 +1296,7 @@ public static class MepRoutePlanner
 
         var pairs = new List<(int I, int J, double D, double S0, double S1)>();
         for (var i = 0; i < segs.Count; i++)
-        {
-            foreach (var c in cand[i])
+        {            foreach (var c in cand[i])
             {
                 if (c.J > i && Math.Sign(c.D) == side[i] && side[c.J] == Facing(c.J, i))
                     pairs.Add((i, c.J, c.D, c.S0, c.S1));
@@ -1076,6 +1347,78 @@ public static class MepRoutePlanner
     /// Lines with a parallel line alongside at about the same spacing on each side, closer than
     /// <see cref="HatchSpacingMm"/>: the inner lines of a hatch pattern.
     /// </summary>
+    /// <summary>
+    /// Each straight line of axes (one run drawn as several boxes is one line) turned about its middle, half a degree
+    /// at most, to a whole number of degrees from the longest axis: the bends between them come out in whole degrees,
+    /// which elbow families build (Revit finds no elbow for a bend of 58.37° that it makes at 57° or 58°). The axes of
+    /// one line stay on one line.
+    /// </summary>
+    private static void WholeDegrees(List<Seg> axes)
+    {
+        var live = axes.Where(a => a.Length >= 1).ToList();
+        var longest = live.OrderByDescending(a => a.Length).FirstOrDefault();
+        if (longest is null)
+            return;
+        var baseAngle = Math.Atan2(longest.U.Y, longest.U.X);
+        const double degree = Math.PI / 180;
+        // Direction in [0, π) and offset of the line through each axis.
+        (double Angle, double Offset) Line(Seg a)
+        {
+            var angle = Math.Atan2(a.U.Y, a.U.X);
+            if (angle < 0)
+                angle += Math.PI;
+            if (angle >= Math.PI)
+                angle -= Math.PI;
+            return (angle, -Math.Sin(angle) * (a.X0 + a.X1) / 2 + Math.Cos(angle) * (a.Y0 + a.Y1) / 2);
+        }
+
+        var lines = new List<List<Seg>>();
+        foreach (var a in live)
+        {
+            var (angle, offset) = Line(a);
+            var found = lines.FirstOrDefault(g =>
+            {
+                var (ga, go) = Line(g[0]);
+                var turn = Math.Abs(angle - ga);
+                turn = Math.Min(turn, Math.PI - turn);
+                return turn < 0.01 && Math.Abs(offset - (Math.Abs(angle - ga) > Math.PI / 2 ? -go : go)) < 30;
+            });
+            if (found is null)
+                lines.Add(new List<Seg> { a });
+            else
+                found.Add(a);
+        }
+
+        foreach (var line in lines)
+        {
+            var first = line[0];
+            var (ux, uy) = first.U;
+            // The line's direction, length-weighted, and its middle.
+            double sx = 0, sy = 0, cx = 0, cy = 0, total = 0;
+            foreach (var a in line)
+            {
+                var (ax, ay) = a.U;
+                var sign = ax * ux + ay * uy < 0 ? -1 : 1;
+                sx += sign * ax * a.Length;
+                sy += sign * ay * a.Length;
+                cx += (a.X0 + a.X1) / 2 * a.Length;
+                cy += (a.Y0 + a.Y1) / 2 * a.Length;
+                total += a.Length;
+            }
+
+            var angle = Math.Atan2(sy, sx);
+            (cx, cy) = (cx / total, cy / total);
+            var whole = baseAngle + Math.Round((angle - baseAngle) / degree) * degree;
+            double ox = Math.Cos(angle), oy = Math.Sin(angle), nx = Math.Cos(whole), ny = Math.Sin(whole);
+            foreach (var a in line)
+            {
+                var t0 = (a.X0 - cx) * ox + (a.Y0 - cy) * oy;
+                var t1 = (a.X1 - cx) * ox + (a.Y1 - cy) * oy;
+                (a.X0, a.Y0, a.X1, a.Y1) = (cx + nx * t0, cy + ny * t0, cx + nx * t1, cy + ny * t1);
+            }
+        }
+    }
+
     /// <summary>
     /// Lines up to a duct's width drawn twice over (in line within 3 mm, most of the shorter covered): the face two
     /// pieces drawn as boxes share.
@@ -1203,7 +1546,8 @@ public static class MepRoutePlanner
             bool At(double d) => near.Any(x => Math.Abs(x - d) <= Math.Max(10, 0.05 * Math.Abs(d)));
             foreach (var d in near.Where(x => x > 0 && x <= MaxDuctWidthMm / 2).OrderBy(x => x))
             {
-                if (!At(-d) || At(2 * d) || At(-2 * d))
+                // Nothing runs between a centerline and its sides (a side between two other ducts' sides is midway too).
+                if (!At(-d) || At(2 * d) || At(-2 * d) || near.Any(x => Math.Abs(x) < d - 20))
                     continue;
                 // A label nearby as wide as the spacing (not twice it): ducts side by side, this line a side.
                 var reach = 2 * d + LabelReachMm;
@@ -1352,7 +1696,12 @@ public static class MepRoutePlanner
                         // A bend only with a loose end: an end already joined (another bend's corner) is not met again.
                         if (sAlong < 0 && Touches(j, b.X0, b.Y0) || sAlong > len && Touches(j, b.X1, b.Y1))
                             continue;
-                        bestT = t;
+                        // Counting what the other axis would be drawn on: a tee on a body met at the same point as the
+                        // end of the axis in line with it is that tee, not a bend pulling that axis over the first.
+                        var score = t + (sAlong < 0 ? -sAlong : sAlong > len ? sAlong - len : 0);
+                        if (score >= bestT)
+                            continue;
+                        bestT = score;
                         var target = b;
                         var endNow = end;
                         var width = Math.Max(a.Width, b.Width);
@@ -1713,7 +2062,7 @@ public static class MepRoutePlanner
         MepNetwork net, int outlet, double slope, Func<double, double, double?> underside, double clearanceMm,
         double stepMm, double fallbackMm)
     {
-        var dist = DistancesFrom(net, outlet);
+        var dist = RisesFrom(net, outlet, slope * 100);
         var best = double.MaxValue;
         foreach (var e in net.Edges.Where(x => dist.ContainsKey(x.A) && dist.ContainsKey(x.B)))
         {
@@ -1725,7 +2074,7 @@ public static class MepRoutePlanner
                 var t = Math.Min(s, len) / len;
                 if (underside(ax + (bx - ax) * t, ay + (by - ay) * t) is double u)
                 {
-                    var rise = slope * (dist[e.A] + (dist[e.B] - dist[e.A]) * t);
+                    var rise = dist[e.A] + (dist[e.B] - dist[e.A]) * t;
                     best = Math.Min(best, u - clearanceMm - e.Size.DepthMm / 2 - rise);
                 }
 
@@ -1767,6 +2116,73 @@ public static class MepRoutePlanner
             .GroupBy(Find)
             .Select(g => g.ToList())
             .ToList();
+    }
+
+    /// <summary>
+    /// The side a shoe is drawn on where a branch leaves a main: the slanted line from the main's side, out past the
+    /// branch's side, back to that side up the branch. +1 when it lies along (<paramref name="mainX"/>,
+    /// <paramref name="mainY"/>) from the branch's axis, -1 the other way, 0 when none is drawn (or both).
+    /// </summary>
+    /// <param name="nodeX">Where the branch's axis meets the main's (mm).</param>
+    /// <param name="branchX">Unit plan direction of the branch, away from the main.</param>
+    /// <param name="mainX">Unit plan direction of the main.</param>
+    public static int ShoeSide(IEnumerable<CadEntity> drawn, double nodeX, double nodeY, double branchX, double branchY,
+        double mainX, double mainY, double branchWidthMm, double mainWidthMm)
+    {
+        double halfB = branchWidthMm / 2, halfM = mainWidthMm / 2;
+        var reach = halfM + 2 * branchWidthMm + 300;
+        var votes = 0;
+        foreach (var e in drawn)
+        {
+            if (e is CadPolyline { FromArc: true })
+                continue;
+            var pts = Points(e).ToList();
+            var count = e is CadPolyline { Closed: true } ? pts.Count : pts.Count - 1;
+            for (var k = 0; k < count; k++)
+            {
+                var (ax, ay) = pts[k];
+                var (bx, by) = pts[(k + 1) % pts.Count];
+                // Along the branch (t) and along the main (s), from the node.
+                (double T, double S) Local(double x, double y) =>
+                    ((x - nodeX) * branchX + (y - nodeY) * branchY, (x - nodeX) * mainX + (y - nodeY) * mainY);
+                var p = Local(ax, ay);
+                var q = Local(bx, by);
+                foreach (var (atMain, onBranch) in new[] { (p, q), (q, p) })
+                {
+                    if (Math.Abs(atMain.T - halfM) > 30 || Math.Abs(atMain.S) <= halfB + 30 || Math.Abs(atMain.S) > halfB + branchWidthMm + 300 ||
+                        Math.Abs(Math.Abs(onBranch.S) - halfB) > 30 || onBranch.T <= halfM + 30 || onBranch.T > reach ||
+                        Math.Sign(onBranch.S) != Math.Sign(atMain.S))
+                        continue;
+                    votes += Math.Sign(atMain.S);
+                }
+            }
+        }
+
+        return Math.Sign(votes);
+    }
+
+    private const double OpeningMaxMm = 1000;
+
+    /// <summary>
+    /// A two-line part joined to nothing, shorter than <see cref="OpeningMaxMm"/> in all and with no size written on it,
+    /// is an opening or louver through a wall drawn on the duct layer, not a duct: left out. Returns how many.
+    /// </summary>
+    private static int DropOpenings(MepNetwork net)
+    {
+        var dropped = 0;
+        foreach (var part in Parts(net))
+        {
+            var nodes = new HashSet<int>(part);
+            var edges = net.Edges.Where(e => nodes.Contains(e.A)).ToList();
+            if (edges.Count == 0 || edges.Any(e => e.DrawnWidthMm <= 0 || e.SizeFrom == "text") ||
+                edges.Sum(e => Length(net, e)) >= OpeningMaxMm)
+                continue;
+            foreach (var e in edges)
+                net.Edges.Remove(e);
+            dropped++;
+        }
+
+        return dropped;
     }
 
     /// <summary>Two runs leaving a node in opposite directions (the main through a tee).</summary>
