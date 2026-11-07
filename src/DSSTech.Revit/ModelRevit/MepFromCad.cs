@@ -36,13 +36,13 @@ public sealed class MepDuctCommand : IExternalCommand
             new MepChoice(MepRun.Duct, "Ống gió", "Cấp, hồi, gió tươi, thải… (Duct)", MepSystemCatalog.Mech));
 }
 
-/// <summary>«ĐHKK ▸ Ống nước ĐHKK»: chilled, cooling water and refrigerant pipes.</summary>
+/// <summary>«ĐHKK ▸ Ống Chiller»: chilled, cooling water and refrigerant pipes.</summary>
 [Transaction(TransactionMode.Manual)]
 public sealed class MepMechPipeCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements) =>
         MepFromCad.Run(commandData.Application, "DSSTech — ĐHKK",
-            new MepChoice(MepRun.PressurePipe, "Ống nước ĐHKK", "Nước Chiller, tháp giải nhiệt, gas (Pipe)", MepSystemCatalog.Mech));
+            new MepChoice(MepRun.PressurePipe, "Ống Chiller", "Nước Chiller, tháp giải nhiệt, gas (Pipe)", MepSystemCatalog.Mech));
 }
 
 /// <summary>«ĐHKK ▸ Thoát nước ngưng»: condensate drains falling to their outlet.</summary>
@@ -165,10 +165,14 @@ internal static class MepFromCad
             // Ducts: grilles, diffusers, fan coils and boxes drawn on the duct layers are placed by their own tool.
             var devices = 0;
             Dump(lines, geom.Entities.OfType<CadText>());
-            if (choice.Run == MepRun.Duct)
+            // Shoes are drawn as small outlines left out with the devices: kept here to turn each takeoff their way.
+            Drawn = lines.ToList();
+            // Ducts: grilles, dampers, fan coils; pipes: valves and fittings drawn as blocks. Not trays (bends drawn as blocks).
+            if (choice.Run != MepRun.CableTray)
                 lines = MepRoutePlanner.WithoutDevices(lines, out devices);
-            // Ducts are drawn with both sides; pipes and trays with single lines.
-            var net = MepRoutePlanner.Build(lines, null, setup.Fallback, geom.Entities.OfType<CadText>(), choice.Run == MepRun.Duct);
+            // Ducts are drawn with both sides; trays either way (each layer read as it looks); pipes single-line.
+            bool? readAs = choice.Run switch { MepRun.Duct => true, MepRun.CableTray => null, _ => false };
+            var net = MepRoutePlanner.Build(lines, null, setup.Fallback, geom.Entities.OfType<CadText>(), readAs);
             var layerLabel = setup.Layers.Count <= 3 ? "layer " + string.Join(", ", setup.Layers) : $"{setup.Layers.Count} layer";
             if (net.Edges.Count == 0)
             {
@@ -214,8 +218,12 @@ internal static class MepFromCad
                 sources += $" (ống vẽ 2 nét: dựng theo tim, {twoLine} đoạn)";
             if (net.FlexSkipped > 0)
                 report = $"Bỏ qua {net.FlexSkipped} đoạn / layer ống mềm: nối sau bằng «Nối ống mềm».\n" + report;
+            if (net.OpeningsSkipped > 0)
+                report = $"Bỏ qua {net.OpeningsSkipped} ô ngắn đứng riêng, không ghi kích thước (lỗ thông gió / louver qua tường).\n" + report;
             if (devices > 0)
-                report = $"Bỏ qua {devices} thiết bị vẽ trên layer ống (block / khung miệng gió, FCU, box): đặt bằng «Thiết bị ĐHKK», nối bằng «Nối ống mềm».\n" + report;
+                report = (choice.Run == MepRun.Duct
+                    ? $"Bỏ qua {devices} thiết bị vẽ trên layer ống (block / khung miệng gió, FCU, box): đặt bằng «Thiết bị ĐHKK», nối bằng «Nối ống mềm».\n"
+                    : $"Bỏ qua {devices} ký hiệu van / phụ kiện vẽ trên layer ống (block): tuyến ống liền qua chỗ đó.\n") + report;
             TaskDialog.Show(title,
                 $"{choice.Label} · CAD {linkName} · {layerLabel} · {setup.SystemLabel}\n" +
                 $"Size: {sources}.\n{report}");
@@ -393,7 +401,7 @@ internal static class MepFromCad
             var underStructure = dlg.AddOption(choice.Run switch
             {
                 MepRun.DrainPipe => "Đầu tuyến cao nhất sát đáy dầm/sàn kết cấu (điểm xả tính lùi theo độ dốc)",
-                MepRun.Duct => "So với đáy dầm/sàn: đáy dầm thấp hơn cao độ tự nhập thì cả mạng hạ xuống dưới dầm (một cao độ)",
+                MepRun.Duct => "So với đáy dầm/sàn: đáy dầm thấp hơn cao độ tự nhập thì cả mạng hạ xuống dưới dầm (mọi ống cùng mặt đáy/đỉnh)",
                 _ => "Cao độ theo đáy dầm/sàn kết cấu, uốn né dầm"
             }, overhead.Count > 0);
             var clearance = dlg.AddInput("Khe hở dưới đáy dầm/sàn (mm)", "50");
@@ -515,9 +523,9 @@ internal static class MepFromCad
                 var outletZ = setup.UnderStructure
                     ? MepRoutePlanner.OutletUnderStructure(net, outlet, slope, Under, setup.ClearanceMm, StepMm, manualCenter)
                     : manualCenter;
-                foreach (var (n, d) in MepRoutePlanner.DistancesFrom(net, outlet))
-                    nodeZ[n] = outletZ + slope * d;
-                notes.AppendLine($"Mạng {p + 1}: điểm xả {(picked is null ? "đầu ống lớn nhất" : "đã pick")} ({net.Nodes[outlet].X:0},{net.Nodes[outlet].Y:0}), tâm ống {outletZ - levelMm:0} mm so với {level.Name}, dốc {setup.SlopePercent:0.##}%.");
+                foreach (var (n, rise) in MepRoutePlanner.RisesFrom(net, outlet, setup.SlopePercent))
+                    nodeZ[n] = outletZ + rise;
+                notes.AppendLine($"Mạng {p + 1}: điểm xả {(picked is null ? "đầu ống lớn nhất" : "đã pick")} ({net.Nodes[outlet].X:0},{net.Nodes[outlet].Y:0}), tâm ống {outletZ - levelMm:0} mm so với {level.Name}, dốc theo chữ i=..% trên tuyến, chỗ không ghi {setup.SlopePercent:0.##}%.");
             }
 
             foreach (var e in net.Edges)
@@ -549,27 +557,36 @@ internal static class MepFromCad
                 }
             }
 
+            // Each duct at the typed height by its own depth (bottom 3200: every duct's bottom at 3200, whatever its
+            // depth); a network under a lower beam goes down whole, by as much as its highest top needs.
             var byStructure = 0;
-            var partZ = new double[parts.Count];
+            var shift = new double[parts.Count];
+            var highestTop = parts.Select(_ => double.MinValue).ToArray();
+            foreach (var e in net.Edges.Where(x => !x.IsTransition))
+            {
+                var d = e.Size.DepthMm;
+                highestTop[partOf[e.A]] = Math.Max(highestTop[partOf[e.A]], setup.ManualCenter(levelMm, d) + d / 2);
+            }
+
             for (var p = 0; p < parts.Count; p++)
             {
-                // The typed height as typed (bottom 3300 is 3300 above the level); under a beam, down to 5 mm steps
-                // from the level.
-                partZ[p] = setup.ManualCenter(levelMm, depth[p]);
-                if (lowest[p] == double.MaxValue)
+                if (lowest[p] == double.MaxValue || highestTop[p] == double.MinValue)
                     continue;
-                var under = levelMm + Math.Floor((lowest[p] - setup.ClearanceMm - depth[p] / 2 - levelMm) / 5) * 5;
-                if (under >= partZ[p])
+                var room = lowest[p] - setup.ClearanceMm - highestTop[p];
+                if (room >= 0)
                     continue;
-                partZ[p] = under;
+                shift[p] = Math.Floor(room / 5) * 5;
                 byStructure++;
             }
 
             foreach (var e in net.Edges)
-                pieces.Add(new List<Piece> { new(0, MepRoutePlanner.Length(net, e), partZ[partOf[e.A]], partZ[partOf[e.A]]) });
+            {
+                var z = setup.ManualCenter(levelMm, e.Size.DepthMm) + shift[partOf[e.A]];
+                pieces.Add(new List<Piece> { new(0, MepRoutePlanner.Length(net, e), z, z) });
+            }
             notes.AppendLine(setup.UnderStructure
-                ? $"Cao độ: mỗi mạng một cao độ, {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm so với {level.Name}; mạng có đáy dầm/sàn thấp hơn thì đỉnh ống dưới đáy dầm thấp nhất {setup.ClearanceMm:0} mm ({byStructure}/{parts.Count} mạng hạ theo dầm)."
-                : $"Cao độ: {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm so với {level.Name} (cả mạng một cao độ).");
+                ? $"Cao độ: mọi ống {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm so với {level.Name}; mạng có đáy dầm/sàn thấp hơn thì cả mạng hạ xuống, đỉnh ống cao nhất dưới đáy dầm thấp nhất {setup.ClearanceMm:0} mm ({byStructure}/{parts.Count} mạng hạ theo dầm)."
+                : $"Cao độ: mọi ống {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm so với {level.Name}.");
             if (noStructure > 0)
                 notes.AppendLine($"  {noStructure} điểm dò (mỗi {StepMm:0} mm) không thấy dầm/sàn phía trên.");
         }
@@ -663,6 +680,7 @@ internal static class MepFromCad
         var nodeEnds = net.Nodes.Select(_ => new List<(ElementId Curve, XYZ At)>()).ToList();
         var transitions = new List<MepEdge>();
         Merged.Clear();
+        Reduced.Clear();
         JunctionsLogged.Clear();
         Bends.Clear();
         Bends.AddRange(net.Bends.Select(b => (UnitConv.MmToInternal(b.X), UnitConv.MmToInternal(b.Y), UnitConv.MmToInternal(b.RadiusMm))));
@@ -958,7 +976,7 @@ internal static class MepFromCad
     /// </summary>
     private static void Round(FamilyInstance? elbow, Connector at)
     {
-        if (elbow is null || at.Domain != Domain.DomainHvac)
+        if (elbow is null || at.Domain != Domain.DomainHvac || Reduced.Contains(elbow.Id))
             return;
         var p = at.Origin;
         var bend = Bends.Where(b => Math.Abs(b.X - p.X) < UnitConv.MmToInternal(100) && Math.Abs(b.Y - p.Y) < UnitConv.MmToInternal(100))
@@ -1063,8 +1081,20 @@ internal static class MepFromCad
                     if (Shoe(doc, m1, m2, branch, failures))
                         return 1;
                     var fresh = keys.Select(k => End(doc, k.Id, k.Origin)).ToArray();
-                    doc.Create.NewTeeFitting(fresh[0], fresh[1], fresh[2]);
-                    return 1;
+                    try
+                    {
+                        doc.Create.NewTeeFitting(fresh[0], fresh[1], fresh[2]);
+                        return 1;
+                    }
+                    catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+                    {
+                        // No fitting for the branch: the main still runs straight on as one duct, the branch ends at
+                        // its side, to be joined by hand.
+                        if (!MainOnly(doc, keys))
+                            throw;
+                        failures.Add($"node {where}: {ex.Message}; main kept as one run, branch to join by hand");
+                        return 0;
+                    }
                 }
                 case 4:
                 {
@@ -1133,25 +1163,8 @@ internal static class MepFromCad
         sub.Start();
         try
         {
-            var start = Other(main, m1).Origin;
-            var far = Other(next, m2);
-            var end = far.Origin;
-            // What the run being deleted joins beyond the branch, by owner and connector number: a connector read
-            // before the delete is no longer valid after it.
-            var beyond = far.AllRefs.Cast<Connector>().Where(c => c.Owner.Id != nextId).Select(c => (c.Owner.Id, c.Id)).ToList();
             var branchKey = (branch.Owner.Id, branch.Origin);
-            var mainId = main.Id;
-            doc.Delete(nextId);
-            var kept = (Duct)doc.GetElement(mainId);
-            ((LocationCurve)kept.Location).Curve = Line.CreateBound(start, end);
-            var keptEnd = End(kept, end);
-            foreach (var (owner, id) in beyond)
-            {
-                if (Find(doc, owner, id) is { } c)
-                    keptEnd.ConnectTo(c);
-            }
-
-            Merged[nextId] = mainId;
+            var kept = Through(doc, main, m1, next, m2);
             Tap(doc, branchKey.Item1, branchKey.Item2, kept);
             sub.Commit();
             return true;
@@ -1171,26 +1184,71 @@ internal static class MepFromCad
     private static readonly HashSet<ElementId> JunctionsLogged = new();
 
     /// <summary>
-    /// The shoe (tap) of the branch on the main. The branch's end comes at the main's axis; refused there, it is tried
-    /// again with the branch drawn back to the main's side, where a branch drawn by hand ends.
+    /// The main made one run through a junction: the run after it deleted, this one drawn on to that one's far end and
+    /// joined to what that end was joined to.
     /// </summary>
-    private static void Tap(Document doc, ElementId branchId, XYZ branchEnd, Duct main)
+    private static MEPCurve Through(Document doc, MEPCurve main, Connector m1, MEPCurve next, Connector m2)
     {
-        using (var first = new SubTransaction(doc))
+        var start = Other(main, m1).Origin;
+        var far = Other(next, m2);
+        var end = far.Origin;
+        var nextId = next.Id;
+        // What the run being deleted joins beyond the branch, by owner and connector number: a connector read before
+        // the delete is no longer valid after it.
+        var beyond = far.AllRefs.Cast<Connector>().Where(c => c.Owner.Id != nextId).Select(c => (c.Owner.Id, c.Id)).ToList();
+        var mainId = main.Id;
+        doc.Delete(nextId);
+        var kept = (MEPCurve)doc.GetElement(mainId);
+        ((LocationCurve)kept.Location).Curve = Line.CreateBound(start, end);
+        var keptEnd = End(kept, end);
+        foreach (var (owner, id) in beyond)
         {
-            first.Start();
-            try
-            {
-                doc.Create.NewTakeoffFitting(End(doc, branchId, branchEnd), main);
-                first.Commit();
-                return;
-            }
-            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
-            {
-                first.RollBack();
-            }
+            if (Find(doc, owner, id) is { } c)
+                keptEnd.ConnectTo(c);
         }
 
+        Merged[nextId] = mainId;
+        return kept;
+    }
+
+    /// <summary>
+    /// A junction Revit gives no fitting for: the two mains, same size and straight on, made one duct (a straight run
+    /// is not left broken), the branch drawn back to the main's side. False, nothing changed, when that does not apply.
+    /// </summary>
+    private static bool MainOnly(Document doc, (ElementId Id, XYZ Origin)[] keys)
+    {
+        var mergedBefore = new Dictionary<ElementId, ElementId>(Merged);
+        using var sub = new SubTransaction(doc);
+        sub.Start();
+        try
+        {
+            var (m1, m2) = (End(doc, keys[0].Id, keys[0].Origin), End(doc, keys[1].Id, keys[1].Origin));
+            if (m1.Owner is not MEPCurve main || m2.Owner is not MEPCurve next || main.Id == next.Id ||
+                m1.CoordinateSystem.BasisZ.DotProduct(m2.CoordinateSystem.BasisZ) > -0.999 || !SameSize(m1, m2))
+            {
+                sub.RollBack();
+                return false;
+            }
+
+            var kept = Through(doc, main, m1, next, m2);
+            ToSide(doc, keys[2].Id, keys[2].Origin, kept);
+            sub.Commit();
+            return true;
+        }
+        catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException or InvalidOperationException)
+        {
+            if (sub.HasStarted())
+                sub.RollBack();
+            Merged.Clear();
+            foreach (var kv in mergedBefore)
+                Merged[kv.Key] = kv.Value;
+            return false;
+        }
+    }
+
+    /// <summary>The branch's end drawn back from the main's axis to its side; returns the new end.</summary>
+    private static XYZ ToSide(Document doc, ElementId branchId, XYZ branchEnd, MEPCurve main)
+    {
         var branch = (MEPCurve)doc.GetElement(branchId);
         var line = (Line)((LocationCurve)branch.Location).Curve;
         var (p0, p1) = (line.GetEndPoint(0), line.GetEndPoint(1));
@@ -1206,7 +1264,162 @@ internal static class MepFromCad
         if (side.DistanceTo(far) < UnitConv.MmToInternal(100))
             throw new ArgumentException("branch shorter than the main is wide");
         ((LocationCurve)branch.Location).Curve = atStart ? Line.CreateBound(side, far) : Line.CreateBound(far, side);
-        doc.Create.NewTakeoffFitting(End(branch, side), main);
+        return side;
+    }
+
+    /// <summary>
+    /// The shoe (tap) of the branch on the main. The branch's end comes at the main's axis; refused there, it is tried
+    /// again with the branch drawn back to the main's side, where a branch drawn by hand ends.
+    /// </summary>
+    private static void Tap(Document doc, ElementId branchId, XYZ branchEnd, MEPCurve main)
+    {
+        FamilyInstance? tap = null;
+        using (var first = new SubTransaction(doc))
+        {
+            first.Start();
+            try
+            {
+                tap = doc.Create.NewTakeoffFitting(End(doc, branchId, branchEnd), main);
+                first.Commit();
+            }
+            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+            {
+                first.RollBack();
+            }
+        }
+
+        if (tap is null)
+        {
+            var side = ToSide(doc, branchId, branchEnd, main);
+            tap = doc.Create.NewTakeoffFitting(End((MEPCurve)doc.GetElement(branchId), side), main);
+        }
+
+        try
+        {
+            TurnToDrawn(doc, tap, branchId, main);
+        }
+        catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException or InvalidOperationException)
+        {
+            DssTechLog.Write($"mep fitting: shoe turn: {ex.Message}");
+        }
+    }
+
+    /// <summary>The CAD strokes of the run being modelled, devices and shoes included.</summary>
+    private static List<CadEntity> Drawn = new();
+
+    /// <summary>
+    /// A shoe whose slant Revit put on the other side from the drawing's (its 45° side faces the air coming along the
+    /// main) is flipped, else turned half round about the branch, to the drawn side; left as made when neither does it.
+    /// </summary>
+    private static void TurnToDrawn(Document doc, FamilyInstance tap, ElementId branchId, MEPCurve main)
+    {
+        if (doc.GetElement(branchId) is not MEPCurve branch || branch.Location is not LocationCurve { Curve: Line bl } ||
+            main.Location is not LocationCurve { Curve: Line ml })
+            return;
+        var mainDir = new XYZ(ml.Direction.X, ml.Direction.Y, 0);
+        if (mainDir.GetLength() < 1e-6)
+            return;
+        mainDir = mainDir.Normalize();
+        // Where the branch's axis meets the main's, in plan, and the branch's way out from it.
+        var (b0, b1) = (bl.GetEndPoint(0), bl.GetEndPoint(1));
+        var mainP = ml.GetEndPoint(0);
+        XYZ Plan(XYZ p) => new(p.X, p.Y, 0);
+        var near = Plan(b0 - mainP).CrossProduct(mainDir).GetLength() < Plan(b1 - mainP).CrossProduct(mainDir).GetLength() ? b0 : b1;
+        var far = near.IsAlmostEqualTo(b0) ? b1 : b0;
+        var outDir = Plan(far - near);
+        if (outDir.GetLength() < 1e-6)
+            return;
+        outDir = outDir.Normalize();
+        // near = node + outDir·dist, the node on the main's line: (near − mainP) × mainDir = dist · (outDir × mainDir).
+        var cross = outDir.X * mainDir.Y - outDir.Y * mainDir.X;
+        if (Math.Abs(cross) < 0.3)
+            return;
+        var dist = Plan(near - mainP).CrossProduct(mainDir).Z / cross;
+        var node = Plan(near) - outDir * dist;
+        static double Across(MEPCurve c)
+        {
+            var dia = c.get_Parameter(BuiltInParameter.RBS_CURVE_DIAMETER_PARAM)?.AsDouble() ?? 0;
+            return dia > 0 ? dia : c.get_Parameter(BuiltInParameter.RBS_CURVE_WIDTH_PARAM)?.AsDouble() ?? 0;
+        }
+        var wanted = MepRoutePlanner.ShoeSide(Drawn, UnitConv.ToMm(node.X), UnitConv.ToMm(node.Y), outDir.X, outDir.Y,
+            mainDir.X, mainDir.Y, UnitConv.ToMm(Across(branch)), UnitConv.ToMm(Across(main)));
+        if (wanted == 0)
+            return;
+
+        // The slant reaches farther from the branch's axis along the main than the square side does.
+        int Slant()
+        {
+            double plus = 0, minus = 0;
+            var opt = new Options { DetailLevel = ViewDetailLevel.Fine };
+            foreach (var p in Vertices(tap.get_Geometry(opt)))
+            {
+                var s = Plan(p - node).DotProduct(mainDir);
+                plus = Math.Max(plus, s);
+                minus = Math.Max(minus, -s);
+            }
+
+            var gap = UnitConv.MmToInternal(10);
+            return plus > minus + gap ? 1 : minus > plus + gap ? -1 : 0;
+        }
+
+        var made = Slant();
+        if (made == 0 || made == wanted)
+            return;
+        var where = Describe(tap.GetTransform().Origin);
+        var tries = new List<(string Name, Action Do)>();
+        if (tap.CanFlipHand)
+            tries.Add(("flip hand", () => tap.flipHand()));
+        if (tap.CanFlipFacing)
+            tries.Add(("flip facing", () => tap.flipFacing()));
+        var axisAt = tap.GetTransform().Origin;
+        tries.Add(("half turn", () => ElementTransformUtils.RotateElement(doc, tap.Id, Line.CreateBound(axisAt, axisAt + outDir), Math.PI)));
+        foreach (var (name, act) in tries)
+        {
+            using var sub = new SubTransaction(doc);
+            sub.Start();
+            try
+            {
+                act();
+                doc.Regenerate();
+                if (Slant() == wanted && tap.MEPModel.ConnectorManager.Connectors.Cast<Connector>().All(c => c.IsConnected))
+                {
+                    sub.Commit();
+                    return;
+                }
+            }
+            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException or InvalidOperationException)
+            {
+                DssTechLog.Write($"mep fitting: shoe at {where}: {name}: {ex.Message}");
+            }
+
+            sub.RollBack();
+        }
+
+        DssTechLog.Write($"mep fitting: shoe at {where}: slant on the other side from the drawing, family neither flips nor turns");
+    }
+
+    private static IEnumerable<XYZ> Vertices(GeometryElement? geometry)
+    {
+        if (geometry is null)
+            yield break;
+        foreach (var obj in geometry)
+        {
+            switch (obj)
+            {
+                case GeometryInstance gi:
+                    foreach (var p in Vertices(gi.GetInstanceGeometry()))
+                        yield return p;
+                    break;
+                case Solid solid:
+                    foreach (Edge edge in solid.Edges)
+                    {
+                        foreach (var p in edge.Tessellate())
+                            yield return p;
+                    }
+
+                    break;
+            }
+        }
     }
 
     /// <summary>Once a run: the junction fittings the duct type's routing preferences offer (a shoe needs a tap there).</summary>
@@ -1324,13 +1537,128 @@ internal static class MepFromCad
         var radius = Bends.Where(x => Math.Abs(x.X - corner.X) < UnitConv.MmToInternal(100) && Math.Abs(x.Y - corner.Y) < UnitConv.MmToInternal(100))
             .Select(x => (double?)x.Radius).FirstOrDefault() ?? width;
         var tangent = radius * Math.Tan(turn / 2);
-        for (var k = 0; k < 2; k++)
+        // The second try is undone whole when Revit refuses it too: the runs go back to the corner, never left short.
+        using var second = new SubTransaction(doc);
+        second.Start();
+        try
         {
-            var back = Math.Min(tangent, 0.45 * away[k].Length);
-            ((LocationCurve)runs[k].Location).Curve = Line.CreateBound(corner + away[k].Dir * back, away[k].Far);
+            for (var k = 0; k < 2; k++)
+            {
+                var back = Math.Min(tangent, 0.45 * away[k].Length);
+                ((LocationCurve)runs[k].Location).Curve = Line.CreateBound(corner + away[k].Dir * back, away[k].Far);
+            }
+
+            var made = doc.Create.NewElbowFitting(End(runs[0], corner), End(runs[1], corner));
+            second.Commit();
+            return made;
+        }
+        catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+        {
+            second.RollBack();
+            if (Tight(doc, keys, out var tight))
+                return tight;
+            var angles = "";
+            try
+            {
+                var settings = DuctSettings.GetDuctSettings(doc);
+                angles = $"; duct fitting angles {settings.FittingAngleUsage}" +
+                         (settings.FittingAngleUsage == FittingAngleUsage.UseSpecificAngles
+                             ? " " + string.Join("/", settings.GetSpecificFittingAngles().Where(a => settings.GetSpecificFittingAngleStatus(a)).Select(a => (a * 180 / Math.PI).ToString("0")))
+                             : "");
+            }
+            catch (Exception)
+            {
+            }
+
+            throw new ArgumentException($"{ex.Message} (bend {turn * 180 / Math.PI:0} deg, radius {UnitConv.ToMm(radius):0}{angles})");
+        }
+    }
+
+    /// <summary>Elbows made smaller than drawn (no room for the drawn radius): left as made.</summary>
+    private static readonly HashSet<ElementId> Reduced = new();
+
+    /// <summary>
+    /// Last tries for an elbow Revit refuses: the two ends the other way round, then a smaller radius (multiplier 0.75,
+    /// then 0.5 of the elbow type the routing preferences give), put first in the preferences for this one elbow and
+    /// taken out again. The run is joined either way; a smaller elbow is logged.
+    /// </summary>
+    private static bool Tight(Document doc, (ElementId Id, XYZ Origin)[] keys, out FamilyInstance made)
+    {
+        made = null!;
+        var corner = keys[0].Origin;
+        using (var swap = new SubTransaction(doc))
+        {
+            swap.Start();
+            try
+            {
+                made = doc.Create.NewElbowFitting(End(doc, keys[1].Id, keys[1].Origin), End(doc, keys[0].Id, keys[0].Origin));
+                swap.Commit();
+                return true;
+            }
+            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+            {
+                swap.RollBack();
+            }
         }
 
-        return doc.Create.NewElbowFitting(End(runs[0], corner), End(runs[1], corner));
+        // A smaller elbow through the routing preferences: ducts and pipes have them, trays take fittings from their type.
+        if (doc.GetElement(keys[0].Id) is not (Duct or Pipe) || doc.GetElement(doc.GetElement(keys[0].Id).GetTypeId()) is not MEPCurveType curveType)
+            return false;
+        var prefs = curveType.RoutingPreferenceManager;
+        var group = RoutingPreferenceRuleGroupType.Elbows;
+        if (prefs.GetNumberOfRules(group) == 0 || doc.GetElement(prefs.GetRule(group, 0).MEPPartId) is not FamilySymbol elbowType)
+            return false;
+        foreach (var multiplier in new[] { 0.75, 0.5 })
+        {
+            using var sub = new SubTransaction(doc);
+            sub.Start();
+            try
+            {
+                var symbol = ElbowType(elbowType, multiplier);
+                if (symbol is null)
+                {
+                    sub.RollBack();
+                    return false;
+                }
+
+                if (!symbol.IsActive)
+                    symbol.Activate();
+                prefs.AddRule(group, new RoutingPreferenceRule(symbol.Id, "DSSTech"), 0);
+                made = doc.Create.NewElbowFitting(End(doc, keys[0].Id, keys[0].Origin), End(doc, keys[1].Id, keys[1].Origin));
+                prefs.RemoveRule(group, 0);
+                sub.Commit();
+                Reduced.Add(made.Id);
+                DssTechLog.Write($"mep elbow {Describe(corner)}: no room for the drawn radius, made with radius multiplier {multiplier}");
+                return true;
+            }
+            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+            {
+                sub.RollBack();
+            }
+        }
+
+        return false;
+    }
+
+    private static readonly string[] Multipliers = { "Radius Multiplier", "Bend Radius Multiplier", "Multiplier" };
+
+    /// <summary>The type of the elbow's family with radius multiplier <paramref name="wanted"/> ("Standard R0.75"), made from <paramref name="symbol"/> when missing; null without a multiplier.</summary>
+    private static FamilySymbol? ElbowType(FamilySymbol symbol, double wanted)
+    {
+        if (Multipliers.Select(symbol.LookupParameter).FirstOrDefault(q => q is { StorageType: StorageType.Double }) is not { } typeParam)
+            return null;
+        if (Math.Abs(typeParam.AsDouble() - wanted) < 0.03)
+            return symbol;
+        var name = $"{System.Text.RegularExpressions.Regex.Replace(symbol.Name, @" R\d+\.\d+$", "")} R{wanted.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture)}";
+        var doc = symbol.Document;
+        var type = symbol.Family.GetFamilySymbolIds().Select(doc.GetElement).OfType<FamilySymbol>().FirstOrDefault(s => s.Name == name);
+        if (type is null)
+        {
+            type = (FamilySymbol)symbol.Duplicate(name);
+            type.LookupParameter(typeParam.Definition.Name)?.Set(wanted);
+        }
+
+        return type;
     }
 
     private static bool SameSize(Connector a, Connector b) =>

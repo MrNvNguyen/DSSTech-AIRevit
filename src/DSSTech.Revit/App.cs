@@ -104,10 +104,10 @@ public sealed class App : IExternalApplication
         const string mepTip = " Chọn CAD, chọn system và tick layer của hệ (CAD có nhiều hệ); size theo chữ ghi cạnh nét, dưới đáy dầm/sàn và uốn né dầm.";
         const string mepTipEn = " Pick the CAD link, the system and its layers; size from labels, under beams and slabs with drops.";
         Menu(mepf.AddItem(Pulldown("DSSTechMepMech", "ĐHKK\nHVAC", "icon-mep-mech",
-                "ĐHKK (HVAC) — ống gió, ống nước ĐHKK, thoát nước ngưng." + mepTip, "Ducts, mechanical pipes, condensate drains." + mepTipEn)),
+                "ĐHKK (HVAC) — ống gió, ống Chiller, thoát nước ngưng." + mepTip, "Ducts, chiller piping, condensate drains." + mepTipEn)),
             Item(asm, "DSSTechMepDuct", "Ống gió · Duct", typeof(ModelRevit.MepDuctCommand), "icon-part-duct",
                 "Cấp, hồi, gió tươi, thải (Duct)." + mepTip, "Supply, return, fresh air, exhaust ducts." + mepTipEn, "dung-mo-hinh"),
-            Item(asm, "DSSTechMepMechPipe", "Ống nước ĐHKK · HVAC Pipe", typeof(ModelRevit.MepMechPipeCommand), "icon-mep-chw",
+            Item(asm, "DSSTechMepMechPipe", "Ống Chiller · Chiller Piping", typeof(ModelRevit.MepMechPipeCommand), "icon-mep-chw",
                 "Nước Chiller, tháp giải nhiệt, gas (Pipe)." + mepTip, "Chilled, condenser water and refrigerant pipes." + mepTipEn, "dung-mo-hinh"),
             Item(asm, "DSSTechMepCondensate", "Thoát nước ngưng · Condensate", typeof(ModelRevit.MepCondensateCommand), "icon-mep-condensate",
                 "Ống thoát nước ngưng có độ dốc về điểm xả." + mepTip, "Condensate drains falling to their outlet." + mepTipEn, "dung-mo-hinh"),
