@@ -12,6 +12,11 @@ public sealed class CadGeometry
     /// other readers take a bare number for a dimension, not a mark.
     /// </summary>
     public List<CadText> NumberTexts { get; } = new List<CadText>();
+    /// <summary>
+    /// Longer notes with an MEP size or elevation ("THANG CÁP 1200X100, H=2800"): for the MEP tools only, apart from
+    /// <see cref="Entities"/> where the other readers would take them for marks.
+    /// </summary>
+    public List<CadText> NoteTexts { get; } = new List<CadText>();
 }
 
 public abstract class CadEntity

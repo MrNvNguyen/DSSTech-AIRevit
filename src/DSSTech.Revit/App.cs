@@ -46,6 +46,9 @@ public sealed class App : IExternalApplication
             Small(asm, "DSSTechHelp", "Hướng dẫn", "Help", typeof(HelpCommand), "icon-help",
                 "Mở hướng dẫn sử dụng DSSTech. Mẹo: rê chuột lên bất kỳ nút nào rồi nhấn F1.",
                 "Open the DSSTech user guide. Tip: hover any button and press F1.", ""));
+        setup.AddItem(Large(asm, "DSSTechFeedback", "Góp ý", "Feedback", typeof(FeedbackCommand), "icon-feedback",
+            "Báo lỗi hoặc đề xuất tính năng: soạn email gửi DSSTech, kèm ảnh và nhật ký để sửa nhanh.",
+            "Report a bug or suggest a feature: drafts an email to DSSTech with screenshots and logs attached.", ""));
 
         // ── Panel 2: Kiến trúc (Trục, Level là nền cho các bộ môn) ─────────
         var arch = Panel(application, tab, "Kiến trúc · Architecture");
@@ -135,7 +138,10 @@ public sealed class App : IExternalApplication
             Item(asm, "DSSTechMepSprinkler", "Sprinkler / chữa cháy · Sprinkler", typeof(ModelRevit.MepFireCommand), "icon-mep-sprinkler",
                 "Sprinkler, họng vách tường, màn ngăn (Pipe)." + mepTip, "Sprinkler, hose and drencher pipes." + mepTipEn, "dung-mo-hinh"),
             Item(asm, "DSSTechMepSmoke", "Tăng áp / hút khói · Smoke Duct", typeof(ModelRevit.MepSmokeDuctCommand), "icon-mep-smoke",
-                "Ống gió tạo áp, hút khói (Duct)." + mepTip, "Pressurisation and smoke exhaust ducts." + mepTipEn, "dung-mo-hinh"));
+                "Ống gió tạo áp, hút khói (Duct)." + mepTip, "Pressurisation and smoke exhaust ducts." + mepTipEn, "dung-mo-hinh"),
+            Item(asm, "DSSTechFireDevices", "Tủ chữa cháy & đầu phun · Fire Devices", typeof(ModelRevit.FireDevicesCommand), "icon-dev-sprinkler",
+                "Tủ chữa cháy lên mặt tường gần nhất; đầu phun sprinkler, đầu báo cháy dưới mặt trần — từ block CAD.",
+                "Fire hose cabinets on the nearest wall; sprinklers and detectors under the ceiling — from CAD blocks.", "dung-mo-hinh"));
         Devices(mepf, asm, "DSSTechWallDevices", "Thiết bị tường", "Wall Devices", "icon-dev-wall",
             "Ổ cắm, công tắc, đèn ốp tường, điều hòa cục bộ từ block CAD: đặt lên mặt tường gần nhất ở cao độ lắp.",
             "Sockets, switches, wall lights and split AC units from CAD blocks, on the nearest wall face at mounting height.",
@@ -163,9 +169,9 @@ public sealed class App : IExternalApplication
 
         // ── Combine: phối hợp hệ thống sau khi dựng các bộ môn ─────────────
         var combine = Panel(application, tab, "Combine");
-        combine.AddItem(Build(asm, "DSSTechCombineAvoid", "Combine", typeof(ModelRevit.MepAvoidCommand), "icon-combine",
-            "Chọn ống gió, ống nước, máng cáp ở khu vực va chạm; chọn loại phải né và đi dưới / đi trên: tự đổi tuyến bằng cút.",
-            "Select the runs at a clash; pick which kind gives way and whether it passes under or over: it detours with elbows.", "dung-mo-hinh"));
+        combine.AddItem(Build(asm, "DSSTechCombineAvoid", "Combine", typeof(ModelRevit.CombineSmartCommand), "icon-combine",
+            "Combine MEPF: phân loại 7 hệ (thoát nước, ống gió, máng cáp, PCCC, nước lạnh, cấp nước, gas), kiểm tra khe hở theo cặp hệ, phụ kiện đúng kỹ thuật (thoát nước chữ Y / cút 45°), vùng phun sprinkler; hệ ưu tiên thấp tự né hệ ưu tiên cao. Xem trước, áp dụng, xuất Excel.",
+            "MEPF Combine: classifies 7 systems, checks pair clearances, fitting rules (drainage wyes / 45° bends) and sprinkler zones; lower-priority runs detour round higher ones. Preview, apply, Excel report.", "dung-mo-hinh"));
         combine.AddItem(Build(asm, "DSSTechClashCheck", "Clash Check", typeof(ModelRevit.ClashCheckCommand), "icon-clash",
             "Kiểm tra va chạm nhóm A (model này) với nhóm B (model này và file link), rồi xem, sửa, tạo view, xuất BCF / Navisworks / Excel.",
             "Clash set A (this model) against set B (this model and links); review, fix, make views, export BCF / Navisworks / Excel.", "dung-mo-hinh"));
@@ -322,8 +328,8 @@ public sealed class App : IExternalApplication
         {
             LargeImage = RibbonIcons.Load(icon, 32),
             Image = RibbonIcons.Load(icon, 16),
-            // Bản quyền: mọi nút cần key, trừ Tài khoản (để kích hoạt) và Hướng dẫn.
-            AvailabilityClassName = id is "DSSTechAccount" or "DSSTechHelp" or "DSSTechAbout"
+            // Bản quyền: mọi nút cần key, trừ Tài khoản (để kích hoạt), Hướng dẫn và Góp ý.
+            AvailabilityClassName = id is "DSSTechAccount" or "DSSTechHelp" or "DSSTechAbout" or "DSSTechFeedback"
                 ? typeof(License.AlwaysAvailability).FullName
                 : typeof(License.LicensedAvailability).FullName
         };

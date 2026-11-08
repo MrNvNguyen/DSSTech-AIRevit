@@ -65,7 +65,11 @@ internal static class McpStdioServer
         {
             protocolVersion = "2024-11-05",
             capabilities = new { tools = new { } },
-            serverInfo = new { name = "DSSTech Revit MCP", version = "0.1.0" }
+            serverInfo = new { name = "DSSTech Revit MCP", version = "0.1.0" },
+            // Clients that show server instructions to the model: the lessons first, every session.
+            instructions = "DSSTech Revit: before modelling from CAD or calling create_element / create_batch, call get_lessons " +
+                           "(optionally with a topic) and keep to its rules: company system codes (GAS is refrigerant, fuel gas is LPG), " +
+                           "elevations written on the CAD (H=…) and Revit's Bottom/Middle/Top Elevation, sizes from the labels."
         };
         return SuccessResponse(id, result);
     }

@@ -11,7 +11,9 @@ public enum DeviceMount
     Wall,
     Ceiling,
     /// <summary>Air-conditioning devices: at the ceiling (or a typed height), joined to the ducts by flex duct.</summary>
-    Hvac
+    Hvac,
+    /// <summary>Fire protection: cabinets on the wall, sprinklers and detectors at the ceiling.</summary>
+    Fire
 }
 
 public enum DeviceKind
@@ -25,7 +27,8 @@ public enum DeviceKind
     FireAlarm,
     AirTerminal,
     FanCoil,
-    AirBox
+    AirBox,
+    FireCabinet
 }
 
 /// <summary>One kind of device: where it mounts, its Revit category and the default height.</summary>
@@ -88,6 +91,11 @@ public static class DevicePlanner
     // Most specific first: "ĐÈN ỐP TƯỜNG" is a wall light before it is a light; a detector is not a sprinkler.
     public static readonly IReadOnlyList<DeviceSpec> Specs = new[]
     {
+        // Fire hose cabinets on the wall, height of the cabinet's foot (they sit among mechanical equipment in Revit).
+        new DeviceSpec(DeviceKind.FireCabinet, DeviceMount.Fire, "Tủ chữa cháy", "OST_FireProtection;OST_MechanicalEquipment;OST_SpecialityEquipment", 600,
+            new[] { "TU CHUA CHAY", "TUCHUACHAY", "HOP CHUA CHAY", "TU PCCC", "TUPCCC", "HONG NUOC", "HONG CHUA CHAY", "HYDRANT", "FIRE HOSE",
+                "HOSE REEL", "FIRE CABINET", "FIRECABINET", "BINH CHUA CHAY", "EXTINGUISHER" },
+            new[] { "FHC", "HCC", "TCC", "FH" }),
         new DeviceSpec(DeviceKind.Sprinkler, DeviceMount.Ceiling, "Đầu phun sprinkler", "OST_Sprinklers", 0,
             new[] { "SPRINKLER", "SPRINK", "DAU PHUN", "DAUPHUN", "PENDENT", "UPRIGHT" }, new[] { "SPK", "SPR" }),
         new DeviceSpec(DeviceKind.FireAlarm, DeviceMount.Ceiling, "Đầu báo cháy", "OST_FireAlarmDevices", 0,
@@ -114,6 +122,36 @@ public static class DevicePlanner
     };
 
     public static DeviceSpec Spec(DeviceKind kind) => Specs.First(s => s.Kind == kind);
+
+    /// <summary>Fire-protection kinds: kept off the air-conditioning tool's family lists.</summary>
+    public static bool IsFire(DeviceKind? kind) => kind is DeviceKind.FireCabinet or DeviceKind.Sprinkler or DeviceKind.FireAlarm;
+
+    /// <summary>The kinds one tool offers: the PCCC tool takes the cabinets and the fire kinds of the ceiling.</summary>
+    public static bool Offers(DeviceMount mount, DeviceSpec spec) =>
+        spec.Mount == mount || (mount == DeviceMount.Fire && IsFire(spec.Kind));
+
+    /// <summary>Placed on a wall face (wall devices, fire cabinets) rather than under the ceiling.</summary>
+    public static bool OnWall(DeviceSpec spec) => spec.Mount is DeviceMount.Wall or DeviceMount.Fire;
+
+    private static readonly double[] RoundDuctMm = { 100, 125, 150, 160, 200, 250, 300, 315, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 900, 1000 };
+
+    /// <summary>
+    /// The round duct (or flex) for a rectangular neck: the equivalent diameter of equal friction and flow
+    /// (1.30·(ab)^0.625 / (a+b)^0.25), up to the next standard size.
+    /// </summary>
+    public static double RoundFor(double widthMm, double heightMm)
+    {
+        if (widthMm <= 0 || heightMm <= 0)
+            return Math.Max(widthMm, heightMm);
+        var de = 1.30 * Math.Pow(widthMm * heightMm, 0.625) / Math.Pow(widthMm + heightMm, 0.25);
+        foreach (var d in RoundDuctMm)
+        {
+            if (d >= de - 5)
+                return d;
+        }
+
+        return Math.Ceiling(de / 50) * 50;
+    }
 
     /// <summary>The device kind a block name says (else its layer's); null when neither names a device.</summary>
     public static DeviceKind? Guess(string blockName, string layer)

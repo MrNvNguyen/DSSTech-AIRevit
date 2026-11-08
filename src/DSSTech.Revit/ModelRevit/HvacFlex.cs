@@ -2,6 +2,7 @@ using System.Text;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Mechanical;
 using Autodesk.Revit.UI;
+using Dss.Cad2Bim.Core;
 using Dss.McpHost.Create;
 using DSSTech.Revit.Ui;
 
@@ -117,7 +118,8 @@ internal static class HvacFlex
                     continue;
                 }
 
-                var flexType = flexTypes.FirstOrDefault(t => t.Shape == connector.Shape) ?? flexTypes[0];
+                // Round flex, as flex is made; a rectangular one only where the project has no round type.
+                var flexType = flexTypes.FirstOrDefault(t => t.Shape == ConnectorProfileType.Round) ?? flexTypes[0];
                 var guard = new MepFromCad.RollBackOnError();
                 using var tx = new Transaction(doc, "DSSTech flex duct");
                 var options = tx.GetFailureHandlingOptions();
@@ -212,8 +214,108 @@ internal static class HvacFlex
         return classification.Length == 0 || classification.IndexOf(kind.ToString(), StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    /// <summary>Flex from the tap on the duct axis, down past the duct, to a short neck straight out of the device's connector.</summary>
+    /// <summary>
+    /// Round flex as sized for the device: its neck's diameter, or for a rectangular neck the round duct of equal
+    /// friction (up to a standard size). A short collar of the round duct type comes off the main with that type's tap,
+    /// the flex runs from it to the device, and a rectangular neck takes a transition onto a round stub.
+    /// </summary>
     private static void Join(Document doc, FamilyInstance device, XYZ at, Duct duct, XYZ tap, FlexDuctType flexType)
+    {
+        var connector = OpenAir(device).OrderBy(c => c.Origin.DistanceTo(at)).First();
+        var round = RoundType(doc, duct);
+        if (flexType.Shape != ConnectorProfileType.Round || round is null)
+        {
+            Straight(doc, device, at, duct, tap, flexType);
+            return;
+        }
+
+        var o = connector.Origin;
+        var n = connector.CoordinateSystem.BasisZ;
+        var dia = connector.Shape == ConnectorProfileType.Round
+            ? connector.Radius * 2
+            : UnitConv.MmToInternal(DevicePlanner.RoundFor(UnitConv.ToMm(connector.Width), UnitConv.ToMm(connector.Height)));
+        var neckLen = UnitConv.MmToInternal(NeckMm);
+        var depth = duct.get_Parameter(BuiltInParameter.RBS_CURVE_DIAMETER_PARAM)?.AsDouble() is double dd && dd > 0
+            ? dd
+            : duct.get_Parameter(BuiltInParameter.RBS_CURVE_HEIGHT_PARAM)?.AsDouble() ?? 0;
+        var systemType = duct.get_Parameter(BuiltInParameter.RBS_DUCT_SYSTEM_TYPE_PARAM)?.AsElementId() ?? ElementId.InvalidElementId;
+        var levelId = duct.ReferenceLevel.Id;
+
+        // The device's end: the neck itself when round, else a round stub out of a transition on it.
+        var deviceEnd = o;
+        Connector? deviceJoin = connector;
+        if (connector.Shape != ConnectorProfileType.Round)
+        {
+            deviceJoin = null;
+            using var sub = new SubTransaction(doc);
+            sub.Start();
+            try
+            {
+                var far = o + n * UnitConv.MmToInternal(StubMm);
+                var stub = Duct.Create(doc, systemType, round.Id, levelId, o, far);
+                stub.get_Parameter(BuiltInParameter.RBS_CURVE_DIAMETER_PARAM)?.Set(dia);
+                doc.Regenerate();
+                doc.Create.NewTransitionFitting(MepFromCad.End(stub, o), connector);
+                doc.Regenerate();
+                deviceJoin = MepFromCad.End(stub, far);
+                deviceEnd = deviceJoin.Origin;
+                sub.Commit();
+            }
+            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+            {
+                // No transition for the type: the flex comes onto the rectangular neck as it is.
+                sub.RollBack();
+                deviceJoin = OpenAir(device).OrderBy(c => c.Origin.DistanceTo(at)).FirstOrDefault();
+            }
+        }
+
+        // The collar on the main: down past its underside to over the device, else across toward it.
+        var below = tap.Z - depth / 2 - neckLen;
+        var collarEnd = deviceEnd.Z < below - neckLen
+            ? new XYZ(tap.X, tap.Y, below)
+            : tap + new XYZ(deviceEnd.X - tap.X, deviceEnd.Y - tap.Y, 0).Normalize() * (depth / 2 + neckLen);
+        var collar = Duct.Create(doc, systemType, round.Id, levelId, tap, collarEnd);
+        collar.get_Parameter(BuiltInParameter.RBS_CURVE_DIAMETER_PARAM)?.Set(dia);
+        doc.Regenerate();
+        MepFromCad.Tap(doc, collar.Id, tap, duct, turn: false);
+        doc.Regenerate();
+        var collarJoin = MepFromCad.End((Duct)doc.GetElement(collar.Id), collarEnd);
+
+        var outward = deviceJoin is not null && deviceJoin.Owner.Id != device.Id ? deviceJoin.CoordinateSystem.BasisZ : n;
+        var points = new List<XYZ>();
+        foreach (var p in new[] { collarJoin.Origin, deviceEnd + outward * neckLen, deviceEnd })
+        {
+            if (points.Count == 0 || points[points.Count - 1].DistanceTo(p) > UnitConv.MmToInternal(20))
+                points.Add(p);
+        }
+
+        if (points.Count < 2)
+            throw new ArgumentException("thiết bị nằm sát ống gió, không cần ống mềm");
+        var flex = FlexDuct.Create(doc, systemType, flexType.Id, levelId, points);
+        flex.get_Parameter(BuiltInParameter.RBS_CURVE_DIAMETER_PARAM)?.Set(dia);
+        doc.Regenerate();
+        var ends = flex.ConnectorManager.Connectors.Cast<Connector>().Where(c => c.ConnectorType == ConnectorType.End).ToList();
+        ends.OrderBy(c => c.Origin.DistanceTo(collarJoin.Origin)).First().ConnectTo(collarJoin);
+        if (deviceJoin is not null)
+            ends.OrderBy(c => c.Origin.DistanceTo(deviceEnd)).First().ConnectTo(deviceJoin);
+    }
+
+    private const double StubMm = 300;
+
+    /// <summary>The round duct type for collars and stubs: the one named most like the main's type.</summary>
+    private static DuctType? RoundType(Document doc, Duct main)
+    {
+        var mainName = main.DuctType?.Name ?? "";
+        var tail = mainName.Contains('-') ? mainName.Substring(mainName.LastIndexOf('-') + 1) : mainName;
+        return new FilteredElementCollector(doc).OfClass(typeof(DuctType)).Cast<DuctType>()
+            .Where(t => t.Shape == ConnectorProfileType.Round)
+            .OrderByDescending(t => tail.Length > 0 && t.Name.IndexOf(tail, StringComparison.OrdinalIgnoreCase) >= 0)
+            .ThenBy(t => t.Name)
+            .FirstOrDefault();
+    }
+
+    /// <summary>Flex from the tap on the duct axis, down past the duct, to a short neck straight out of the device's connector.</summary>
+    private static void Straight(Document doc, FamilyInstance device, XYZ at, Duct duct, XYZ tap, FlexDuctType flexType)
     {
         var connector = OpenAir(device).OrderBy(c => c.Origin.DistanceTo(at)).First();
         var o = connector.Origin;

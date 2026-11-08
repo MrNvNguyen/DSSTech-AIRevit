@@ -69,8 +69,10 @@ internal static class CadLinkText
                     CenterX = center.X,
                     CenterY = center.Y
                 };
-                if (item.Numeric)
+                if (item.Kind == NumberKind)
                     geom.NumberTexts.Add(placed);
+                else if (item.Kind == NoteKind)
+                    geom.NoteTexts.Add(placed);
                 else
                     geom.Entities.Add(placed);
             }
@@ -126,13 +128,13 @@ internal static class CadLinkText
 
     private sealed class DwgContent
     {
-        public DwgContent(List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, bool Numeric)> labels, List<CadEntity> curves)
+        public DwgContent(List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, int Kind)> labels, List<CadEntity> curves)
         {
             Labels = labels;
             Curves = curves;
         }
 
-        public List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, bool Numeric)> Labels { get; }
+        public List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, int Kind)> Labels { get; }
         public List<CadEntity> Curves { get; }
     }
 
@@ -185,8 +187,10 @@ internal static class CadLinkText
                     CenterX = item.Cxmm,
                     CenterY = item.Cymm
                 };
-                if (item.Numeric)
+                if (item.Kind == NumberKind)
                     geom.NumberTexts.Add(placed);
+                else if (item.Kind == NoteKind)
+                    geom.NoteTexts.Add(placed);
                 else if (CadMark.IsAnnotation(item.Value))
                     geom.Entities.Add(placed);
             }
@@ -239,19 +243,18 @@ internal static class CadLinkText
         }
     }
 
-    private static List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, bool Numeric)> FromDxf(string path)
+    private static List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, int Kind)> FromDxf(string path)
     {
         var parsed = DxfParser.Parse(path);
-        var list = new List<(string, double, double, double, double, double, string, bool)>();
+        var list = new List<(string, double, double, double, double, double, string, int)>();
         foreach (var text in parsed.Entities.OfType<CadText>())
         {
             var value = Clean(text.Value);
-            var annotation = CadMark.IsAnnotation(value);
-            if (!annotation && !IsGridNumber(value))
+            if (KindOf(value) is not int kind)
                 continue;
             var x = ToMm(text.X, parsed.InsUnits);
             var y = ToMm(text.Y, parsed.InsUnits);
-            list.Add((value, x, y, text.RotationDeg, x, y, text.Layer, !annotation));
+            list.Add((value, x, y, text.RotationDeg, x, y, text.Layer, kind));
         }
 
         return list;
@@ -273,11 +276,11 @@ internal static class CadLinkText
             using (var reader = new DwgReader(temp))
                 doc = reader.Read();
             if (doc is null)
-                return new DwgContent(new List<(string, double, double, double, double, double, string, bool)>(), new List<CadEntity>());
+                return new DwgContent(new List<(string, double, double, double, double, double, string, int)>(), new List<CadEntity>());
 
             var units = doc.Header.InsUnits;
             _blocks = 0;
-            var labels = new List<(string, double, double, double, double, double, string, bool)>();
+            var labels = new List<(string, double, double, double, double, double, string, int)>();
             var curves = new List<CadEntity>();
             foreach (var entity in doc.Entities)
                 Collect(entity, units, labels, curves, Transform2.Identity, 0, null);
@@ -346,7 +349,7 @@ internal static class CadLinkText
     private static void Collect(
         Entity entity,
         UnitsType units,
-        List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, bool Numeric)> labels,
+        List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, int Kind)> labels,
         List<CadEntity> curves,
         Transform2 transform,
         int depth,
@@ -531,18 +534,30 @@ internal static class CadLinkText
         string? value,
         CadPoint point,
         UnitsType units,
-        List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, bool Numeric)> list,
+        List<(string Value, double Xmm, double Ymm, double RotationDeg, double Cxmm, double Cymm, string Layer, int Kind)> list,
         double rotationDeg,
         CadPoint center,
         string layer)
     {
         var clean = Clean(value);
-        var annotation = CadMark.IsAnnotation(clean);
-        if (!annotation && !IsGridNumber(clean))
+        if (KindOf(clean) is not int kind)
             return;
-        list.Add((clean, ToMm(point.X, units), ToMm(point.Y, units), rotationDeg, ToMm(center.X, units), ToMm(center.Y, units), layer,
-            !annotation));
+        list.Add((clean, ToMm(point.X, units), ToMm(point.Y, units), rotationDeg, ToMm(center.X, units), ToMm(center.Y, units), layer, kind));
     }
+
+    private const int AnnotationKind = 0;
+    private const int NumberKind = 1;
+    private const int NoteKind = 2;
+
+    /// <summary>
+    /// A mark or size (<see cref="CadMark.IsAnnotation"/>), a grid number, or a longer MEP note carrying a size or an
+    /// elevation ("THANG CÁP 1200X100, H=2800"), kept apart for the MEP tools; null for any other text.
+    /// </summary>
+    private static int? KindOf(string clean) =>
+        CadMark.IsAnnotation(clean) ? AnnotationKind
+        : IsGridNumber(clean) ? NumberKind
+        : MepRoutePlanner.IsNote(clean) ? NoteKind
+        : null;
 
     /// <summary>Grid bubble numbers (1, 12, 1.1, 2A): short, unlike dimension values.</summary>
     private static bool IsGridNumber(string value) =>
