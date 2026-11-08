@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace Dss.Cad2Bim.Core;
@@ -3355,6 +3356,238 @@ public static class SectionFootprintSelfTest
         {
             message = "mep shoe side: " + shoeSide;
             return false;
+        }
+
+        // Flex for a rectangular neck: the round duct of equal friction, up to a standard size.
+        var rounds = new[] { DevicePlanner.RoundFor(300, 300), DevicePlanner.RoundFor(600, 600), DevicePlanner.RoundFor(1200, 150) };
+        if (rounds[0] != 350 || rounds[1] != 700 || rounds[2] != 450)
+        {
+            message = "flex round sizes: " + string.Join(", ", rounds);
+            return false;
+        }
+
+        // A fire cabinet family is told apart from air equipment; the PCCC tool offers it, the air tool does not.
+        if (DevicePlanner.Guess("Fire Hydrant cabinet 700x1000x240 : type 1", "") != DeviceKind.FireCabinet ||
+            DevicePlanner.Guess("M-MEEQ_FCU 2.2kW-16.0kW : 7.1KW", "") == DeviceKind.FireCabinet ||
+            DevicePlanner.Specs.Any(s => s.Kind == DeviceKind.FireCabinet && DevicePlanner.Offers(DeviceMount.Hvac, s)) ||
+            !DevicePlanner.Specs.Any(s => s.Kind == DeviceKind.Sprinkler && DevicePlanner.Offers(DeviceMount.Fire, s)))
+        {
+            message = "fire devices: cabinet guess or tool offers";
+            return false;
+        }
+
+        // Combine C1: pipes told apart by system, not lumped as "pipe" (TC01–TC03).
+        if (MepSystemClassifier.Classify("Pipe", "Sanitary", "Thoát nước thải") != MepSystemCode.DR ||
+            MepSystemClassifier.Classify("Pipe", "DomesticColdWater", "Cấp nước lạnh") != MepSystemCode.CW ||
+            MepSystemClassifier.Classify("Pipe", "DomesticColdWater", "Ống gas LPG") != MepSystemCode.GAS ||
+            MepSystemClassifier.Classify("Pipe", "OtherPipe", "Ống gas lạnh") != MepSystemCode.CHW ||
+            MepSystemClassifier.Classify("Pipe", "FireProtectWet", "Wet Sprinklers") != MepSystemCode.FP ||
+            MepSystemClassifier.Classify("Pipe", "SupplyHydronic", "CHWS") != MepSystemCode.CHW ||
+            MepSystemClassifier.Classify("CableTray", null) != MepSystemCode.ECT ||
+            MepSystemClassifier.Classify("Duct", "SupplyAir", "SA") != MepSystemCode.DCT ||
+            MepSystemClassifier.Classify("Pipe", "OtherPipe", "Pipe 1") != MepSystemCode.Unknown ||
+            // The company codes: GAS is the refrigerant line, CWS domestic cold water, FDS fire drainage.
+            MepSystemClassifier.Classify("Pipe", "OtherPipe", "GAS - Refrigerant Gas", "Mechanical 1", "GAS") != MepSystemCode.CHW ||
+            MepSystemClassifier.Classify("Pipe", "DomesticColdWater", "CWS - Cold Water Supply") != MepSystemCode.CW ||
+            MepSystemClassifier.Classify("Pipe", "Sanitary", "FDS - Fire Drainage") != MepSystemCode.DR ||
+            MepSystemClassifier.Classify("Pipe", "FireProtectWet", "SP - Sprinkler") != MepSystemCode.FP ||
+            MepSystemClassifier.Classify("Duct", "ExhaustAir", "SEAD - Smoke Exhaust Air") != MepSystemCode.DCT)
+        {
+            message = "combine classify";
+            return false;
+        }
+
+        // C2: lower priority gives way; drainage and gas never move; pair clearances (gas beside a cable tray 400).
+        {
+            var cprof = CombineProfile.Default();
+            if (cprof.Yielder(MepSystemCode.DCT, false, 600, MepSystemCode.CW, false, 50) != 1 ||
+                cprof.Yielder(MepSystemCode.DR, false, 100, MepSystemCode.ECT, false, 300) != 1 ||
+                cprof.Yielder(MepSystemCode.GAS, false, 50, MepSystemCode.DR, false, 100) is not null ||
+                cprof.Yielder(MepSystemCode.CW, true, 50, MepSystemCode.FP, false, 50) != 1 ||
+                cprof.Clearance(MepSystemCode.ECT, MepSystemCode.GAS, true) != 400 ||
+                cprof.Clearance(MepSystemCode.CW, MepSystemCode.FP, false) != 50 ||
+                cprof.DetourAngle(MepSystemCode.CHW) != 45 || cprof.CanDetour(MepSystemCode.DR))
+            {
+                message = "combine priority / clearance";
+                return false;
+            }
+
+            // A level duct (centre 3100, 300 deep) and a water pipe crossing at 3050: they cut into each other; the pipe
+            // goes under. A gas line 300 mm beside a tray: too close (needs 400), WARNING, moved by hand.
+            CombineRun R(long id, MepSystemCode s, double ax, double ay, double bx, double by, double z, double w, double d) =>
+                new() { Id = id, System = s, Ax = ax, Ay = ay, Az = z, Bx = bx, By = by, Bz = z, WidthMm = w, DepthMm = d, Name = id.ToString() };
+            var duct = R(1, MepSystemCode.DCT, 0, 0, 6000, 0, 3100, 600, 300);
+            var water = R(2, MepSystemCode.CW, 3000, -2000, 3000, 2000, 3050, 60, 60);
+            var far = R(3, MepSystemCode.CW, 3000, -2000, 3000, 2000, 2500, 60, 60);
+            var tray = R(4, MepSystemCode.ECT, 0, 1000, 6000, 1000, 2800, 300, 100);
+            var gas = R(5, MepSystemCode.GAS, 0, 1500, 6000, 1500, 2800, 50, 50);
+            var cross = CombineAnalyzer.Check(duct, water, cprof);
+            var gasTray = CombineAnalyzer.Check(tray, gas, cprof);
+            if (cross is not { Parallel: false, Yielder: 1, Status: CombineStatus.Fail } || cross.GapMm > -100 ||
+                CombineAnalyzer.Check(duct, far, cprof) is not null ||
+                gasTray is not { Parallel: true, Status: CombineStatus.Warning, Yielder: 0 } || Math.Abs(gasTray.GapMm - 325) > 1 ||
+                CombineAnalyzer.Analyze(new[] { duct, water, far, tray, gas }, cprof).Count != 2)
+            {
+                message = $"combine conflicts: {cross?.Status} {cross?.GapMm:0} / {gasTray?.Status} {gasTray?.GapMm:0}";
+                return false;
+            }
+
+            // C3: drainage bends over 45° and square branches fail (TC11, TC15, TC16); a 45° wye passes.
+            if (cprof.CheckBend(MepSystemCode.DR, 90).Status != CombineStatus.Fail || cprof.CheckBend(MepSystemCode.DR, 45).Status != CombineStatus.Pass ||
+                cprof.CheckBranch(MepSystemCode.DR, 90).Status != CombineStatus.Fail || cprof.CheckBranch(MepSystemCode.DR, 45).Status != CombineStatus.Pass ||
+                cprof.CheckBend(MepSystemCode.CW, 90).Status != CombineStatus.Pass ||
+                Math.Abs(CombineAnalyzer.Deflection(1, 0, 0, 0, 1, 0) - 90) > 0.01 || Math.Abs(CombineAnalyzer.Deflection(1, 0, 0, -1, 0, 0)) > 0.01 ||
+                Math.Abs(CombineAnalyzer.LegRun(45, 300) - 300) > 0.01 || CombineAnalyzer.LegRun(90, 300) != 0)
+            {
+                message = "combine fitting rules";
+                return false;
+            }
+
+            // The profile goes to JSON and back unchanged.
+            var back = CombineProfile.FromJson(cprof.ToJson());
+            if (back.Priority.Count != cprof.Priority.Count || back.Pairs.Count != cprof.Pairs.Count || back.Fittings[0].RuleId != "DR-BEND-001")
+            {
+                message = "combine profile json";
+                return false;
+            }
+
+            // Priority by the company codes: SAD over CWS, CHWS over CWS inside one list; a run without a code
+            // ranks with the first of its group; GAS (refrigerant) moves, LPG (fuel gas) is locked.
+            if (MepSystemClassifier.Code("Duct", "SAD - Supply Air") != "SAD" ||
+                MepSystemClassifier.Code("Pipe", "M-CWS-Cold Water") != "CWS" ||
+                MepSystemClassifier.Code("Pipe", "Ống gas LPG") != MepSystemClassifier.FuelGas ||
+                MepSystemClassifier.Code("Pipe", "Domestic Cold Water") != "" ||
+                MepSystemClassifier.CodeLabel("SAD") != "SAD - Ống gió cấp" ||
+                cprof.Rank(MepSystemCode.DCT, "SAD") >= cprof.Rank(MepSystemCode.CW, "CWS") ||
+                cprof.Rank(MepSystemCode.CW) != cprof.Rank(MepSystemCode.CW, "CWS") ||
+                cprof.IsLocked(MepSystemCode.CHW, "GAS") || !cprof.IsLocked(MepSystemCode.GAS, MepSystemClassifier.FuelGas) ||
+                cprof.Yielder(MepSystemCode.DCT, false, 300, MepSystemCode.DCT, false, 600, "RAD", "SAD") != 0)
+            {
+                message = "combine company codes";
+                return false;
+            }
+
+            // Two ducts of different systems are checked against each other; the same system's runs are not.
+            var supply = new CombineRun { Id = 7, System = MepSystemCode.DCT, Code = "SAD", Ax = 0, Ay = 0, Az = 3000, Bx = 6000, By = 0, Bz = 3000, WidthMm = 400, DepthMm = 300 };
+            var ret = new CombineRun { Id = 8, System = MepSystemCode.DCT, Code = "RAD", Ax = 3000, Ay = -2000, Az = 3000, Bx = 3000, By = 2000, Bz = 3000, WidthMm = 400, DepthMm = 300 };
+            var supply2 = new CombineRun { Id = 9, System = MepSystemCode.DCT, Code = "SAD", Ax = 3000, Ay = -2000, Az = 3000, Bx = 3000, By = 2000, Bz = 3000, WidthMm = 400, DepthMm = 300 };
+            if (CombineAnalyzer.Check(supply, ret, cprof) is not { Yielder: 1 } || CombineAnalyzer.Check(supply, supply2, cprof) is not null)
+            {
+                message = "combine codes in one group";
+                return false;
+            }
+
+            // A version 1 file (groups, GAS = fuel gas) reads as company codes, fuel gas LPG.
+            var dir = Path.Combine(Path.GetTempPath(), "dss-combine-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            var v1 = Path.Combine(dir, "v1.json");
+            File.WriteAllText(v1, "{\"version\":\"1.0\",\"priority\":[\"DCT\",\"DR\",\"ECT\",\"FP\",\"CHW\",\"CW\",\"CND\",\"GAS\"],\"locked\":[\"GAS\"]}");
+            var up = CombineProfile.Load(new[] { v1 });
+            Directory.Delete(dir, true);
+            if (up.Priority[0] != "SAD" || up.Priority.IndexOf("BWS") != 9 || up.Locked.Single() != "LPG" ||
+                up.Priority.Last() != "LPG" || up.Priority.Count != CombineProfile.DefaultPriority.Count)
+            {
+                message = $"combine profile v1: {string.Join(",", up.Priority)} / {string.Join(",", up.Locked)}";
+                return false;
+            }
+        }
+
+        // Elevations written on the CAD: H=2800, H=+2.80 (m), BOT 2600; not a pump's head (H=15M).
+        if (!MepRoutePlanner.TryParseElevation("THANG CÁP 1200X100, H=2800", out var h1) || h1 != 2800 ||
+            !MepRoutePlanner.TryParseElevation("H=+2.80", out var h2) || Math.Abs(h2 - 2800) > 0.01 ||
+            !MepRoutePlanner.TryParseElevation("BOT 2600", out var h3) || h3 != 2600 ||
+            MepRoutePlanner.TryParseElevation("Q=4M3/H, H=15M, N=2KW", out _) ||
+            MepRoutePlanner.TryParseElevation("2 LV, 1DP. Q=50M3/H, H=100M, N=22KW", out _) ||
+            !MepRoutePlanner.IsNote("THANG CÁP 1200X100, H=2800") || MepRoutePlanner.IsNote("CẤP NGUỒN TỪ BĐ-H3"))
+        {
+            message = "mep elevation notes";
+            return false;
+        }
+
+        // Ladder trays drawn as they look: two 400 ladders side by side along X (rails as 25 mm strips, rungs every
+        // 300 mm, in line from one ladder to the other), notes stacked above them: the top note goes to the top tray.
+        {
+            var ladder = new List<CadEntity>();
+            void Strip(double y0, double y1) => ladder.Add(new CadPolyline
+            {
+                Layer = "TRAY", Closed = true,
+                Points = { new CadPoint2(0, y0), new CadPoint2(6000, y0), new CadPoint2(6000, y1), new CadPoint2(0, y1) }
+            });
+            foreach (var y in new[] { 0.0, 1000.0 })
+            {
+                Strip(y, y + 25);
+                Strip(y + 375, y + 400);
+                for (var x = 150.0; x < 6000; x += 300)
+                    ladder.Add(new CadLine { Layer = "TRAY", X0 = x, Y0 = y + 25, X1 = x, Y1 = y + 375 });
+            }
+
+            var notes = new List<CadText>
+            {
+                new() { Layer = "NOTE", Value = "THANG CÁP 400X100, H=2800", X = 3000, Y = 1900 },
+                new() { Layer = "NOTE", Value = "THANG CÁP 400X100, H=3100", X = 3000, Y = 1500 }
+            };
+            var trays = MepRoutePlanner.Build(ladder, null, new MepSize(300, 100, 0), notes, null);
+            var top = trays.Edges.OrderByDescending(e => trays.Nodes[e.A].Y).FirstOrDefault();
+            var bottom = trays.Edges.OrderBy(e => trays.Nodes[e.A].Y).FirstOrDefault();
+            if (trays.Edges.Count != 2 || top is null || bottom is null ||
+                Math.Abs(trays.Nodes[top.A].Y - 1200) > 1 || Math.Abs(trays.Nodes[bottom.A].Y - 200) > 1 ||
+                Math.Abs(top.DrawnWidthMm - 400) > 1 || top.Size.WidthMm != 400 ||
+                top.ElevationMm != 2800 || bottom.ElevationMm != 3100)
+            {
+                message = $"ladder trays: {trays.Edges.Count} edges, " +
+                          string.Join("; ", trays.Edges.Select(e => $"y{trays.Nodes[e.A].Y:0} w{e.DrawnWidthMm:0} {e.Size} H{e.ElevationMm}"));
+                return false;
+            }
+        }
+
+        // Corridor (C5): duct 800x400 and a water pipe beside it along X, a tray crossing both; slab underside 3500.
+        // The duct goes up under the slab (less 50), the tray under the duct (150 over it to pull cables), the pipe
+        // under the tray. With the lowest bottom at 2700 the pipe can't fit: REVIEW.
+        {
+            CombineRun R(MepSystemCode s, double ax, double ay, double bx, double by, double z, double w, double d) =>
+                new() { System = s, Ax = ax, Ay = ay, Az = z, Bx = bx, By = by, Bz = z, WidthMm = w, DepthMm = d };
+            List<StackNet> Corridor() => new()
+            {
+                new() { Index = 0, System = MepSystemCode.DCT, CeilingMm = 3500, Runs = { R(MepSystemCode.DCT, 0, 0, 8000, 0, 2800, 800, 400) } },
+                new() { Index = 1, System = MepSystemCode.ECT, CeilingMm = 3500, Runs = { R(MepSystemCode.ECT, 4000, -3000, 4000, 3000, 2800, 300, 100) } },
+                new() { Index = 2, System = MepSystemCode.CW, CeilingMm = 3500, Runs = { R(MepSystemCode.CW, 0, 600, 8000, 600, 2800, 60, 60) } }
+            };
+            var nets = Corridor();
+            CorridorStacker.Stack(nets, CombineProfile.Default(), null);
+            var low = Corridor();
+            CorridorStacker.Stack(low, CombineProfile.Default(), 2700);
+            if (nets[0].ShiftMm != 450 || nets[1].ShiftMm != 0 || nets[2].ShiftMm != -180 ||
+                nets[0].Layer != 1 || nets[1].Layer != 2 || nets[2].Layer != 3 || low[2].Status != CombineStatus.Review)
+            {
+                message = $"corridor stack: {nets[0].ShiftMm} {nets[1].ShiftMm} {nets[2].ShiftMm} layers {nets[0].Layer}{nets[1].Layer}{nets[2].Layer} {low[2].Status}";
+                return false;
+            }
+        }
+
+        // Drainage drawn square: the branch turns 45° short of the main and joins downstream through a wye; the
+        // square corner becomes two 45° bends. Main 0→6000 along X (outlet at 0), branch up from 3000, corner at the
+        // far end of the main turning up.
+        {
+            var dnet = new MepNetwork();
+            foreach (var p in new[] { (0.0, 0.0), (3000.0, 0.0), (6000.0, 0.0), (3000.0, 2000.0), (6000.0, 2000.0) })
+                dnet.Nodes.Add(p);
+            var dpipe = new MepSize(0, 0, 100);
+            foreach (var (a, b) in new[] { (0, 1), (1, 2), (1, 3), (2, 4) })
+                dnet.Edges.Add(new MepEdge { A = a, B = b, Size = dpipe });
+            var (wyes, bends, skipped) = MepRoutePlanner.DrainFittings(dnet, new[] { 0 });
+            var slants = dnet.Edges.Where(e =>
+            {
+                var (ax, ay) = dnet.Nodes[e.A];
+                var (bx, by) = dnet.Nodes[e.B];
+                return Math.Abs(Math.Abs(bx - ax) - Math.Abs(by - ay)) < 1 && Math.Abs(bx - ax) > 1;
+            }).ToList();
+            // The wye joins at x 2850 (downstream of 3000, toward the outlet at 0).
+            var joins = dnet.Edges.Count(e => dnet.Nodes[e.A] == (2850.0, 0.0) || dnet.Nodes[e.B] == (2850.0, 0.0));
+            if (wyes != 1 || bends != 1 || skipped != 0 || slants.Count != 2 || joins != 3 || MepRoutePlanner.Parts(dnet).Count != 1)
+            {
+                message = $"drain wyes: {wyes} wyes, {bends} bends, {skipped} skipped, {slants.Count} slants, {joins} at the wye";
+                return false;
+            }
         }
 
         // A whole drawing (30 000 strokes and labels) builds in seconds, not the pairwise minutes that hung Revit.

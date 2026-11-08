@@ -27,6 +27,10 @@
     </Reference>
     <ProjectReference Include="..\Dss.McpContracts\Dss.McpContracts.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Lessons learnt, read by get_lessons on every machine the add-in is installed on. -->
+    <EmbeddedResource Include="Knowledge\LESSONS.md" LogicalName="Dss.McpHost.Knowledge.LESSONS.md" />
+  </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows' OR '$(TargetFramework)' == 'net8.0'">
     <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
   </ItemGroup>

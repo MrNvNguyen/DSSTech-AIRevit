@@ -14,14 +14,15 @@ internal static class MepCombine
     private const double ElbowRoomMm = 150;
     private const double MinPieceMm = 100;
 
-    public static string Kind(Element e) => e switch
-    {
-        Duct => "Ống gió",
-        Pipe => "Ống nước",
-        CableTray => "Máng cáp",
-        Conduit => "Ống luồn",
-        _ => e.Category?.Name ?? "?"
-    };
+    /// <summary>The run's system (thoát nước, cấp nước, PCCC… not just "pipe"), else its category.</summary>
+    public static string Kind(Element e) =>
+        CombineProfileStore.Identify(e) is var (s, code) && s != Dss.Cad2Bim.Core.MepSystemCode.Unknown
+            ? Dss.Cad2Bim.Core.MepSystemClassifier.Label(s, code)
+            : e switch
+            {
+                Pipe => "Ống nước (chưa rõ hệ)",
+                _ => e.Category?.Name ?? "?"
+            };
 
     /// <summary>Section height of a run (diameter when round), internal units.</summary>
     public static double Depth(MEPCurve c)
@@ -111,7 +112,15 @@ internal static class MepCombine
     /// one detour. Returns how many detours were made; reasons for the ones skipped go to <paramref name="notes"/>.
     /// </summary>
     public static int Detour(Document doc, MEPCurve run, IEnumerable<(XYZ Min, XYZ Max)> obstacles, bool under, double clearance,
-        List<string> notes)
+        List<string> notes) =>
+        Detour(doc, run, obstacles.Select(o => (o.Min, o.Max, clearance)), under, 90, notes);
+
+    /// <summary>
+    /// As above, each obstacle with its own clearance (the pair's), the legs bent by <paramref name="angleDeg"/>
+    /// (90: straight down and up; 45: sloped legs with 45° elbows).
+    /// </summary>
+    public static int Detour(Document doc, MEPCurve run, IEnumerable<(XYZ Min, XYZ Max, double Clearance)> obstacles, bool under,
+        double angleDeg, List<string> notes)
     {
         if (run.Location is not LocationCurve { Curve: Line line })
             return 0;
@@ -126,11 +135,13 @@ internal static class MepCombine
         var u = new XYZ(b.X - a.X, b.Y - a.Y, 0).Normalize();
         var length = new XYZ(b.X - a.X, b.Y - a.Y, 0).GetLength();
         var depth = Depth(run);
-        var lead = Math.Max(depth, Width(run)) / 2 + UnitConv.MmToInternal(ElbowRoomMm);
+        var half = Math.Max(depth, Width(run)) / 2;
         var spans = new List<(double S0, double S1, double Z)>();
-        foreach (var (min, max) in obstacles)
+        foreach (var (min, max, clearance) in obstacles)
         {
             var along = Corners(min, max).Select(p => (p - a).DotProduct(u)).ToList();
+            // Room for the elbows, and the vertical legs kept the pair's clearance off the obstacle's sides.
+            var lead = half + Math.Max(UnitConv.MmToInternal(ElbowRoomMm), clearance);
             var s0 = along.Min() - lead;
             var s1 = along.Max() + lead;
             if (s1 < 0 || s0 > length)
@@ -156,8 +167,12 @@ internal static class MepCombine
         var current = run;
         var start = 0.0;
         var minPiece = UnitConv.MmToInternal(MinPieceMm);
-        foreach (var (s0, s1, z) in merged)
+        foreach (var (m0, m1, z) in merged)
         {
+            // Sloped legs reach out by as much run as they drop (45°), so the level part still clears the obstacle.
+            var leg = UnitConv.MmToInternal(Dss.Cad2Bim.Core.CombineAnalyzer.LegRun(angleDeg, UnitConv.ToMm(Math.Abs(z - a.Z))));
+            var s0 = m0 - leg;
+            var s1 = m1 + leg;
             if (s0 - start < minPiece || length - s1 < minPiece)
             {
                 notes.Add($"{Kind(run)} {run.Id.Value}: vật cản sát đầu ống, cần sửa tay");
@@ -166,7 +181,7 @@ internal static class MepCombine
 
             if (under ? z >= a.Z - UnitConv.MmToInternal(1) : z <= a.Z + UnitConv.MmToInternal(1))
                 continue;
-            current = DetourOnce(doc, current, a, u, s0, s1, a.Z, z, b, notes) ?? current;
+            current = DetourOnce(doc, current, a, u, s0, s1, leg, a.Z, z, b, notes) ?? current;
             start = s1;
             made++;
         }
@@ -174,15 +189,15 @@ internal static class MepCombine
         return made;
     }
 
-    private static MEPCurve? DetourOnce(Document doc, MEPCurve run, XYZ origin, XYZ u, double s0, double s1, double z, double z2, XYZ end,
-        List<string> notes)
+    private static MEPCurve? DetourOnce(Document doc, MEPCurve run, XYZ origin, XYZ u, double s0, double s1, double leg, double z, double z2,
+        XYZ end, List<string> notes)
     {
         XYZ At(double s, double zz) => new(origin.X + u.X * s, origin.Y + u.Y * s, zz);
         var lc = (LocationCurve)run.Location;
         var startPoint = ((Line)lc.Curve).GetEndPoint(0);
         var p1 = At(s0, z);
-        var p1Low = At(s0, z2);
-        var p2Low = At(s1, z2);
+        var p1Low = At(s0 + leg, z2);
+        var p2Low = At(s1 - leg, z2);
         var p2 = At(s1, z);
 
         // What the far end was joined to: the tail takes it over.

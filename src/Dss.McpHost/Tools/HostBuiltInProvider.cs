@@ -46,8 +46,16 @@ internal sealed class HostBuiltInProvider : IMcpToolProvider
 
     public string ModuleId => "dss.host";
 
+    private const string LessonsSchema =
+        "{\"type\":\"object\",\"properties\":{\"topic\":{\"type\":\"string\",\"description\":\"" +
+        "cad-read, cad-text, mep-elevation, mep-tray, mep-duct, mep-pipe, systems, combine, revit-api, debug; empty for all\"}}}";
+
     public IReadOnlyList<McpTool> Tools { get; } = new[]
     {
+        Tool("get_lessons",
+            "READ FIRST, before modelling or creating anything: the mistakes already made turning CAD into Revit " +
+            "(text and labels, elevations, cable trays, ducts, pipes, system codes, Combine, Revit API) and the rules that avoid them.",
+            LessonsSchema),
         Tool("ping", "Health check the DSSTech Host", EmptySchema),
         Tool("get_document", "Active document title, path, worksharing, Revit version", EmptySchema),
         Tool("get_levels", "Levels with elevation in millimetres", EmptySchema),
@@ -59,7 +67,7 @@ internal sealed class HostBuiltInProvider : IMcpToolProvider
         Tool("create_element", "Create one element: " + CreatableCategories, CreateElementSchema),
         Tool("create_batch",
             "Create many elements in one Undoable transaction; each op rolls back alone on failure. " +
-            "More than 20 ops is a dry run unless dryRun is false. No delete/modify.",
+            "More than 20 ops is a dry run unless dryRun is false. No delete/modify. Keep to get_lessons (system codes, elevations, sizes).",
             CreateBatchSchema)
     };
 
@@ -77,6 +85,9 @@ internal sealed class HostBuiltInProvider : IMcpToolProvider
 
         if (tool.Equals("list_categories", StringComparison.OrdinalIgnoreCase))
             return ReadTools.ListCategories();
+
+        if (tool.Equals("get_lessons", StringComparison.OrdinalIgnoreCase))
+            return LessonsTool.Execute(args);
 
         if (ctx.HostScope is not RevitCallScope scope)
             return McpResult.Fail("no_revit_scope", "Host scope is missing.");

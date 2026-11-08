@@ -109,9 +109,9 @@ internal static class MepFromCad
 {
     private const double StepMm = 100;
     private const double OverheadCellMm = 3000;
-    private const string TopOf = "Đỉnh ống";
-    private const string CenterOf = "Tâm ống";
-    private const string BottomOf = "Đáy ống";
+    private const string TopOf = "Đỉnh (Top Elevation)";
+    private const string CenterOf = "Tâm (Middle Elevation)";
+    private const string BottomOf = "Đáy (Bottom Elevation)";
 
     public static Result Run(UIApplication uiApp, string title, MepChoice choice)
     {
@@ -164,7 +164,9 @@ internal static class MepFromCad
             IEnumerable<CadEntity> lines = geom.Entities.Where(e => e is not CadText && setup.Layers.Contains(e.Layer));
             // Ducts: grilles, diffusers, fan coils and boxes drawn on the duct layers are placed by their own tool.
             var devices = 0;
-            Dump(lines, geom.Entities.OfType<CadText>());
+            // Labels: marks and sizes, and the longer notes with a size or an elevation (THANG CÁP 1200X100, H=2800).
+            var texts = geom.Entities.OfType<CadText>().Concat(geom.NoteTexts).ToList();
+            Dump(lines, texts);
             // Shoes are drawn as small outlines left out with the devices: kept here to turn each takeoff their way.
             Drawn = lines.ToList();
             // Ducts: grilles, dampers, fan coils; pipes: valves and fittings drawn as blocks. Not trays (bends drawn as blocks).
@@ -172,7 +174,7 @@ internal static class MepFromCad
                 lines = MepRoutePlanner.WithoutDevices(lines, out devices);
             // Ducts are drawn with both sides; trays either way (each layer read as it looks); pipes single-line.
             bool? readAs = choice.Run switch { MepRun.Duct => true, MepRun.CableTray => null, _ => false };
-            var net = MepRoutePlanner.Build(lines, null, setup.Fallback, geom.Entities.OfType<CadText>(), readAs);
+            var net = MepRoutePlanner.Build(lines, null, setup.Fallback, texts, readAs);
             var layerLabel = setup.Layers.Count <= 3 ? "layer " + string.Join(", ", setup.Layers) : $"{setup.Layers.Count} layer";
             if (net.Edges.Count == 0)
             {
@@ -218,6 +220,8 @@ internal static class MepFromCad
                 sources += $" (ống vẽ 2 nét: dựng theo tim, {twoLine} đoạn)";
             if (net.FlexSkipped > 0)
                 report = $"Bỏ qua {net.FlexSkipped} đoạn / layer ống mềm: nối sau bằng «Nối ống mềm».\n" + report;
+            if (net.LadderPiecesSkipped > 0)
+                report = $"Bỏ qua {net.LadderPiecesSkipped} mẩu thang cáp đứng riêng trong phụ kiện (tê, chỗ đổi cao độ), không ghi kích thước.\n" + report;
             if (net.OpeningsSkipped > 0)
                 report = $"Bỏ qua {net.OpeningsSkipped} ô ngắn đứng riêng, không ghi kích thước (lỗ thông gió / louver qua tường).\n" + report;
             if (devices > 0)
@@ -287,15 +291,25 @@ internal static class MepFromCad
         public double ManualMm { get; init; }
         public string ManualRef { get; init; } = TopOf;
         public double SlopePercent { get; init; }
+        /// <summary>Elevations written on the CAD (H=2800) are used where a run has one.</summary>
+        public bool UseCadElevation { get; init; }
+        /// <summary>What a CAD elevation measures: the run's bottom, middle or top.</summary>
+        public string CadRef { get; init; } = BottomOf;
 
-        public bool UnderStructure => Overhead.Count > 0;
+        /// <summary>Centerline (absolute mm) of a run whose CAD note gives its height; null where none or not used.</summary>
+        public double? CadCenter(double levelMm, MepEdge e) =>
+            UseCadElevation && e.ElevationMm is double h ? levelMm + h + Offset(CadRef, e.Size.DepthMm) : null;
 
-        public double ManualCenter(double levelMm, double depthMm) => levelMm + ManualMm + ManualRef switch
+        private static double Offset(string reference, double depthMm) => reference switch
         {
             TopOf => -depthMm / 2,
             BottomOf => depthMm / 2,
             _ => 0
         };
+
+        public bool UnderStructure => Overhead.Count > 0;
+
+        public double ManualCenter(double levelMm, double depthMm) => levelMm + ManualMm + Offset(ManualRef, depthMm);
 
         public static Setup? Ask(UIApplication uiApp, Document doc, string title, MepChoice choice, string linkName,
             List<(string Name, int Count)> layers, Level level, Level topLevel)
@@ -409,6 +423,15 @@ internal static class MepFromCad
             var reference = dlg.AddCombo(choice.Run == MepRun.DrainPipe ? "Cao độ tự nhập tại điểm xả theo" : "Cao độ tự nhập theo",
                 new[] { TopOf, CenterOf, BottomOf }, choice.Run == MepRun.DrainPipe ? BottomOf : TopOf);
             var manual = dlg.AddInput("Cao độ tự nhập so với level (mm)", (storeyMm - 500).ToString("0"));
+            // Drainage keeps its fall from the outlet; the others take the height written on the CAD where there is one.
+            System.Windows.Controls.CheckBox? useCad = null;
+            System.Windows.Controls.ComboBox? cadRef = null;
+            if (choice.Run != MepRun.DrainPipe)
+            {
+                useCad = dlg.AddOption("Dùng cao độ ghi trên CAD (H=2800, BOT 2600…) cho đoạn có ghi; đoạn không ghi dùng cao độ ở trên", true);
+                cadRef = dlg.AddCombo("Cao độ ghi trên CAD là", new[] { BottomOf, CenterOf, TopOf }, BottomOf);
+            }
+
             if (!dlg.ShowFor(uiApp.MainWindowHandle))
                 return null;
 
@@ -430,7 +453,9 @@ internal static class MepFromCad
                 ClearanceMm = Math.Max(0, Num(clearance, 50)),
                 ManualMm = Num(manual, storeyMm - 500),
                 ManualRef = DssTheme.ComboValue(reference),
-                SlopePercent = Math.Max(0, Num(slope, 1))
+                SlopePercent = Math.Max(0, Num(slope, 1)),
+                UseCadElevation = useCad?.IsChecked == true,
+                CadRef = cadRef is null ? BottomOf : DssTheme.ComboValue(cadRef)
             };
         }
 
@@ -501,6 +526,7 @@ internal static class MepFromCad
         var pieces = new List<List<Piece>>();
         var notes = new StringBuilder();
         var noStructure = 0;
+        var fromCad = 0;
         var outletNodes = new List<int>();
         if (setup.Run == MepRun.DrainPipe)
         {
@@ -516,8 +542,28 @@ internal static class MepFromCad
                     .OrderBy(x => x.D)
                     .Select(x => (int?)x.Node)
                     .FirstOrDefault();
-                var outlet = picked ?? MepRoutePlanner.DefaultOutlet(net, parts[p]);
-                outletNodes.Add(outlet);
+                outletNodes.Add(picked ?? MepRoutePlanner.DefaultOutlet(net, parts[p]));
+            }
+
+            // Square corners drawn on the plan become 45° wyes and pairs of 45° bends (profile rule DR-BRANCH / DR-BEND).
+            if (CombineProfileStore.Load(doc).DrainWyes)
+            {
+                var (wyes, bends, square) = MepRoutePlanner.DrainFittings(net, outletNodes);
+                if (wyes + bends + square > 0)
+                    notes.AppendLine($"Thoát nước: {wyes} nhánh nối chữ Y 45°, {bends} góc vuông thành 2 cút 45°" +
+                                     (square > 0 ? $"; {square} chỗ quá ngắn / nhánh ngược dòng giữ góc vuông, cần xem lại." : "."));
+                edgesAt = net.Nodes.Select(_ => new List<int>()).ToList();
+                for (var i = 0; i < net.Edges.Count; i++)
+                {
+                    edgesAt[net.Edges[i].A].Add(i);
+                    edgesAt[net.Edges[i].B].Add(i);
+                }
+            }
+
+            for (var p = 0; p < parts.Count; p++)
+            {
+                var outlet = outletNodes[p];
+                var picked = outletPicks.Count > 0 && outletPicks.Any(pt => PlanDistance(net, outlet, pt) <= 1500) ? (int?)outlet : null;
                 var outletDepth = net.Edges[edgesAt[outlet][0]].Size.DepthMm;
                 var manualCenter = setup.ManualCenter(levelMm, outletDepth);
                 var outletZ = setup.UnderStructure
@@ -579,11 +625,18 @@ internal static class MepFromCad
                 byStructure++;
             }
 
+            var ductProfiles = new List<List<MepPiece>>();
             foreach (var e in net.Edges)
             {
-                var z = setup.ManualCenter(levelMm, e.Size.DepthMm) + shift[partOf[e.A]];
-                pieces.Add(new List<Piece> { new(0, MepRoutePlanner.Length(net, e), z, z) });
+                var cad = setup.CadCenter(levelMm, e);
+                if (cad is not null)
+                    fromCad++;
+                var z = cad ?? setup.ManualCenter(levelMm, e.Size.DepthMm) + shift[partOf[e.A]];
+                ductProfiles.Add(new List<MepPiece> { new(0, MepRoutePlanner.Length(net, e), z) });
             }
+
+            MeetAtNodes(net, edgesAt, ductProfiles);
+            pieces.AddRange(ductProfiles.Select(pr => pr.Select(x => new Piece(x.From, x.To, x.Z, x.Z)).ToList()));
             notes.AppendLine(setup.UnderStructure
                 ? $"Cao độ: mọi ống {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm so với {level.Name}; mạng có đáy dầm/sàn thấp hơn thì cả mạng hạ xuống, đỉnh ống cao nhất dưới đáy dầm thấp nhất {setup.ClearanceMm:0} mm ({byStructure}/{parts.Count} mạng hạ theo dầm)."
                 : $"Cao độ: mọi ống {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm so với {level.Name}.");
@@ -600,6 +653,13 @@ internal static class MepFromCad
                 var len = MepRoutePlanner.Length(net, e);
                 var netDepth = depth[partOf[e.A]];
                 var manualCenter = levelMm + Math.Floor((setup.ManualCenter(levelMm, netDepth) - levelMm) / 5) * 5;
+                if (setup.CadCenter(levelMm, e) is double cad)
+                {
+                    fromCad++;
+                    profiles.Add(new List<MepPiece> { new(0, len, cad) });
+                    continue;
+                }
+
                 if (!setup.UnderStructure)
                 {
                     profiles.Add(new List<MepPiece> { new(0, len, manualCenter) });
@@ -623,25 +683,7 @@ internal static class MepFromCad
                 profiles.Add(MepRoutePlanner.Profile(samples, StepMm, len, netDepth, setup.ClearanceMm));
             }
 
-            // A node sits at the lowest end of the runs meeting there.
-            for (var n = 0; n < net.Nodes.Count; n++)
-            {
-                var ends = new List<(int Edge, bool AtStart)>();
-                foreach (var i in edgesAt[n])
-                {
-                    if (net.Edges[i].A == n)
-                        ends.Add((i, true));
-                    if (net.Edges[i].B == n)
-                        ends.Add((i, false));
-                }
-
-                if (ends.Count < 2)
-                    continue;
-                var z = ends.Min(x => x.AtStart ? profiles[x.Edge][0].Z : profiles[x.Edge][profiles[x.Edge].Count - 1].Z);
-                foreach (var (edge, atStart) in ends)
-                    profiles[edge] = MepRoutePlanner.SetEnd(profiles[edge], atStart, z);
-            }
-
+            MeetAtNodes(net, edgesAt, profiles);
             pieces.AddRange(profiles.Select(pr => pr.Select(x => new Piece(x.From, x.To, x.Z, x.Z)).ToList()));
             notes.AppendLine(setup.UnderStructure
                 ? $"Cao độ: đỉnh (theo đoạn sâu nhất của mạng) dưới đáy dầm/sàn − {setup.ClearanceMm:0} mm, uốn né dầm; chỗ không có dầm/sàn: {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm."
@@ -650,6 +692,8 @@ internal static class MepFromCad
                 notes.AppendLine($"  {noStructure} điểm dò (mỗi {StepMm:0} mm) không thấy dầm/sàn phía trên: dùng cao độ tự nhập.");
         }
 
+        if (fromCad > 0)
+            notes.AppendLine($"Cao độ ghi trên CAD (H=…, {setup.CadRef.ToLowerInvariant()}): {fromCad}/{net.Edges.Count} đoạn; chỗ hai đoạn khác cao độ gặp nhau có đoạn đứng nối.");
         int curves = 0, risers = 0, fittings = 0, failed = 0, skipped = 0, joined = 0;
         var failures = new List<string>();
         // Runs first, in one transaction; fittings after, each batch on its own so a fitting Revit refuses (one that
@@ -814,6 +858,31 @@ internal static class MepFromCad
         foreach (var f in failures.Take(30))
             DssTechLog.Write($"mep fitting: {f}");
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// A node sits at the lowest end of the runs meeting there: a higher run drops to it near its end (a riser and two
+    /// elbows), as where two runs written at different heights meet.
+    /// </summary>
+    private static void MeetAtNodes(MepNetwork net, List<List<int>> edgesAt, List<List<MepPiece>> profiles)
+    {
+        for (var n = 0; n < net.Nodes.Count; n++)
+        {
+            var ends = new List<(int Edge, bool AtStart)>();
+            foreach (var i in edgesAt[n])
+            {
+                if (net.Edges[i].A == n)
+                    ends.Add((i, true));
+                if (net.Edges[i].B == n)
+                    ends.Add((i, false));
+            }
+
+            if (ends.Count < 2)
+                continue;
+            var z = ends.Min(x => x.AtStart ? profiles[x.Edge][0].Z : profiles[x.Edge][profiles[x.Edge].Count - 1].Z);
+            foreach (var (edge, atStart) in ends)
+                profiles[edge] = MepRoutePlanner.SetEnd(profiles[edge], atStart, z);
+        }
     }
 
     private static MEPCurve? Make(Document doc, Setup setup, Level level, XYZ a, XYZ b, MepSize size)
@@ -1271,7 +1340,7 @@ internal static class MepFromCad
     /// The shoe (tap) of the branch on the main. The branch's end comes at the main's axis; refused there, it is tried
     /// again with the branch drawn back to the main's side, where a branch drawn by hand ends.
     /// </summary>
-    private static void Tap(Document doc, ElementId branchId, XYZ branchEnd, MEPCurve main)
+    internal static void Tap(Document doc, ElementId branchId, XYZ branchEnd, MEPCurve main, bool turn = true)
     {
         FamilyInstance? tap = null;
         using (var first = new SubTransaction(doc))
@@ -1296,7 +1365,8 @@ internal static class MepFromCad
 
         try
         {
-            TurnToDrawn(doc, tap, branchId, main);
+            if (turn)
+                TurnToDrawn(doc, tap, branchId, main);
         }
         catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException or InvalidOperationException)
         {

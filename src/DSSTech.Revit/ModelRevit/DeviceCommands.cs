@@ -90,6 +90,14 @@ public sealed class HvacDevicesCommand : IExternalCommand
         DeviceTool.Run(data.Application, DeviceMount.Hvac, null);
 }
 
+// ── Thiết bị PCCC: tủ chữa cháy trên tường, đầu phun sprinkler và đầu báo cháy dưới trần ──
+[Transaction(TransactionMode.Manual)]
+public sealed class FireDevicesCommand : IExternalCommand
+{
+    public Result Execute(ExternalCommandData data, ref string message, ElementSet elements) =>
+        DeviceTool.Run(data.Application, DeviceMount.Fire, null);
+}
+
 /// <summary>Flex duct from the selected (else every unconnected) air devices of the level to the nearest duct.</summary>
 [Transaction(TransactionMode.Manual)]
 public sealed class FlexConnectCommand : IExternalCommand
@@ -124,7 +132,7 @@ internal static class DeviceTool
         }
 
         var title = "DSSTech — " + (only is DeviceKind k ? DevicePlanner.Spec(k).Label
-            : mount switch { DeviceMount.Wall => "Thiết bị tường", DeviceMount.Hvac => "Thiết bị ĐHKK", _ => "Thiết bị trần" });
+            : mount switch { DeviceMount.Wall => "Thiết bị tường", DeviceMount.Hvac => "Thiết bị ĐHKK", DeviceMount.Fire => "Thiết bị PCCC", _ => "Thiết bị trần" });
         if (!ModelRevitLevelContext.TryResolve(view, doc, out var level, out var topLevel, out var levelErr))
         {
             TaskDialog.Show(title, levelErr);
@@ -150,7 +158,7 @@ internal static class DeviceTool
                 return Result.Cancelled;
             }
 
-            var kinds = DevicePlanner.Specs.Where(s => s.Mount == mount && (only is null || s.Kind == only)).ToList();
+            var kinds = DevicePlanner.Specs.Where(s => DevicePlanner.Offers(mount, s) && (only is null || s.Kind == only)).ToList();
             var groups = DevicePlanner.Groups(blocks.Select(b => b.Insert));
             var dlg = new DeviceSetupWindow(doc, title, mount, kinds, groups, level.Name);
             if (!dlg.ShowFor(uiApp.MainWindowHandle) || dlg.Rows.Count == 0)
@@ -189,7 +197,7 @@ internal static class DeviceTool
             return false;
         }
 
-        var walls = mount == DeviceMount.Wall ? DeviceWalls.Collect(doc, level) : new List<HostWallAxis>();
+        var walls = rows.Any(r => DevicePlanner.OnWall(r.Spec)) ? DeviceWalls.Collect(doc, level) : new List<HostWallAxis>();
         var storey = topLevel.Elevation - level.Elevation;
         var existing = new Dictionary<string, List<XYZ>>();
         var made = new Dictionary<string, int>();
@@ -226,7 +234,8 @@ internal static class DeviceTool
 
                 try
                 {
-                    var outcome = mount == DeviceMount.Wall
+                    var wall = DevicePlanner.OnWall(row.Spec);
+                    var outcome = wall
                         ? OnWall(doc, view3D, level, row, walls, x, y, hit.Insert.RotationDeg, reachMm, notes)
                         : OnCeiling(doc, view3D, level, storey, row, x, y, hit.Insert.RotationDeg, defaultCeilingMm, notes, ignoreCeiling, placed);
                     if (outcome is null)
@@ -239,7 +248,7 @@ internal static class DeviceTool
                         free++;
                     if (outcome.Value.Missing)
                     {
-                        if (mount == DeviceMount.Wall)
+                        if (wall)
                             noWall++;
                         else
                             noCeiling++;
@@ -256,12 +265,12 @@ internal static class DeviceTool
 
         var sb = new StringBuilder();
         sb.AppendLine($"Level {level.Name}: " + (made.Count == 0 ? "không dựng thiết bị nào." : string.Join(", ", made.Select(m => $"{m.Key} {m.Value}")) + "."));
-        sb.AppendLine($"Gắn vào mặt {(mount == DeviceMount.Wall ? "tường" : "trần")}: {hosted}; đặt tự do theo cao độ: {free}.");
-        if (mount == DeviceMount.Wall && noWall > 0)
+        sb.AppendLine($"Gắn vào mặt {mount switch { DeviceMount.Wall => "tường", DeviceMount.Fire => "tường / trần", _ => "trần" }}: {hosted}; đặt tự do theo cao độ: {free}.");
+        if (noWall > 0)
             sb.AppendLine($"Không thấy tường trong {reachMm:0} mm: {noWall} (đặt tại điểm block, theo hướng block).");
         if (mount != DeviceMount.Wall && ignoreCeiling)
             sb.AppendLine($"Cao độ chỉ định: trần tính ở {defaultCeilingMm:0} mm từ level cho mọi thiết bị.");
-        else if (mount != DeviceMount.Wall && noCeiling > 0)
+        else if (noCeiling > 0)
             sb.AppendLine($"Không có trần phía trên: {noCeiling} (đặt ở cao độ trần mặc định {defaultCeilingMm:0} mm).");
         if (skipped > 0)
             sb.AppendLine($"Đã có thiết bị cùng loại tại chỗ (bỏ qua): {skipped}.");
@@ -400,11 +409,17 @@ internal static class DeviceTool
         return (ctx.GetReference(), origin + direction * ctx.Proximity);
     }
 
+    /// <summary>The Revit categories a spec's category names (one, or several split by ';'), those this Revit has.</summary>
+    internal static List<BuiltInCategory> Categories(string category) =>
+        category.Split(';').Select(c => Enum.TryParse<BuiltInCategory>(c.Trim(), out var bic) ? bic : (BuiltInCategory?)null)
+            .Where(c => c is not null).Select(c => c!.Value).ToList();
+
     private static List<XYZ> Existing(Document doc, string category, double fromZ, double toZ)
     {
-        if (!Enum.TryParse<BuiltInCategory>(category, out var bic))
+        var cats = Categories(category);
+        if (cats.Count == 0)
             return new List<XYZ>();
-        return new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().OfType<FamilyInstance>()
+        return new FilteredElementCollector(doc).WherePasses(new ElementMulticategoryFilter(cats)).WhereElementIsNotElementType().OfType<FamilyInstance>()
             .Select(f => f.Location is LocationPoint lp ? lp.Point : null)
             .Where(p => p is not null && p.Z >= fromZ - 0.5 && p.Z < toZ)
             .Select(p => p!).ToList();
@@ -623,6 +638,7 @@ internal sealed class DeviceSetupWindow : DssDialog
     private readonly CheckBox? _ignoreCeiling;
     private readonly CheckBox? _flex;
     private readonly TextBox? _flexReach;
+    private readonly TextBox? _reach;
 
     public DeviceSetupWindow(Document doc, string title, DeviceMount mount, IReadOnlyList<DeviceSpec> kinds, List<DeviceBlockGroup> groups, string levelName)
         : base(title,
@@ -631,6 +647,8 @@ internal sealed class DeviceSetupWindow : DssDialog
                 DeviceMount.Wall => $"Level {levelName}. Mỗi block của CAD thành một loại thiết bị: đặt lên mặt tường gần nhất (model hoặc link), cao độ lắp tính từ level.",
                 DeviceMount.Hvac => $"Level {levelName}. Miệng gió, FCU, box gió từ block CAD: theo mặt trần phía trên (hoặc cao độ chỉ định); số âm = nằm trên trần. " +
                                     "Sau khi đặt, tự nối ống mềm từ cổng gió của thiết bị tới ống gió cùng hệ gần nhất.",
+                DeviceMount.Fire => $"Level {levelName}. Tủ chữa cháy đặt lên mặt tường gần nhất (cao lắp = chân tủ từ level); đầu phun sprinkler, " +
+                                    "đầu báo cháy dưới mặt trần phía trên (khoảng dưới trần 0 thì gắn vào mặt trần).",
                 _ => $"Level {levelName}. Mỗi block của CAD thành một loại thiết bị: đặt dưới mặt trần phía trên (model hoặc link); khoảng dưới trần 0 thì gắn vào mặt trần."
             },
             860, 680)
@@ -639,8 +657,11 @@ internal sealed class DeviceSetupWindow : DssDialog
         _kinds = kinds;
         foreach (var spec in kinds)
         {
-            _types[spec.Kind] = Enum.TryParse<BuiltInCategory>(spec.Category, out var bic)
-                ? new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).OfCategory(bic).Cast<FamilySymbol>()
+            var cats = DeviceTool.Categories(spec.Category);
+            // A fire cabinet is mechanical equipment too: it is not offered for an air box or a fan coil.
+            _types[spec.Kind] = cats.Count > 0
+                ? new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).WherePasses(new ElementMulticategoryFilter(cats)).Cast<FamilySymbol>()
+                    .Where(s => DevicePlanner.IsFire(spec.Kind) || !DevicePlanner.IsFire(DevicePlanner.Guess(TypeName(s), "")))
                     .OrderBy(TypeName).ToList()
                 : new List<FamilySymbol>();
         }
@@ -648,7 +669,11 @@ internal sealed class DeviceSetupWindow : DssDialog
         var memory = DeviceMemory.Load();
         var rows = new StackPanel();
         var header = Row(Muted("Block CAD (số lượng)"), Muted("Loại thiết bị"), Muted("Family : Type"),
-            Muted(mount switch { DeviceMount.Wall => "Cao lắp (mm)", DeviceMount.Hvac => "Dưới trần (mm, âm = trên)", _ => "Dưới trần (mm)" }));
+            Muted(mount switch
+            {
+                DeviceMount.Wall => "Cao lắp (mm)", DeviceMount.Hvac => "Dưới trần (mm, âm = trên)", DeviceMount.Fire => "Cao lắp / dưới trần (mm)",
+                _ => "Dưới trần (mm)"
+            }));
         foreach (var g in groups.Take(MaxRows))
         {
             DeviceSpec? spec = null;
@@ -693,6 +718,12 @@ internal sealed class DeviceSetupWindow : DssDialog
         {
             DssTheme.Field(mount == DeviceMount.Wall ? "Khoảng tìm tường quanh block (mm)" : "Cao độ trần khi chưa có trần (mm, từ level)", _extra)
         };
+        if (mount == DeviceMount.Fire)
+        {
+            _reach = DssTheme.Input("400");
+            settings.Add(DssTheme.Field("Khoảng tìm tường quanh tủ chữa cháy (mm)", _reach));
+        }
+
         if (mount == DeviceMount.Hvac)
         {
             _ignoreCeiling = DssTheme.Option("Cao độ chỉ định: bỏ qua trần, mọi thiết bị theo cao độ trần ở trên", false);
@@ -758,6 +789,17 @@ internal sealed class DeviceSetupWindow : DssDialog
             ReachMm = extra;
         else
             DefaultCeilingMm = extra;
+        if (_reach is not null)
+        {
+            if (!double.TryParse(_reach.Text.Trim(), out var wallReach) || wallReach <= 0)
+            {
+                error = "Khoảng tìm tường phải là số mm > 0.";
+                return false;
+            }
+
+            ReachMm = wallReach;
+        }
+
         IgnoreCeiling = _ignoreCeiling?.IsChecked == true;
         ConnectFlex = _flex?.IsChecked == true;
         if (_flexReach is not null)

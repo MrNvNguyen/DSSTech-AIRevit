@@ -68,7 +68,9 @@ public sealed class MepRaiseCommand : IExternalCommand
         else
             scope = $"{pool.Count} phần tử đang chọn";
 
-        var clearance = UnitConv.MmToInternal(50);
+        var profile = CombineProfileStore.Load(doc);
+        var clearanceMm = profile.StructureClearanceMm;
+        var clearance = UnitConv.MmToInternal(clearanceMm);
         var overhead = ModelRevitWallFit.Overhead(doc);
         if (overhead.Count == 0)
         {
@@ -76,7 +78,7 @@ public sealed class MepRaiseCommand : IExternalCommand
             return Result.Cancelled;
         }
 
-        int moved = 0, flat = 0, none = 0, sloped = 0;
+        int moved = 0, flat = 0, none = 0, sloped = 0, locked = 0;
         var lifts = new List<double>();
         using (var tx = new Transaction(doc, "DSSTech raise MEP to structure"))
         {
@@ -86,6 +88,12 @@ public sealed class MepRaiseCommand : IExternalCommand
                 var curves = net.OfType<MEPCurve>().Where(c => c.Location is LocationCurve { Curve: Line }).ToList();
                 if (curves.Count == 0)
                     continue;
+                // Pinned, or a locked system (gas keeps its corridor): stays where it is.
+                if (net.Any(e => e.Pinned) || curves.Any(c => CombineProfileStore.Identify(c) is var (sys, code) && profile.IsLocked(sys, code)))
+                {
+                    locked++;
+                    continue;
+                }
                 if (curves.Any(c => c is Pipe && Math.Abs(((Line)((LocationCurve)c.Location).Curve).Direction.Z) is > 1e-4 and < 0.99))
                 {
                     // Drainage keeps its fall to the outlet: moving it would lift the outlet off its riser.
@@ -99,7 +107,8 @@ public sealed class MepRaiseCommand : IExternalCommand
                     var line = (Line)((LocationCurve)c.Location).Curve;
                     if (Math.Abs(line.Direction.Z) > 0.99)
                         continue;
-                    var top = Math.Max(line.GetEndPoint(0).Z, line.GetEndPoint(1).Z) + MepCombine.Depth(c) / 2;
+                    var insulation = CombineProfileStore.Identify(c) is var (sys, code) ? UnitConv.MmToInternal(profile.Insulation(sys, code)) : 0;
+                    var top = Math.Max(line.GetEndPoint(0).Z, line.GetEndPoint(1).Z) + MepCombine.Depth(c) / 2 + insulation;
                     var len = line.Length;
                     var step = UnitConv.MmToInternal(300);
                     for (var s = 0.0; ; s += step)
@@ -139,10 +148,12 @@ public sealed class MepRaiseCommand : IExternalCommand
         }
 
         var sb = new StringBuilder();
-        sb.AppendLine($"Phạm vi: {scope}. Đỉnh ống/máng lên sát đáy dầm/sàn thấp nhất phía trên tuyến − 50 mm; mỗi mạng nối liền nâng cùng một mức.");
+        sb.AppendLine($"Phạm vi: {scope}. Đỉnh ống/máng (kể cả bảo ôn mặc định của quy tắc Combine) lên sát đáy dầm/sàn thấp nhất phía trên tuyến − {clearanceMm:0} mm; mỗi mạng nối liền nâng cùng một mức.");
         sb.AppendLine($"Đã nâng {moved} mạng" + (lifts.Count > 0 ? $" (từ {lifts.Min():0} đến {lifts.Max():0} mm)" : "") + $"; đã sát sẵn {flat}; không có dầm/sàn phía trên {none}.");
         if (sloped > 0)
             sb.AppendLine($"Bỏ qua {sloped} mạng ống dốc (thoát nước): giữ độ dốc và điểm xả.");
+        if (locked > 0)
+            sb.AppendLine($"Bỏ qua {locked} mạng bị khóa (pin, hoặc hệ khóa trong quy tắc Combine như Gas).");
         TaskDialog.Show(Title, sb.ToString());
         return Result.Succeeded;
     }
