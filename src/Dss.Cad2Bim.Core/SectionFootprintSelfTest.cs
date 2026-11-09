@@ -3624,6 +3624,87 @@ public static class SectionFootprintSelfTest
                 return false;
             }
 
+            // Busway strokes: a run drawn without width beside wide ones is kept (it was dropped); a short jog at a run's
+            // end is kept; a stray short stroke, a closed box and lines inside blocks are not.
+            var wideRun = new CadPolyline { Layer = "E-equi", WidthMm = 150, Points = { new CadPoint2(0, 0), new CadPoint2(10000, 0) } };
+            var plainRun = new CadPolyline { Layer = "E-equi", Points = { new CadPoint2(0, 300), new CadPoint2(10000, 300) } };
+            var jog = new CadLine { Layer = "E-equi", X0 = 10000, Y0 = 300, X1 = 10000, Y1 = 900 };
+            var stray = new CadLine { Layer = "E-equi", X0 = 5000, Y0 = 5000, X1 = 5400, Y1 = 5000 };
+            var box = new CadPolyline { Layer = "E-equi", Closed = true, Points = { new CadPoint2(0, 2000), new CadPoint2(3000, 2000), new CadPoint2(3000, 4000) } };
+            var inBlock = new CadLine { Layer = "E-equi", BlockRef = 7, X0 = 0, Y0 = 8000, X1 = 9000, Y1 = 8000 };
+            var strokes = MepRoutePlanner.BuswayStrokes(new List<CadEntity> { wideRun, plainRun, jog, stray, box, inBlock });
+            if (strokes.Count != 3 || !strokes.Contains(plainRun) || !strokes.Contains(jog))
+            {
+                message = $"busway strokes: kept {strokes.Count} (plain run {strokes.Contains(plainRun)}, jog {strokes.Contains(jog)})";
+                return false;
+            }
+
+            // Busway hidden under a ladder: two runs on one line, ends facing 4.7 m apart, are bridged once; the parallel
+            // pair 700 aside is not crossed over, nor is an end that does not point back along the line.
+            {
+                CadPolyline Bar(params double[] xy)
+                {
+                    var pl = new CadPolyline { Layer = "E-equi", WidthMm = 150 };
+                    for (var i = 0; i + 1 < xy.Length; i += 2)
+                        pl.Points.Add(new CadPoint2(xy[i], xy[i + 1]));
+                    return pl;
+                }
+
+                var hidden = new List<CadEntity>
+                {
+                    Bar(0, 0, 0, -20000), Bar(16, 4700, 16, 20000),        // one busway broken by the ladder
+                    Bar(700, 10, 700, -20000), Bar(704, 4720, 704, 20000), // its pair
+                    Bar(5000, 0, 5000, 3000), Bar(5000, 6000, 9000, 6000)  // the end above points sideways, not back
+                };
+                var bridges = MepRoutePlanner.BuswayBridges(hidden);
+                if (bridges.Count != 2 || bridges.Any(b => Math.Abs(b.X0 - b.X1) > 1 || b.X0 > 1000) ||
+                    MepRoutePlanner.Build(hidden.Concat(bridges).ToList(), null, new MepSize(200, 100, 0), new List<CadText>(), false, busway: true) is var bn &&
+                    MepRoutePlanner.Parts(bn).Count != 4)
+                {
+                    message = $"busway bridges: {bridges.Count} ({string.Join("; ", bridges.Select(b => $"{b.X0:0},{b.Y0:0}-{b.X1:0},{b.Y1:0}"))})";
+                    return false;
+                }
+            }
+
+            // Runs meeting at different heights: a 200 tray through at 2600; a 1200 ladder at 3100 ending on it stays up
+            // (no floating riser: Revit cannot tee it into the 200), a 200 branch at 3100 drops to 2600.
+            {
+                var meet = new MepNetwork();
+                meet.Nodes.AddRange(new[] { (0.0, 0.0), (5000.0, 0.0), (10000.0, 0.0), (5000.0, 5000.0), (5000.0, -5000.0) });
+                MepEdge Run(int a, int b, double w) => new() { A = a, B = b, Size = new MepSize(w, 100, 0) };
+                meet.Edges.AddRange(new[] { Run(0, 1, 200), Run(1, 2, 200), Run(1, 3, 1200), Run(1, 4, 200) });
+                var at = meet.Nodes.Select(_ => new List<int>()).ToList();
+                for (var i = 0; i < meet.Edges.Count; i++)
+                {
+                    at[meet.Edges[i].A].Add(i);
+                    at[meet.Edges[i].B].Add(i);
+                }
+
+                var meetProf = new List<List<MepPiece>>
+                {
+                    new() { new(0, 5000, 2650) }, new() { new(0, 5000, 2650) }, new() { new(0, 5000, 3150) }, new() { new(0, 5000, 3150) }
+                };
+                MepRoutePlanner.MeetAtNodes(meet, at, meetProf);
+                if (meetProf[2].Count != 1 || meetProf[2][0].Z != 3150 || meetProf[3][0].Z != 2650)
+                {
+                    message = $"meet at nodes: 1200 ladder {string.Join("/", meetProf[2].Select(x => x.Z))}, 200 branch start {meetProf[3][0].Z}";
+                    return false;
+                }
+            }
+
+            // Busway height: one per network. The CAD's (most written) wins; else typed, lowered whole under a low beam;
+            // a beam high enough leaves it alone.
+            if (MepRoutePlanner.MostWritten(new double?[] { null, 3350, 3350, 4050, null }) != 3350 ||
+                MepRoutePlanner.MostWritten(new double?[] { null, null }) is not null ||
+                MepRoutePlanner.BuswayHeight(3350, 3000, 3100, 100, 100) != 3350 ||
+                MepRoutePlanner.BuswayHeight(null, 3000, 3100, 100, 100) != 2950 ||
+                MepRoutePlanner.BuswayHeight(null, 3000, 4000, 100, 100) != 3000 ||
+                MepRoutePlanner.BuswayHeight(null, 3000, null, 100, 100) != 3000)
+            {
+                message = "busway height: one per network";
+                return false;
+            }
+
             var foreign = new[] { "THANG CÁP 1200X100, H=2800", "BUSWAY CU - H=3300", "BỆ MÁY H 200", "1200X300, H=2900" }
                 .Select(n => (n, H: Elevation(n))).Where(x => x.H is not null).ToList();
             var own = Elevation("600X250, H=3000");

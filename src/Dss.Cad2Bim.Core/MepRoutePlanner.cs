@@ -540,6 +540,138 @@ public static class MepRoutePlanner
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>
+    /// A busway's strokes: open lines and polylines outside blocks (equipment boxes, panels and symbols are closed or
+    /// blocks). A run is drawn wide (global width) or long; a busway drawn without width is still one, so width alone
+    /// does not decide. Short strokes count only where they meet the end of a run (a jog between two runs).
+    /// </summary>
+    public static List<CadEntity> BuswayStrokes(IEnumerable<CadEntity> lines, double minRunMm = 1000, double touchMm = 50)
+    {
+        var open = lines.Where(e => e.BlockRef == 0 && (e is CadLine || e is CadPolyline { Closed: false, Points.Count: >= 2 }))
+            .ToList();
+        static (CadPoint2 A, CadPoint2 B, double Len) Ends(CadEntity e)
+        {
+            if (e is CadLine l)
+                return (new CadPoint2(l.X0, l.Y0), new CadPoint2(l.X1, l.Y1), Math.Sqrt((l.X1 - l.X0) * (l.X1 - l.X0) + (l.Y1 - l.Y0) * (l.Y1 - l.Y0)));
+            var p = ((CadPolyline)e).Points;
+            var len = 0.0;
+            for (var i = 0; i + 1 < p.Count; i++)
+                len += Math.Sqrt((p[i + 1].X - p[i].X) * (p[i + 1].X - p[i].X) + (p[i + 1].Y - p[i].Y) * (p[i + 1].Y - p[i].Y));
+            return (p[0], p[p.Count - 1], len);
+        }
+
+        var ends = open.ToDictionary(e => e, Ends);
+        var kept = open.Where(e => e is CadPolyline { WidthMm: > 0 } || ends[e].Len >= minRunMm).ToList();
+        var rest = open.Except(kept).ToList();
+        bool Near(CadPoint2 a, CadPoint2 b) => Math.Abs(a.X - b.X) <= touchMm && Math.Abs(a.Y - b.Y) <= touchMm;
+        for (var added = true; added && rest.Count > 0;)
+        {
+            var join = rest.Where(s => kept.Any(k =>
+                Near(ends[s].A, ends[k].A) || Near(ends[s].A, ends[k].B) || Near(ends[s].B, ends[k].A) || Near(ends[s].B, ends[k].B))).ToList();
+            added = join.Count > 0;
+            kept.AddRange(join);
+            rest = rest.Except(join).ToList();
+        }
+
+        return kept;
+    }
+
+    /// <summary>
+    /// Busways broken where a tray is drawn over them (the ladder's block hides the busway, nothing is drawn under it):
+    /// two open ends on one line (≤ <paramref name="maxOffsetMm"/> aside), each pointing at the other, at most
+    /// <paramref name="maxGapMm"/> apart, are joined by a straight stroke along the first run's line. Each end is
+    /// joined once, to its nearest match.
+    /// </summary>
+    public static List<CadLine> BuswayBridges(IReadOnlyList<CadEntity> strokes, double maxGapMm = 6000, double maxOffsetMm = 100)
+    {
+        // Every open end: where it is and the way it points (out of its run).
+        var ends = new List<(CadPoint2 P, double Dx, double Dy, string Layer, int Stroke)>();
+        void End(CadPoint2 p, CadPoint2 inner, string layer, int stroke)
+        {
+            var dx = p.X - inner.X;
+            var dy = p.Y - inner.Y;
+            var len = Math.Sqrt(dx * dx + dy * dy);
+            if (len > 1)
+                ends.Add((p, dx / len, dy / len, layer, stroke));
+        }
+
+        for (var s = 0; s < strokes.Count; s++)
+        {
+            switch (strokes[s])
+            {
+                case CadLine l:
+                    End(new CadPoint2(l.X0, l.Y0), new CadPoint2(l.X1, l.Y1), l.Layer, s);
+                    End(new CadPoint2(l.X1, l.Y1), new CadPoint2(l.X0, l.Y0), l.Layer, s);
+                    break;
+                case CadPolyline { Closed: false, Points.Count: >= 2 } pl:
+                    End(pl.Points[0], pl.Points[1], pl.Layer, s);
+                    End(pl.Points[pl.Points.Count - 1], pl.Points[pl.Points.Count - 2], pl.Layer, s);
+                    break;
+            }
+        }
+
+        // An end touching another stroke is not open.
+        bool Touches(int i) => ends.Where((_, j) => j != i).Any(o =>
+            Math.Abs(o.P.X - ends[i].P.X) <= 50 && Math.Abs(o.P.Y - ends[i].P.Y) <= 50);
+        var open = Enumerable.Range(0, ends.Count).Where(i => !Touches(i)).ToList();
+
+        var pairs = new List<(int A, int B, double Gap)>();
+        foreach (var a in open)
+        {
+            foreach (var b in open.Where(b => b > a && ends[b].Stroke != ends[a].Stroke))
+            {
+                var (pa, ax, ay, _, _) = ends[a];
+                var (pb, bx, by, _, _) = ends[b];
+                // Pointing at each other along one line.
+                if (ax * bx + ay * by > -0.995)
+                    continue;
+                var along = (pb.X - pa.X) * ax + (pb.Y - pa.Y) * ay;
+                var aside = Math.Abs(-(pb.X - pa.X) * ay + (pb.Y - pa.Y) * ax);
+                if (along > 1 && along <= maxGapMm && aside <= maxOffsetMm)
+                    pairs.Add((a, b, along));
+            }
+        }
+
+        var used = new HashSet<int>();
+        var bridges = new List<CadLine>();
+        foreach (var (a, b, _) in pairs.OrderBy(x => x.Gap))
+        {
+            if (used.Contains(a) || used.Contains(b))
+                continue;
+            used.Add(a);
+            used.Add(b);
+            var (pa, ax, ay, layer, _) = ends[a];
+            var pb = ends[b].P;
+            var along = (pb.X - pa.X) * ax + (pb.Y - pa.Y) * ay;
+            // Along the first run's line, ending square across from the other end (the planner's snap joins them).
+            bridges.Add(new CadLine { Layer = layer, X0 = pa.X, Y0 = pa.Y, X1 = pa.X + ax * along, Y1 = pa.Y + ay * along });
+        }
+
+        return bridges;
+    }
+
+    /// <summary>The height written most often among a network's runs (null when none is written).</summary>
+    public static double? MostWritten(IEnumerable<double?> heights) =>
+        heights.Where(z => z is not null)
+            .GroupBy(z => z!.Value)
+            .OrderByDescending(g => g.Count())
+            .ThenBy(g => g.Key)
+            .Select(g => (double?)g.Key)
+            .FirstOrDefault();
+
+    /// <summary>
+    /// A busway network's one centre height: the CAD's, else the typed one, lowered whole (to 5 mm) where the lowest
+    /// beam or slab over it leaves less than the clearance above its top. Never a profile that dodges beams.
+    /// </summary>
+    public static double BuswayHeight(double? cadCenter, double manualCenter, double? lowestUnderside, double clearanceMm, double depthMm)
+    {
+        if (cadCenter is double cad)
+            return cad;
+        if (lowestUnderside is double u && u - clearanceMm < manualCenter + depthMm / 2)
+            return Math.Floor((u - clearanceMm - depthMm / 2) / 5) * 5;
+        return manualCenter;
+    }
+
+    /// <summary>
     /// Whether a note may speak of runs read as <paramref name="doubleLine"/> (true duct, null tray, false pipe):
     /// a note naming trays is not a duct's or a pipe's, one naming ducts is not a tray's or a pipe's. A note naming
     /// busways is only a busway's (<paramref name="busway"/>), and a busway takes no tray's or duct's note.
@@ -2580,6 +2712,41 @@ public static class MepRoutePlanner
         }
 
         return runs.Select(r => new MepPiece(r.From, r.To, r.Z)).ToList();
+    }
+
+    /// <summary>
+    /// A node sits at the lowest end of the runs meeting there: a higher run drops to it near its end (a riser and two
+    /// elbows), as where two runs written at different heights meet. A run wider than every run at that lowest height
+    /// stays up: Revit cannot tee a wide branch into a narrower main, so the drop would be left floating (a 1200 ladder
+    /// at 3100 ending on a 200 tray at 2600). With <paramref name="only"/>, just the nodes one of those edges touches.
+    /// </summary>
+    public static void MeetAtNodes(MepNetwork net, List<List<int>> edgesAt, List<List<MepPiece>> profiles, bool[]? only = null)
+    {
+        double Wide(MepEdge e) => e.Size.IsRound ? e.Size.DiameterMm : e.Size.WidthMm;
+        for (var n = 0; n < net.Nodes.Count; n++)
+        {
+            var ends = new List<(int Edge, bool AtStart, double Z)>();
+            foreach (var i in edgesAt[n])
+            {
+                if (profiles[i].Count == 0)
+                    continue;
+                if (net.Edges[i].A == n)
+                    ends.Add((i, true, profiles[i][0].Z));
+                if (net.Edges[i].B == n)
+                    ends.Add((i, false, profiles[i][profiles[i].Count - 1].Z));
+            }
+
+            if (ends.Count < 2 || only is not null && !ends.Any(x => only[x.Edge]))
+                continue;
+            var z = ends.Min(x => x.Z);
+            var lowWidth = ends.Where(x => x.Z <= z + 1).Max(x => Wide(net.Edges[x.Edge]));
+            foreach (var (edge, atStart, endZ) in ends)
+            {
+                if (endZ > z + 1 && Wide(net.Edges[edge]) > lowWidth + 1)
+                    continue;
+                profiles[edge] = SetEnd(profiles[edge], atStart, z);
+            }
+        }
     }
 
     /// <summary>

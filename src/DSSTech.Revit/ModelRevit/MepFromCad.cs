@@ -119,6 +119,8 @@ public sealed class MepSmokeDuctCommand : IExternalCommand
 internal static class MepFromCad
 {
     private const double StepMm = 100;
+    /// <summary>Service Type of busways (system BW).</summary>
+    private const string BuswayService = "BW";
     private const double OverheadCellMm = 3000;
     private const string TopOf = "Đỉnh (Top Elevation)";
     private const string CenterOf = "Tâm (Middle Elevation)";
@@ -298,15 +300,15 @@ internal static class MepFromCad
         }
     }
 
-    /// <summary>
-    /// A busway's strokes: open lines and polylines outside blocks (equipment boxes, panels and symbols are closed or
-    /// blocks). Where some are drawn wide (global width, as busways are), only those.
-    /// </summary>
     private static List<CadEntity> BuswayStrokes(IEnumerable<CadEntity> lines)
     {
-        var open = lines.Where(e => e.BlockRef == 0 && e is CadLine or CadPolyline { Closed: false }).ToList();
-        var wide = open.Where(e => e is CadPolyline { WidthMm: > 0 }).ToList();
-        return wide.Count > 0 ? wide : open;
+        var all = lines.ToList();
+        var kept = MepRoutePlanner.BuswayStrokes(all);
+        // Gaps where a tray drawn over the busway hides it.
+        var bridges = MepRoutePlanner.BuswayBridges(kept);
+        DssTechLog.Write($"busway strokes: {all.Count} on layer, {all.Count(e => e is CadPolyline { WidthMm: > 0 })} wide, kept {kept.Count}, bridged {bridges.Count} gaps");
+        kept.AddRange(bridges);
+        return kept;
     }
 
     /// <summary>Everything the dialog decides.</summary>
@@ -385,7 +387,7 @@ internal static class MepFromCad
                 MepSystemCatalog.Match(spec, new[] { new ExistingSystem { Name = n!, Abbreviation = systems.First(x => x.Name == n).Abbr, Domain = domain } })
                     .Kind != SystemMatchKind.None);
             if (choice.Run == MepRun.Busway)
-                preset = systems.Select(s => (string?)s.Name).FirstOrDefault(n => systems.First(x => x.Name == n).Abbr == "BW") ?? preset;
+                preset = systems.Select(s => (string?)s.Name).FirstOrDefault(n => systems.First(x => x.Name == n).Abbr == BuswayService) ?? preset;
             var systemBox = dlg.AddCombo(domain == MepDomain.CableTray ? "Hệ (ghi vào Service Type)" : "System", systems.Select(s => s.Name), preset ?? systems[0].Name);
 
             // The drawing's layers: those naming the chosen system's code ticked until the list is touched by hand.
@@ -678,13 +680,65 @@ internal static class MepFromCad
 
             // Ducts of different depths on one bottom (or top) meet through their fitting; only a height written on
             // the CAD makes a riser, else each depth change would leave a 50 mm vertical stub.
-            MeetAtNodes(net, edgesAt, ductProfiles, cadEdge);
+            MepRoutePlanner.MeetAtNodes(net, edgesAt, ductProfiles, cadEdge);
             pieces.AddRange(ductProfiles.Select(pr => pr.Select(x => new Piece(x.From, x.To, x.Z, x.Z)).ToList()));
             notes.AppendLine(setup.UnderStructure
                 ? $"Cao độ: mọi ống {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm so với {level.Name}; mạng có đáy dầm/sàn thấp hơn thì cả mạng hạ xuống, đỉnh ống cao nhất dưới đáy dầm thấp nhất {setup.ClearanceMm:0} mm ({byStructure}/{parts.Count} mạng hạ theo dầm)."
                 : $"Cao độ: mọi ống {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm so với {level.Name}.");
             if (noStructure > 0)
                 notes.AppendLine($"  {noStructure} điểm dò (mỗi {StepMm:0} mm) không thấy dầm/sàn phía trên.");
+        }
+        else if (setup.Run == MepRun.Busway)
+        {
+            // A busway is one straight bar per run: one height for the whole network, no dodging beams. The height
+            // written on the CAD for any of its runs (the most written one), else the typed height, lowered whole under
+            // the lowest beam or slab over the network where that comes lower.
+            var cadZ = new double?[parts.Count];
+            for (var p = 0; p < parts.Count; p++)
+                cadZ[p] = MepRoutePlanner.MostWritten(net.Edges.Where(e => partOf[e.A] == p).Select(e => setup.CadCenter(levelMm, e)));
+
+            var lowest = parts.Select(_ => double.MaxValue).ToArray();
+            if (setup.UnderStructure)
+            {
+                foreach (var e in net.Edges.Where(e => cadZ[partOf[e.A]] is null))
+                {
+                    var (ax, ay) = net.Nodes[e.A];
+                    var (bx, by) = net.Nodes[e.B];
+                    var len = MepRoutePlanner.Length(net, e);
+                    for (var s = 0.0; ; s += StepMm)
+                    {
+                        var t = len > 0 ? Math.Min(s, len) / len : 0;
+                        if (Under(ax + (bx - ax) * t, ay + (by - ay) * t) is double u)
+                            lowest[partOf[e.A]] = Math.Min(lowest[partOf[e.A]], u);
+                        else
+                            noStructure++;
+                        if (s >= len)
+                            break;
+                    }
+                }
+            }
+
+            var byStructure = 0;
+            var runZ = new double[parts.Count];
+            for (var p = 0; p < parts.Count; p++)
+            {
+                var manual = levelMm + Math.Floor((setup.ManualCenter(levelMm, depth[p]) - levelMm) / 5) * 5;
+                runZ[p] = MepRoutePlanner.BuswayHeight(cadZ[p], manual, lowest[p] == double.MaxValue ? null : lowest[p],
+                    setup.ClearanceMm, depth[p]);
+                if (cadZ[p] is null && runZ[p] < manual)
+                    byStructure++;
+            }
+
+            foreach (var e in net.Edges)
+            {
+                if (cadZ[partOf[e.A]] is not null)
+                    fromCad++;
+                pieces.Add(new List<Piece> { new(0, MepRoutePlanner.Length(net, e), runZ[partOf[e.A]], runZ[partOf[e.A]]) });
+            }
+
+            notes.AppendLine(setup.UnderStructure
+                ? $"Cao độ: mỗi tuyến busway một cao độ (ghi trên CAD, hoặc {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm), không uốn né dầm; tuyến dưới dầm/sàn thấp hơn thì cả tuyến hạ xuống ({byStructure}/{parts.Count} tuyến)."
+                : $"Cao độ: mỗi tuyến busway một cao độ (ghi trên CAD, hoặc {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm so với {level.Name}).");
         }
         else
         {
@@ -726,7 +780,7 @@ internal static class MepFromCad
                 profiles.Add(MepRoutePlanner.Profile(samples, StepMm, len, netDepth, setup.ClearanceMm));
             }
 
-            MeetAtNodes(net, edgesAt, profiles);
+            MepRoutePlanner.MeetAtNodes(net, edgesAt, profiles);
             pieces.AddRange(profiles.Select(pr => pr.Select(x => new Piece(x.From, x.To, x.Z, x.Z)).ToList()));
             notes.AppendLine(setup.UnderStructure
                 ? $"Cao độ: đỉnh (theo đoạn sâu nhất của mạng) dưới đáy dầm/sàn − {setup.ClearanceMm:0} mm, uốn né dầm; chỗ không có dầm/sàn: {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm."
@@ -751,11 +805,14 @@ internal static class MepFromCad
             .ToList();
         var reach = UnitConv.MmToInternal(30);
         var beforeIds = before.Select(c => c.Id).ToList();
-        // Runs already modelled: only of the kind being made (a pipe or a flex crossing under a duct is not it).
+        // Runs already modelled: only of the kind being made (a pipe or a flex crossing under a duct is not it). A
+        // busway is drawn on a tray's centre line: a tray is not the busway already there, nor a busway the tray.
+        string Service(MEPCurve c) => c.get_Parameter(BuiltInParameter.RBS_CTC_SERVICE_TYPE)?.AsString() ?? "";
         bool SameKind(MEPCurve c) => setup.Run switch
         {
             MepRun.Duct => c is Duct,
-            MepRun.CableTray or MepRun.Busway => c is CableTray,
+            MepRun.Busway => c is CableTray && string.Equals(Service(c), setup.ServiceType, StringComparison.OrdinalIgnoreCase),
+            MepRun.CableTray => c is CableTray && !string.Equals(Service(c), BuswayService, StringComparison.OrdinalIgnoreCase),
             _ => c is Pipe
         };
         var existing = before.Where(SameKind).Select(c => ((LocationCurve)c.Location).Curve)
@@ -901,32 +958,6 @@ internal static class MepFromCad
         foreach (var f in failures.Take(30))
             DssTechLog.Write($"mep fitting: {f}");
         return sb.ToString();
-    }
-
-    /// <summary>
-    /// A node sits at the lowest end of the runs meeting there: a higher run drops to it near its end (a riser and two
-    /// elbows), as where two runs written at different heights meet. With <paramref name="only"/>, just the nodes one
-    /// of those edges touches.
-    /// </summary>
-    private static void MeetAtNodes(MepNetwork net, List<List<int>> edgesAt, List<List<MepPiece>> profiles, bool[]? only = null)
-    {
-        for (var n = 0; n < net.Nodes.Count; n++)
-        {
-            var ends = new List<(int Edge, bool AtStart)>();
-            foreach (var i in edgesAt[n])
-            {
-                if (net.Edges[i].A == n)
-                    ends.Add((i, true));
-                if (net.Edges[i].B == n)
-                    ends.Add((i, false));
-            }
-
-            if (ends.Count < 2 || only is not null && !ends.Any(x => only[x.Edge]))
-                continue;
-            var z = ends.Min(x => x.AtStart ? profiles[x.Edge][0].Z : profiles[x.Edge][profiles[x.Edge].Count - 1].Z);
-            foreach (var (edge, atStart) in ends)
-                profiles[edge] = MepRoutePlanner.SetEnd(profiles[edge], atStart, z);
-        }
     }
 
     private static MEPCurve? Make(Document doc, Setup setup, Level level, XYZ a, XYZ b, MepSize size)

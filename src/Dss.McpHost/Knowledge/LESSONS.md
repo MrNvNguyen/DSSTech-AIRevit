@@ -69,9 +69,27 @@ Mã chủ đề trong ngoặc vuông dùng cho `get_lessons {"topic": "..."}`.
   cao độ với máng bên cạnh ở góc cua; khi các cặp nhãn mâu thuẫn, chọn cách gán giữ cao độ liền mạch qua các nút nối,
   theo số đông các cặp nhãn.
 - **Busway** vẽ 1 nét (polyline có global width, ví dụ 150), không vẽ tiết diện: tool riêng (Điện ▸ Busway), đọc single
-  line theo tim nét (chỉ nét hở ngoài block; có nét có bề rộng thì chỉ lấy các nét đó), kích thước do người dùng nhập cho
-  mọi đoạn, Service Type BW. Nhãn "Busway … H=3300" chỉ gán cho busway; máng, ống gió, ống nước không nhận nhãn busway,
-  busway không nhận nhãn máng / ống gió. Tool máng không đổi.
+  line theo tim nét (chỉ nét hở ngoài block), kích thước do người dùng nhập cho mọi đoạn, Service Type BW. Nhãn
+  "Busway … H=3300" chỉ gán cho busway; máng, ống gió, ống nước không nhận nhãn busway, busway không nhận nhãn máng /
+  ống gió. Tool máng không đổi.
+- **Lỗi:** busway thiếu đoạn so với CAD. **Vì sao:** khi layer có nét có bề rộng, tool chỉ lấy các nét đó, nên busway vẽ
+  bề rộng 0 bị bỏ. **Quy tắc:** nét busway = nét hở ngoài block, có bề rộng **hoặc** dài ≥ 1 m; nét ngắn chỉ lấy khi chạm
+  đầu một tuyến (đoạn chuyển hướng). Log ghi "busway strokes: … wide, kept …" để kiểm tra.
+- **Lỗi:** dư đoạn đứng 1200 (2650→3150) nằm lơ lửng giữa các thang. **Vì sao:** thang 1200 H3100 kết thúc trên máng
+  200 H2600; tool hạ thang xuống nút để nối tê, nhưng Revit không tê được nhánh rộng hơn ống chính ("failed to insert
+  tee") nên đoạn đứng và cút bị bỏ lại. **Quy tắc:** ở nút khác cao độ, tuyến cao hơn chỉ hạ xuống khi không rộng hơn
+  tuyến thấp nhất tại nút; rộng hơn thì giữ cao độ của nó (đi trên, không nối).
+- **Lỗi:** busway thiếu đoạn chạy dưới thang cáp. **Vì sao:** trên DWG không vẽ busway ở đó (block thang có wipeout che,
+  busway dừng ở mép thang rồi vẽ tiếp bên kia); nét anh thấy trong khung là nét thang. **Quy tắc:** busway: hai đầu hở
+  thẳng hàng (lệch ≤ 100 mm), quay vào nhau, cách ≤ 6 m thì nối thẳng (log "bridged N gaps"). Kiểm tra DWG gốc bằng
+  ACadSharp (toạ độ DWG = toạ độ dump + độ dời, so qua polyline có bề rộng).
+- **Lỗi:** busway vẫn thiếu dù đã nối khe (log "bridged 2 gaps"). **Vì sao:** busway vẽ trên tim thang / máng đã dựng;
+  bước "bỏ đoạn đã có" coi mọi Cable Tray song song, lệch < 30 mm, chênh < 1,5 m là trùng nên bỏ busway. **Quy tắc:**
+  busway chỉ so với Cable Tray cùng Service Type (BW); máng không coi busway (BW) là máng đã có.
+- **Lỗi:** busway bị chẻ thành nhiều khúc ngắn, đoạn đứng thừa, chỗ hở (lỗi phụ kiện ở cặp cao độ lệch 50 mm như
+  3295/3345). **Vì sao:** busway đi chung nhánh cao độ với ống nước: uốn né từng dầm, mỗi đoạn một profile; đoạn có nhãn H
+  và đoạn không nhãn khác cao độ. **Quy tắc:** mỗi mạng busway **một cao độ**, không uốn né dầm: cao độ ghi trên CAD
+  (giá trị ghi nhiều nhất trong mạng) cho cả mạng; không ghi thì cao độ nhập, dầm/sàn thấp hơn thì hạ cả mạng.
 - Service Type của máng ghi mã hệ (BW, MV, LV, ELV, FA). Không áp dụng bộ lọc thiết bị (block) cho máng: cút vẽ bằng block.
 
 ## [mep-duct] Ống gió (vẽ 2 nét)
@@ -131,4 +149,6 @@ Mã chủ đề trong ngoặc vuông dùng cho `get_lessons {"topic": "..."}`.
 - Người dùng gửi bằng nút **Góp ý / Feedback** (zip có log, ảnh, file dump). Zip được gửi thẳng lên web app Apps
   Script (`tools/feedback-apps-script`): mail về DSSTech và lưu trong thư mục Drive "DSSTech-GopY"; không gửi được thì
   zip nằm trên Desktop người dùng. Dòng "Tool:" trong gop-y.txt là tên nút trên ribbon (Panel ▸ Tool).
+- Góp ý nằm trong `G:\My Drive\DSSTech-GopY` (Google Drive for desktop trên máy anh Nguyên): giải nén bằng Python
+  `zipfile` (Expand-Archive của PowerShell 5.1 lỗi với tên file tiếng Việt trong thư mục con).
 - Không gửi thẳng bằng SMTP: mật khẩu mail nhúng trong DLL thì ai cũng lấy ra được.
