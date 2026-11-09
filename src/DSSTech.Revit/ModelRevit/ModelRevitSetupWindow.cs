@@ -386,7 +386,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         ModelRevitPartKind.StructuralWall => "Sau khi bấm dựng: pick một nét trên layer vách. Bề dày đo từ hai nét song song.",
         ModelRevitPartKind.ArchitecturalWall => "Sau khi bấm dựng: pick một nét trên layer tường. Cắt tại cột/vách và hạ đỉnh: nút «Khớp kết cấu».",
         ModelRevitPartKind.Beam => "Sau khi bấm dựng: pick một nét trên layer dầm. Mark và tiết diện đọc từ chữ CAD (D1Y19-40x60).",
-        ModelRevitPartKind.PileCap => "Sau khi bấm dựng: pick một nét trên layer đài. Type theo Type Mark trùng tên đài trên CAD (Đ4, Đ3).",
+        ModelRevitPartKind.PileCap => "Sau khi bấm dựng: pick một nét trên layer đài / móng đơn. Type theo Type Mark trùng tên trên CAD (Đ4, ĐA-1, M1); không có tên thì dùng type chọn ở đây.",
         ModelRevitPartKind.IsolatedFoundation => "Sau khi bấm dựng: pick một nét trên layer móng. Tiết diện lấy từ hình CAD.",
         ModelRevitPartKind.StripFoundation => "Sau khi bấm dựng: pick một nét trên layer móng băng.",
         ModelRevitPartKind.RaftFoundation => "Sau khi bấm dựng: pick một nét trên layer móng bè (đường bao kín).",
@@ -481,7 +481,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
             ModelRevitPartKind.CableTray => "Loại máng",
             ModelRevitPartKind.Beam => "Family / type",
             ModelRevitPartKind.Pile => "Family / type cọc",
-            ModelRevitPartKind.PileCap => "Family / type đài (lọc; Type Mark = tên CAD)",
+            ModelRevitPartKind.PileCap => "Family / type đài, móng đơn (Type Mark = tên CAD)",
             ModelRevitPartKind.IsolatedFoundation => "Family / type móng đơn",
             ModelRevitPartKind.StripFoundation => "Family / type móng băng",
             ModelRevitPartKind.RaftFoundation => "Family / type móng bè",
@@ -526,8 +526,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
                 ModelRevitPartKind.Floor => _catalog.FloorTypes,
                 ModelRevitPartKind.Pile => FoundationCatalogFilter.FilterPileTypes(
                     _catalog.FoundationTypes, SelectedPileSubtype()),
-                ModelRevitPartKind.PileCap => FoundationCatalogFilter.FilterFoundationTypes(
-                    _catalog.FoundationTypes, FoundationCatalogFilter.KindPileCap),
+                ModelRevitPartKind.PileCap => FoundationCatalogFilter.FilterCapsAndFootings(_catalog.FoundationTypes),
                 ModelRevitPartKind.IsolatedFoundation => FoundationCatalogFilter.FilterFoundationTypes(
                     _catalog.FoundationTypes, FoundationCatalogFilter.KindIsolated),
                 ModelRevitPartKind.StripFoundation => FoundationCatalogFilter.FilterFoundationTypes(
@@ -776,7 +775,7 @@ internal sealed class ModelRevitSetupWindow : DssDialog
         ModelRevitPartKind.Beam => "Dựng dầm",
         ModelRevitPartKind.Floor => "Dựng sàn",
         ModelRevitPartKind.IsolatedFoundation => "Dựng móng đơn",
-        ModelRevitPartKind.PileCap => "Dựng đài cọc",
+        ModelRevitPartKind.PileCap => "Dựng đài / móng đơn",
         ModelRevitPartKind.RaftFoundation => "Dựng móng bè",
         ModelRevitPartKind.Pile => "Dựng cọc",
         ModelRevitPartKind.StripFoundation => "Dựng móng băng",

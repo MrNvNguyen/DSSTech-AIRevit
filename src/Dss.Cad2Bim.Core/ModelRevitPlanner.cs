@@ -409,6 +409,42 @@ public static class ModelRevitPlanner
         depth = Math.Max(1, (int)Math.Round(footprint.DepthMm));
     }
 
+    /// <summary>
+    /// The other layers drawn at a picked point (strokes within <paramref name="reachMm"/>), nearest first: where a
+    /// pick lands on a Defpoints stroke lying over the footing's own outline, the outline's layer is the one meant.
+    /// </summary>
+    public static IReadOnlyList<string> LayersNear(CadGeometry geom, double x, double y, double reachMm, string except)
+    {
+        static double Segment(double px, double py, double x0, double y0, double x1, double y1)
+        {
+            double dx = x1 - x0, dy = y1 - y0, len2 = dx * dx + dy * dy;
+            var t = len2 <= 0 ? 0 : Math.Max(0, Math.Min(1, ((px - x0) * dx + (py - y0) * dy) / len2));
+            double ex = x0 + t * dx - px, ey = y0 + t * dy - py;
+            return Math.Sqrt(ex * ex + ey * ey);
+        }
+
+        var best = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entity in geom.Entities)
+        {
+            if (string.Equals(entity.Layer, except, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(entity.Layer, "Defpoints", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var d = entity switch
+            {
+                CadLine l => Segment(x, y, l.X0, l.Y0, l.X1, l.Y1),
+                CadCircle c => Math.Abs(Math.Sqrt((x - c.Cx) * (x - c.Cx) + (y - c.Cy) * (y - c.Cy)) - c.Radius),
+                CadPolyline pl when pl.Points.Count >= 2 => Enumerable.Range(0, pl.Points.Count - (pl.Closed ? 0 : 1))
+                    .Min(i => Segment(x, y, pl.Points[i].X, pl.Points[i].Y,
+                        pl.Points[(i + 1) % pl.Points.Count].X, pl.Points[(i + 1) % pl.Points.Count].Y)),
+                _ => double.MaxValue
+            };
+            if (d <= reachMm && (!best.TryGetValue(entity.Layer, out var seen) || d < seen))
+                best[entity.Layer] = d;
+        }
+
+        return best.OrderBy(kv => kv.Value).Select(kv => kv.Key).ToList();
+    }
+
     private static string NearestMark(CadGeometry geom, double x, double y)
     {
         string best = "";

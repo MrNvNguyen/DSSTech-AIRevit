@@ -134,9 +134,12 @@ public static class MepRoutePlanner
     /// layer name, else the size of the run it continues, else <paramref name="fallback"/>.
     /// <paramref name="doubleLine"/> (reading a whole link): true, ducts drawn with both sides (every layer read as
     /// pairs of sides); false, single lines only (pipes, trays); null, each layer read as it looks.
+    /// <paramref name="busway"/>: single-line busways, which take only the heights written for busways (and notes
+    /// naming no kind of run), never a tray's or a duct's.
     /// </summary>
     public static MepNetwork Build(
-        IEnumerable<CadEntity> entities, string? pickedLayer, MepSize fallback, IEnumerable<CadText>? texts = null, bool? doubleLine = null)
+        IEnumerable<CadEntity> entities, string? pickedLayer, MepSize fallback, IEnumerable<CadText>? texts = null, bool? doubleLine = null,
+        bool busway = false)
     {
         var family = pickedLayer is null ? null : Family(pickedLayer);
         var flexSkipped = 0;
@@ -476,31 +479,43 @@ public static class MepRoutePlanner
         if (axisStart != int.MaxValue || singleLine)
             MergeStraight(net, singleLine);
         Falls(net, textList);
-        Elevations(net, textList);
+        Elevations(net, textList, doubleLine, busway);
         net.OpeningsSkipped = DropOpenings(net);
         if (ladders)
             net.LadderPiecesSkipped = DropOpenings(net, LadderPieceMaxMm);
+        if (doubleLine is null)
+            JoinCrossings(net);
         net.FlexSkipped = flexSkipped;
         net.Bends.AddRange(bends);
         return net;
     }
 
-    /// <summary>H=2800, H = 2600 mm, BOT 2600, H=+2.80 (m); not a pump's head (H=15M).</summary>
+    /// <summary>
+    /// H=2800, H = 2600 mm, BOT 2600, H=+2.80 (m); not a pump's head (H=15M). A bare "H 200" is not one: H needs "=",
+    /// ":" or "+" (BỆ MÁY H 200 is a plinth's height). FFL=+3.0M / FFL=+3M: a level above the floor, so M is metres.
+    /// </summary>
     private static readonly Regex ElevationLabel = new(
-        @"(?<![\p{L}\d])(?:H|BOT|BOD)\s*[=:]?\s*\+?(\d+(?:[.,]\d+)?)\s*(MM|M)?(?![\p{L}\d])",
+        @"(?<![\p{L}\d])(?:H\s*(?:[=:]\s*\+?|\+)|(?:BOT|BOD)\s*[=:]?\s*\+?|(FFL)\s*(?:[=:]\s*\+?|\+))\s*(\d+(?:[.,]\d+)?)\s*(MM|M)?(?![\p{L}\d])",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>Heights of building parts, not of a run: plinths, pads, doors, tanks, pits.</summary>
+    private static readonly Regex NotRunHeight = new(
+        @"(?<!\p{L})(?:BỆ|BE MAY|ĐẾ|PAD|PLINTH|CỬA|BỂ|HỐ|SILL)(?!\p{L})",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     /// <summary>The elevation a note gives (mm): H=2800 → 2800, H=+2.80 → 2800; false for anything else.</summary>
     public static bool TryParseElevation(string? text, out double mm)
     {
         mm = 0;
-        foreach (Match m in ElevationLabel.Matches(text ?? ""))
+        if (text is null || NotRunHeight.IsMatch(text))
+            return false;
+        foreach (Match m in ElevationLabel.Matches(text))
         {
-            var raw = m.Groups[1].Value.Replace(',', '.');
+            var raw = m.Groups[2].Value.Replace(',', '.');
             if (!double.TryParse(raw, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v))
                 continue;
-            var unit = m.Groups[2].Value.ToUpperInvariant();
-            var metres = raw.Contains(".") && v < 30;
+            var unit = m.Groups[3].Value.ToUpperInvariant();
+            var metres = (raw.Contains(".") || m.Groups[1].Success && unit == "M") && v < 30;
             // H=15M, H=100M: a pump's head, not a height.
             if (unit == "M" && !metres)
                 continue;
@@ -512,6 +527,42 @@ public static class MepRoutePlanner
         }
 
         return false;
+    }
+
+    private static readonly Regex TrayWords = new(
+        @"THANG\s*CÁP|MÁNG\s*CÁP|THANG\s*CAP|MANG\s*CAP|TRUNKING|CABLE\s*(?:TRAY|LADDER)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex BuswayWords = new(
+        @"BUS\s*WAY|BUSDUCT|BUS\s*DUCT|THANH\s*CÁI|THANH\s*CAI|THANH\s*DẪN|THANH\s*DAN",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    private static readonly Regex DuctWords = new(
+        @"ỐNG\s*GIÓ|ONG\s*GIO|\bDUCT\b",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>
+    /// Whether a note may speak of runs read as <paramref name="doubleLine"/> (true duct, null tray, false pipe):
+    /// a note naming trays is not a duct's or a pipe's, one naming ducts is not a tray's or a pipe's. A note naming
+    /// busways is only a busway's (<paramref name="busway"/>), and a busway takes no tray's or duct's note.
+    /// </summary>
+    public static bool OfKind(string text, bool? doubleLine, bool busway = false)
+    {
+        if (BuswayWords.IsMatch(text))
+            return busway;
+        if (busway)
+            return !TrayWords.IsMatch(text) && !DuctWords.IsMatch(text);
+        if (TrayWords.IsMatch(text))
+            return doubleLine is null;
+        if (DuctWords.IsMatch(text))
+            return doubleLine == true;
+        return true;
+    }
+
+    /// <summary>A run of the size a note names: its width (or diameter) within 10 % or 20 mm, as labelled or as drawn.</summary>
+    private static bool Fits(MepSize said, MepEdge e)
+    {
+        var want = said.IsRound ? said.DiameterMm : said.WidthMm;
+        bool Near(double have) => have > 0 && Math.Abs(have - want) <= Math.Max(20, want * 0.1);
+        return Near(e.Size.IsRound ? e.Size.DiameterMm : e.Size.WidthMm) || Near(e.DrawnWidthMm);
     }
 
     /// <summary>A note an MEP run may take a size, a fall or an elevation from.</summary>
@@ -529,19 +580,30 @@ public static class MepRoutePlanner
     /// (THANG CÁP 1200X100, H=3100 over THANG CÁP 1200X100, H=2800 by two trays) go in order: the note nearest the
     /// top (or left) to the run nearest the top (or left), sizes with them. Runs with none carry on the elevation of
     /// the run before them, through bends and joints and straight on through tees, then into branches.
+    /// A note naming another kind of run (THANG CÁP by a duct, from an xref) or another size is not this run's.
     /// </summary>
-    private static void Elevations(MepNetwork net, List<CadText> texts)
+    private static void Elevations(MepNetwork net, List<CadText> texts, bool? doubleLine, bool busway = false)
     {
         var notes = new List<(double X, double Y, double Mm, CadText Text)>();
         foreach (var t in texts)
         {
-            if (TryParseElevation(t.Value, out var mm))
+            if (TryParseElevation(t.Value, out var mm) && OfKind(t.Value, doubleLine, busway))
                 notes.Add((t.CenterX ?? t.X, t.CenterY ?? t.Y, mm, t));
         }
 
         if (notes.Count == 0)
             return;
-        var edges = net.Edges.Where(e => !e.IsTransition && Length(net, e) >= 1).ToList();
+        var all = net.Edges.Where(e => !e.IsTransition && Length(net, e) >= 1).ToList();
+        if (all.Count == 0)
+            return;
+        // Runs of the size a note names (any run when it names none).
+        List<MepEdge> For(IEnumerable<(double X, double Y, double Mm, CadText Text)> said)
+        {
+            var sizes = said.Select(n => TryParseSize(n.Text.Value, out var s) ? s : (MepSize?)null).ToList();
+            return sizes.Any(s => s is null) ? all : all.Where(e => sizes.Any(s => Fits(s!.Value, e))).ToList();
+        }
+
+        var edges = all;
         if (edges.Count == 0)
             return;
         // Distance from a note to a run, past its side and its ends.
@@ -558,13 +620,26 @@ public static class MepRoutePlanner
 
         void Nearest((double X, double Y, double Mm, CadText Text) n)
         {
-            var only = edges.Select(e => (E: e, D: Gap(e, n.X, n.Y))).OrderBy(x => x.D).First();
-            if (only.D <= LabelReachMm)
+            var only = For(new[] { n }).Select(e => (E: e, D: Gap(e, n.X, n.Y))).OrderBy(x => x.D).FirstOrDefault();
+            if (only.E is not null && only.D <= LabelReachMm)
                 only.E.ElevationMm = n.Mm;
         }
 
+        void Label(MepEdge e, string text, double mm)
+        {
+            e.ElevationMm = mm;
+            if (TryParseSize(text, out var size))
+            {
+                e.Size = size;
+                e.SizeFrom = "text";
+            }
+        }
+
+        // Two notes by two runs at different heights: which went where, to check against the runs' corners.
+        var pairs = new List<(MepEdge First, MepEdge Second, string TextA, double MmA, string TextB, double MmB)>();
+
         // Stacks: notes one over the other.
-        var stackOf = Enumerable.Range(0, notes.Count).ToArray();
+        var stackOf =Enumerable.Range(0, notes.Count).ToArray();
         int Root(int i) => stackOf[i] == i ? i : stackOf[i] = Root(stackOf[i]);
         for (var i = 0; i < notes.Count; i++)
         for (var j = i + 1; j < notes.Count; j++)
@@ -583,7 +658,7 @@ public static class MepRoutePlanner
 
             double cx = stack.Average(n => n.X), cy = stack.Average(n => n.Y);
             // The runs beside the stack: in reach of it, the farther ones a run's width or so beyond the nearest.
-            var nearest = edges.Select(e => (E: e, D: Gap(e, cx, cy))).OrderBy(x => x.D).ToList();
+            var nearest = For(stack).Select(e => (E: e, D: Gap(e, cx, cy))).OrderBy(x => x.D).ToList();
             if (nearest.Count == 0 || nearest[0].D > LabelReachMm + StackMm)
                 continue;
             var limit = nearest[0].D + (stack.Count - 1) * StackRunMm;
@@ -626,16 +701,12 @@ public static class MepRoutePlanner
             var ordered = runs.OrderByDescending(r => r.At).ToList();
             var labels = stack.OrderByDescending(n => Across(n.X, n.Y)).ToList();
             for (var k = 0; k < labels.Count; k++)
-            {
-                var e = ordered[k].E;
-                e.ElevationMm = labels[k].Mm;
-                if (TryParseSize(labels[k].Text.Value, out var size))
-                {
-                    e.Size = size;
-                    e.SizeFrom = "text";
-                }
-            }
+                Label(ordered[k].E, labels[k].Text.Value, labels[k].Mm);
+            if (labels.Count == 2 && Math.Abs(labels[0].Mm - labels[1].Mm) > 1)
+                pairs.Add((ordered[0].E, ordered[1].E, labels[0].Text.Value, labels[0].Mm, labels[1].Text.Value, labels[1].Mm));
         }
+
+        KeepPairsContinuous(net, pairs, Label);
 
         var adjacent = Adjacency(net);
         foreach (var anyWay in new[] { false, true })
@@ -662,6 +733,172 @@ public static class MepRoutePlanner
 
         foreach (var t in net.Edges.Where(x => x.IsTransition))
             t.ElevationMm = adjacent[t.A].Concat(adjacent[t.B]).FirstOrDefault(x => x != t && x.ElevationMm is not null)?.ElevationMm;
+    }
+
+    /// <summary>
+    /// Pairs of runs side by side at two heights, labelled by stacked notes, keep their heights round corners: a tray
+    /// does not swap height with its neighbour at a bend. Where two pairs' note order says otherwise (2800 on the inner
+    /// tray along one stretch, on the outer one round the corner), the order that keeps every run continuous through
+    /// its bends and joints wins, the one most pairs read as written.
+    /// </summary>
+    private static void KeepPairsContinuous(MepNetwork net,
+        List<(MepEdge First, MepEdge Second, string TextA, double MmA, string TextB, double MmB)> pairs,
+        Action<MepEdge, string, double> label)
+    {
+        if (pairs.Count < 2 || pairs.Count > 16)
+            return;
+        // Runs one after the other through plain joints (a node of two runs) are one run.
+        var degree = new int[net.Nodes.Count];
+        foreach (var e in net.Edges)
+        {
+            degree[e.A]++;
+            degree[e.B]++;
+        }
+
+        var root = Enumerable.Range(0, net.Edges.Count).ToArray();
+        int Find(int i) => root[i] == i ? i : root[i] = Find(root[i]);
+        var firstAt = new Dictionary<int, int>();
+        for (var i = 0; i < net.Edges.Count; i++)
+        {
+            foreach (var node in new[] { net.Edges[i].A, net.Edges[i].B })
+            {
+                if (degree[node] != 2 || net.Edges[i].IsTransition)
+                    continue;
+                if (firstAt.TryGetValue(node, out var other))
+                    root[Find(i)] = Find(other);
+                else
+                    firstAt[node] = i;
+            }
+        }
+
+        var index = net.Edges.Select((e, i) => (e, i)).ToDictionary(x => x.e, x => x.i);
+        int Chain(MepEdge e) => Find(index[e]);
+        // Height of each run of pair p, swapped or not.
+        double Height(int p, bool second, bool swapped) =>
+            second != swapped ? pairs[p].MmB : pairs[p].MmA;
+        var best = -1;
+        var bestSwaps = int.MaxValue;
+        for (var mask = 0; mask < 1 << pairs.Count; mask++)
+        {
+            var at = new Dictionary<int, double>();
+            var ok = true;
+            for (var p = 0; p < pairs.Count && ok; p++)
+            {
+                var swapped = (mask >> p & 1) == 1;
+                foreach (var second in new[] { false, true })
+                {
+                    var chain = Chain(second ? pairs[p].Second : pairs[p].First);
+                    var h = Height(p, second, swapped);
+                    if (at.TryGetValue(chain, out var seen) && Math.Abs(seen - h) > 1)
+                        ok = false;
+                    at[chain] = h;
+                }
+            }
+
+            var swaps = Enumerable.Range(0, pairs.Count).Count(p => (mask >> p & 1) == 1);
+            if (ok && swaps < bestSwaps)
+                (best, bestSwaps) = (mask, swaps);
+        }
+
+        // No order keeps them all continuous, or the notes already do: as written. A tie (half the pairs swapped)
+        // can't be told either way: as written too.
+        if (best <= 0 || bestSwaps * 2 >= pairs.Count)
+            return;
+        for (var p = 0; p < pairs.Count; p++)
+        {
+            if ((best >> p & 1) == 0)
+                continue;
+            label(pairs[p].First, pairs[p].TextB, pairs[p].MmB);
+            label(pairs[p].Second, pairs[p].TextA, pairs[p].MmA);
+        }
+    }
+
+    /// <summary>
+    /// Trays crossing on plan at one height (or one with none written) meet there: the fitting drawn at the crossing
+    /// is dropped with the other short strokes, so the two runs only cross. A free end just past the other tray (by
+    /// up to that tray's width) stops on it as a tee; runs carrying on past each other are cut into a cross. Trays at
+    /// different heights pass one over the other and stay apart.
+    /// </summary>
+    private static void JoinCrossings(MepNetwork net)
+    {
+        for (var guard = 0; guard < 1000; guard++)
+        {
+            var found = false;
+            var degree = new int[net.Nodes.Count];
+            foreach (var e in net.Edges)
+            {
+                degree[e.A]++;
+                degree[e.B]++;
+            }
+
+            for (var i = 0; i < net.Edges.Count && !found; i++)
+            for (var j = i + 1; j < net.Edges.Count && !found; j++)
+            {
+                MepEdge e = net.Edges[i], f = net.Edges[j];
+                if (e.IsTransition || f.IsTransition || e.A == f.A || e.A == f.B || e.B == f.A || e.B == f.B)
+                    continue;
+                if (e.ElevationMm is double he && f.ElevationMm is double hf && Math.Abs(he - hf) > 1)
+                    continue;
+                if (!Crossing(net, e, f, out var x, out var y))
+                    continue;
+                found = true;
+                var at = net.Nodes.Count;
+                net.Nodes.Add((x, y));
+                Array.Resize(ref degree, net.Nodes.Count);
+                Meet(e, f);
+                Meet(f, e);
+                e.ElevationMm ??= f.ElevationMm;
+                f.ElevationMm ??= e.ElevationMm;
+
+                void Meet(MepEdge run, MepEdge across)
+                {
+                    var reach = Math.Max(300, across.DrawnWidthMm);
+                    foreach (var atStart in new[] { true, false })
+                    {
+                        var end = atStart ? run.A : run.B;
+                        var (ex, ey) = net.Nodes[end];
+                        if (degree[end] != 1 || Math.Sqrt(Sq(ex - x) + Sq(ey - y)) > reach)
+                            continue;
+                        if (atStart)
+                            run.A = at;
+                        else
+                            run.B = at;
+                        return;
+                    }
+
+                    net.Edges.Add(new MepEdge
+                    {
+                        A = at, B = run.B, Size = run.Size, Layer = run.Layer, SizeFrom = run.SizeFrom,
+                        DrawnWidthMm = run.DrawnWidthMm, SlopePercent = run.SlopePercent, ElevationMm = run.ElevationMm
+                    });
+                    run.B = at;
+                }
+            }
+
+            if (!found)
+                return;
+        }
+    }
+
+    /// <summary>Where two runs cross, more than 1 mm inside each.</summary>
+    private static bool Crossing(MepNetwork net, MepEdge e, MepEdge f, out double x, out double y)
+    {
+        x = y = 0;
+        var (x1, y1) = net.Nodes[e.A];
+        var (x2, y2) = net.Nodes[e.B];
+        var (x3, y3) = net.Nodes[f.A];
+        var (x4, y4) = net.Nodes[f.B];
+        var d = (x2 - x1) * (y4 - y3) - (y2 - y1) * (x4 - x3);
+        double l1 = Math.Sqrt(Sq(x2 - x1) + Sq(y2 - y1)), l2 = Math.Sqrt(Sq(x4 - x3) + Sq(y4 - y3));
+        if (l1 < 1 || l2 < 1 || Math.Abs(d) < 1e-6 * l1 * l2)
+            return false;
+        var t = ((x3 - x1) * (y4 - y3) - (y3 - y1) * (x4 - x3)) / d;
+        var u = ((x3 - x1) * (y2 - y1) - (y3 - y1) * (x2 - x1)) / d;
+        if (t * l1 <= 1 || (1 - t) * l1 <= 1 || u * l2 <= 1 || (1 - u) * l2 <= 1)
+            return false;
+        x = x1 + t * (x2 - x1);
+        y = y1 + t * (y2 - y1);
+        return true;
     }
 
     private static readonly Regex FallLabel = new(@"\bi\s*=\s*(\d+(?:[.,]\d+)?)\s*%", RegexOptions.IgnoreCase | RegexOptions.Compiled);

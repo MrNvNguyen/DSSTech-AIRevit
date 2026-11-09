@@ -51,6 +51,8 @@ public sealed class CadPolyline : CadEntity
     /// polyline stores its round parts; null when read without them.
     /// </summary>
     public List<double>? Bulges { get; set; }
+    /// <summary>Constant (global) width the polyline is drawn with (mm); 0 for a plain stroke. A busway is one wide stroke.</summary>
+    public double WidthMm { get; set; }
     public List<CadPoint2> Points { get; } = new List<CadPoint2>();
 }
 

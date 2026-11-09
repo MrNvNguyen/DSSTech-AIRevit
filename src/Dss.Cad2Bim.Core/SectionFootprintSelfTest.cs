@@ -255,7 +255,12 @@ public static class SectionFootprintSelfTest
 
         if (!CadMark.IsLabel("Đ4") || !CadMark.IsLabel("Đ2F")
             || !CadMark.LooksLikePileCapId("Đ4A") || !CadMark.LooksLikePileCapId("đ2F")
-            || CadMark.LooksLikePileCapId("GMY23(50X100)") || CadMark.LooksLikePileCapId("B3"))
+            || CadMark.LooksLikePileCapId("GMY23(50X100)") || CadMark.LooksLikePileCapId("B3")
+            // Footings and caps named by letter: ĐA-1, M1, MĐ-2, F3; not a beam (D1) or a column (C1).
+            || !CadMark.LooksLikePileCapId("ĐA-1") || !CadMark.LooksLikePileCapId("ĐC2") || !CadMark.LooksLikePileCapId("M1")
+            || !CadMark.LooksLikePileCapId("MĐ-2") || !CadMark.LooksLikePileCapId("F3")
+            || CadMark.LooksLikePileCapId("D1") || CadMark.LooksLikePileCapId("C1")
+            || !CadMark.TryExtractPileCapId("ĐA-1-1200x1200x800", out var footingId) || footingId != "ĐA-1")
         {
             message = "type mark: CadMark must accept Đ* pile-cap ids and reject beam/grid labels";
             return false;
@@ -3498,6 +3503,14 @@ public static class SectionFootprintSelfTest
             !MepRoutePlanner.TryParseElevation("BOT 2600", out var h3) || h3 != 2600 ||
             MepRoutePlanner.TryParseElevation("Q=4M3/H, H=15M, N=2KW", out _) ||
             MepRoutePlanner.TryParseElevation("2 LV, 1DP. Q=50M3/H, H=100M, N=22KW", out _) ||
+            // A plinth's height on the architectural xref, not a run's elevation.
+            MepRoutePlanner.TryParseElevation("BỆ MÁY H 200", out _) || MepRoutePlanner.TryParseElevation("BỆ MÁY H=200", out _) ||
+            MepRoutePlanner.TryParseElevation("H 2800", out _) || MepRoutePlanner.IsNote("BỆ MÁY H 200") ||
+            !MepRoutePlanner.TryParseElevation("H = 2600 mm", out var h4) || h4 != 2600 ||
+            // FFL=+3.0M written beside the trays: 3000 above the floor; a floor's own level (FFL +16.150) is not a run's.
+            !MepRoutePlanner.TryParseElevation("FFL=+3.0M", out var h5) || Math.Abs(h5 - 3000) > 0.01 ||
+            !MepRoutePlanner.TryParseElevation("FFL = +3M", out var h6) || Math.Abs(h6 - 3000) > 0.01 ||
+            MepRoutePlanner.TryParseElevation("FFL+16.150", out _) || !MepRoutePlanner.IsNote("FFL=+3.0M") ||
             !MepRoutePlanner.IsNote("THANG CÁP 1200X100, H=2800") || MepRoutePlanner.IsNote("CẤP NGUỒN TỪ BĐ-H3"))
         {
             message = "mep elevation notes";
@@ -3536,6 +3549,87 @@ public static class SectionFootprintSelfTest
             {
                 message = $"ladder trays: {trays.Edges.Count} edges, " +
                           string.Join("; ", trays.Edges.Select(e => $"y{trays.Nodes[e.A].Y:0} w{e.DrawnWidthMm:0} {e.Size} H{e.ElevationMm}"));
+                return false;
+            }
+        }
+
+        // A pick on a Defpoints stroke lying over a footing's outline: the outline's layer is the one drawn there.
+        {
+            var at = new CadGeometry();
+            at.Entities.Add(new CadLine { Layer = "Defpoints", X0 = -500, Y0 = 0, X1 = 500, Y1 = 0 });
+            var outline = new CadPolyline { Layer = "S-FOUND", Closed = true };
+            outline.Points.AddRange(new[] { new CadPoint2(-400, 10), new CadPoint2(400, 10), new CadPoint2(400, 810), new CadPoint2(-400, 810) });
+            at.Entities.Add(outline);
+            at.Entities.Add(new CadLine { Layer = "DIM", X0 = -2000, Y0 = 3000, X1 = 2000, Y1 = 3000 });
+            var near = ModelRevitPlanner.LayersNear(at, 0, 0, 300, "Defpoints");
+            if (near.Count != 1 || near[0] != "S-FOUND")
+            {
+                message = $"layers near a pick: {string.Join(", ", near)}";
+                return false;
+            }
+        }
+
+        // Trays crossing on plan (two lines each, the cross fitting not drawn): at one height they meet in a node of
+        // four runs; at different heights they pass. A tray's free end just past another one stops on it (a tee).
+        {
+            List<CadEntity> Along(double x0, double y0, double x1, double y1) => new()
+            {
+                new CadLine { Layer = "TRAY", X0 = x0, Y0 = y0, X1 = x1, Y1 = y0 },
+                new CadLine { Layer = "TRAY", X0 = x0, Y0 = y1, X1 = x1, Y1 = y1 }
+            };
+            List<CadEntity> Upright(double x0, double y0, double x1, double y1) => new()
+            {
+                new CadLine { Layer = "TRAY", X0 = x0, Y0 = y0, X1 = x0, Y1 = y1 },
+                new CadLine { Layer = "TRAY", X0 = x1, Y0 = y0, X1 = x1, Y1 = y1 }
+            };
+            int Busiest(MepNetwork n) => n.Edges.SelectMany(e => new[] { e.A, e.B }).GroupBy(x => x).Max(g => g.Count());
+            MepNetwork Trays(List<CadEntity> drawn, params CadText[] notes) =>
+                MepRoutePlanner.Build(drawn, null, new MepSize(300, 100, 0), notes.ToList(), null);
+
+            var cross = Trays(Along(0, 0, 6000, 400).Concat(Upright(2800, -3000, 3200, 3000)).ToList());
+            var apart = Trays(Along(0, 0, 6000, 400).Concat(Upright(2800, -3000, 3200, 3000)).ToList(),
+                new CadText { Layer = "NOTE", Value = "H=2600", X = 1000, Y = 700 },
+                new CadText { Layer = "NOTE", Value = "H=3000", X = 3500, Y = -2000 });
+            var tee = Trays(Along(0, 0, 6000, 400).Concat(Upright(2800, -150, 3200, 3000)).ToList());
+            if (Busiest(cross) != 4 || Busiest(apart) != 1 || Busiest(tee) != 3)
+            {
+                message = $"tray crossings: cross {Busiest(cross)} ({cross.Edges.Count} edges), apart {Busiest(apart)}, tee {Busiest(tee)} ({tee.Edges.Count} edges)";
+                return false;
+            }
+        }
+
+        // A 600 duct (two lines) by notes that are not its own: a tray's label from an xref, a plinth's height, another
+        // size. None gives it an elevation; its own label does.
+        {
+            List<CadEntity> Duct() => new()
+            {
+                new CadLine { Layer = "DUCT", X0 = 0, Y0 = 0, X1 = 6000, Y1 = 0 },
+                new CadLine { Layer = "DUCT", X0 = 0, Y0 = 600, X1 = 6000, Y1 = 600 }
+            };
+            double? Elevation(string note)
+            {
+                var net = MepRoutePlanner.Build(Duct(), null, new MepSize(600, 250, 0),
+                    new List<CadText> { new() { Layer = "NOTE", Value = note, X = 3000, Y = 900 } }, true);
+                return net.Edges.Count == 1 ? net.Edges[0].ElevationMm : -1;
+            }
+
+            // Busway notes go to busways only; a busway takes no tray's note.
+            var busway = new List<CadEntity> { new CadPolyline { Layer = "E-equi", WidthMm = 150, Points = { new CadPoint2(0, 0), new CadPoint2(6000, 0), new CadPoint2(6000, 3000) } } };
+            double? BuswayAt(string note) => MepRoutePlanner.Build(busway, null, new MepSize(200, 100, 0),
+                new List<CadText> { new() { Layer = "NOTE", Value = note, X = 3000, Y = -500 } }, false, busway: true).Edges.FirstOrDefault()?.ElevationMm;
+            if (BuswayAt("Busway CU - H=3300") != 3300 || BuswayAt("THANG CÁP 400X100, H=2600") is not null ||
+                MepRoutePlanner.OfKind("Busway CU - H=3300", null) || MepRoutePlanner.OfKind("Busway CU - H=3300", false))
+            {
+                message = $"busway notes: own {BuswayAt("Busway CU - H=3300")}, tray's {BuswayAt("THANG CÁP 400X100, H=2600")}";
+                return false;
+            }
+
+            var foreign = new[] { "THANG CÁP 1200X100, H=2800", "BUSWAY CU - H=3300", "BỆ MÁY H 200", "1200X300, H=2900" }
+                .Select(n => (n, H: Elevation(n))).Where(x => x.H is not null).ToList();
+            var own = Elevation("600X250, H=3000");
+            if (foreign.Count > 0 || own != 3000)
+            {
+                message = $"duct elevation notes: {string.Join("; ", foreign.Select(x => $"{x.n} → {x.H}"))}; own → {own}";
                 return false;
             }
         }

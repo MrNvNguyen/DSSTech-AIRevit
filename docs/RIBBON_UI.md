@@ -31,15 +31,17 @@ Mỗi icon có thêm bản `*-32-dark.png` / `*-16-dark.png`: nét `#D6E2EE` (x�
 
 | Panel | Nút |
 |---|---|
-| Thiết lập · Setup | Giới thiệu (to) · [Tham số QS / Tài khoản / Hướng dẫn] |
-| Kiến trúc · Architecture | Trục · Level · Tường · Cửa · Cửa sổ · [Khớp kết cấu / Lanh tô / Lỗ mở] · [Phòng / Hoàn thiện / Trần] |
-| Kết cấu · Structure | Cột · Vách · Dầm · Sàn |
-| Móng & cọc · Foundation | [Đài cọc / Móng đơn / Móng băng] · [Móng bè / Cọc] |
-| MEPF | Hệ thống · Cơ · [Điện / Nước / PCCC] · Thiết bị tường ▾ (Tất cả / Ổ cắm / Công tắc / Đèn ốp tường / Điều hòa cục bộ) · Thiết bị trần ▾ (Tất cả / Đèn trần / Đầu phun sprinkler / Đầu báo cháy) |
-| Combine | Combine · Check clash · So sánh · [Nâng sát dầm / Xung đột] |
-| Khối lượng · Quantity | Chọn định mức · Ván khuôn · Xuất BOQ · Bảng khối lượng |
+| Thiết lập · Setup | [Giới thiệu / Tài khoản / Hướng dẫn] · [Tham số QS / Góp ý] |
+| Kiến trúc · Architecture | [Trục / Level] · Tường (to) · [Cửa / Cửa sổ] · [Khớp kết cấu / Lanh tô / Lỗ mở] · [Phòng / Hoàn thiện / Trần] |
+| Kết cấu & móng · Structure | [Cột / Vách / Dầm] · [Sàn / Móng bè / Móng băng] · [Cọc / Đài, móng đơn] — đài và móng đơn chung một nút (type theo tên trên CAD) |
+| MEPF | ĐHKK ▾ · Điện ▾ (Máng / thang cáp · Busway) · Nước ▾ · PCCC ▾ (to) · [Hệ thống / Thiết bị tường ▾ / Thiết bị trần ▾] |
+| Combine | Combine · Clash Check (to) · [So sánh / Nâng sát dầm / Xung đột] |
+| Khối lượng · Quantity | Chọn định mức (to) · [Ván khuôn / Xuất BOQ / Bảng khối lượng] |
 | Tài sản · Assets | Tài sản (Asset Data): Form BIM Excel + catalogue PDF → tham số Type `TS_*`, ghi sau khi xác nhận |
 | Trợ lý AI · AI | AI: Đang bật/Đã tắt (đổi icon + chữ theo trạng thái thật) · Kết nối AI |
+
+Nút to chỉ dành cho công cụ chính của mỗi panel; công cụ phụ là nút nhỏ xếp chồng **có tên**. Tổng bề rộng ribbon phải vừa
+màn hình 1920 px, nếu không Revit tự ẩn chữ của nút nhỏ (chỉ còn icon, khó nhận ra).
 
 Mỗi nút module mở cửa sổ Dựng mô hình đúng loại đó, không có ô Loại và ô Layer (layer lấy từ nét pick trên bản vẽ); Bảng điều khiển vẫn mở cửa sổ đầy đủ như trước. Nút Link mặt bằng, Dựng mô hình và Dựng theo lô đã gỡ khỏi ribbon, lệnh phía sau giữ nguyên. Level chưa có logic dựng.
 

@@ -83,11 +83,13 @@ public sealed class ModelRevitCommand : IExternalCommand
             // Rooms read every layer: names are found by what they say, not where they are drawn.
             if (part == ModelRevitPartKind.Room)
                 layerName = "(mọi layer)";
+            XYZ? pickedAt = null;
             if (string.IsNullOrWhiteSpace(layerName))
             {
                 var layerRef = uidoc.Selection.PickObject(ObjectType.PointOnElement, new ImportLayerPickFilter(import.Id),
                     "Pick một nét trên layer cần dựng (layer lấy từ nét vừa chọn).");
                 layerName = ImportInstanceGeometryReader.TryGetLayerFromReference(import, layerRef);
+                pickedAt = layerRef.GlobalPoint;
             }
 
             if (string.IsNullOrWhiteSpace(layerName))
@@ -254,9 +256,9 @@ public sealed class ModelRevitCommand : IExternalCommand
                 }
             }
 
-            var ops = ModelRevitPlanner.Plan(
+            List<CreateOperation> PlanOn(string layer) => ModelRevitPlanner.Plan(
                 geom,
-                layerName,
+                layer,
                 part,
                 placement.BaseLevelName,
                 placement.TopLevelName,
@@ -266,6 +268,22 @@ public sealed class ModelRevitCommand : IExternalCommand
                 columnFamily: columnFamily,
                 placement: placement,
                 gridAnglesDeg: gridAngles).ToList();
+
+            var ops = PlanOn(layerName);
+            // The pick landed on a stroke of another layer lying over the element's own (Defpoints, a hatch, a
+            // dimension): the other layers drawn right there, nearest first.
+            if (ops.Count == 0 && pickedAt is not null)
+            {
+                foreach (var other in ModelRevitPlanner.LayersNear(geom, UnitConv.ToMm(pickedAt.X), UnitConv.ToMm(pickedAt.Y), 300, layerName))
+                {
+                    var found = PlanOn(other);
+                    if (found.Count == 0)
+                        continue;
+                    DssTechLog.Write($"layer pick: '{layerName}' gave nothing for {part}; using '{other}' drawn at the same point");
+                    (ops, layerName) = (found, other);
+                    break;
+                }
+            }
 
             if (ops.Count == 0)
             {

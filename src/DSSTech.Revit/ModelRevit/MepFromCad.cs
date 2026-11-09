@@ -20,7 +20,9 @@ internal enum MepRun
     Duct,
     PressurePipe,
     DrainPipe,
-    CableTray
+    CableTray,
+    /// <summary>Busway drawn as one (wide) stroke: modelled as cable tray of the size typed in, Service Type BW.</summary>
+    Busway
 }
 
 internal sealed record MepChoice(MepRun Run, string Label, string Detail, string? Group);
@@ -60,7 +62,16 @@ public sealed class MepElectricalCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements) =>
         MepFromCad.Run(commandData.Application, "DSSTech — Điện",
-            new MepChoice(MepRun.CableTray, "Máng / thang cáp", "Busway, trung thế, hạ thế, điện nhẹ, báo cháy (Cable Tray)", MepSystemCatalog.Elec));
+            new MepChoice(MepRun.CableTray, "Máng / thang cáp", "Trung thế, hạ thế, điện nhẹ, báo cháy (Cable Tray)", MepSystemCatalog.Elec));
+}
+
+/// <summary>«Điện ▸ Busway»: busways drawn single line, at the size typed in.</summary>
+[Transaction(TransactionMode.Manual)]
+public sealed class MepBuswayCommand : IExternalCommand
+{
+    public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements) =>
+        MepFromCad.Run(commandData.Application, "DSSTech — Busway",
+            new MepChoice(MepRun.Busway, "Busway", "Thanh dẫn điện vẽ 1 nét, kích thước chỉ định (Cable Tray, Service Type BW)", MepSystemCatalog.Elec));
 }
 
 /// <summary>«Nước ▸ Cấp nước»: water supply under the structure.</summary>
@@ -170,11 +181,22 @@ internal static class MepFromCad
             // Shoes are drawn as small outlines left out with the devices: kept here to turn each takeoff their way.
             Drawn = lines.ToList();
             // Ducts: grilles, dampers, fan coils; pipes: valves and fittings drawn as blocks. Not trays (bends drawn as blocks).
-            if (choice.Run != MepRun.CableTray)
+            if (choice.Run == MepRun.Busway)
+                lines = BuswayStrokes(lines);
+            else if (choice.Run != MepRun.CableTray)
                 lines = MepRoutePlanner.WithoutDevices(lines, out devices);
-            // Ducts are drawn with both sides; trays either way (each layer read as it looks); pipes single-line.
+            // Ducts are drawn with both sides; trays either way (each layer read as it looks); pipes and busways single-line.
             bool? readAs = choice.Run switch { MepRun.Duct => true, MepRun.CableTray => null, _ => false };
-            var net = MepRoutePlanner.Build(lines, null, setup.Fallback, texts, readAs);
+            var net = MepRoutePlanner.Build(lines, null, setup.Fallback, texts, readAs, busway: choice.Run == MepRun.Busway);
+            // A busway's section is not drawn: every run at the size typed in.
+            if (choice.Run == MepRun.Busway)
+            {
+                foreach (var e in net.Edges)
+                {
+                    e.Size = setup.Fallback;
+                    e.SizeFrom = "given";
+                }
+            }
             var layerLabel = setup.Layers.Count <= 3 ? "layer " + string.Join(", ", setup.Layers) : $"{setup.Layers.Count} layer";
             if (net.Edges.Count == 0)
             {
@@ -213,6 +235,7 @@ internal static class MepFromCad
                 "layer" => $"tên layer {g.Count()}",
                 "inherited" => $"nối theo đoạn trước {g.Count()}",
                 "drawn" => $"bề rộng 2 nét vẽ {g.Count()}",
+                "given" => $"kích thước chỉ định {setup.Fallback} cho {g.Count()} đoạn",
                 _ => $"size mặc định {g.Count()}"
             }));
             var twoLine = net.Edges.Count(e => e.DrawnWidthMm > 0);
@@ -275,6 +298,17 @@ internal static class MepFromCad
         }
     }
 
+    /// <summary>
+    /// A busway's strokes: open lines and polylines outside blocks (equipment boxes, panels and symbols are closed or
+    /// blocks). Where some are drawn wide (global width, as busways are), only those.
+    /// </summary>
+    private static List<CadEntity> BuswayStrokes(IEnumerable<CadEntity> lines)
+    {
+        var open = lines.Where(e => e.BlockRef == 0 && e is CadLine or CadPolyline { Closed: false }).ToList();
+        var wide = open.Where(e => e is CadPolyline { WidthMm: > 0 }).ToList();
+        return wide.Count > 0 ? wide : open;
+    }
+
     /// <summary>Everything the dialog decides.</summary>
     private sealed class Setup
     {
@@ -318,7 +352,7 @@ internal static class MepFromCad
             var domain = choice.Run switch
             {
                 MepRun.Duct => MepDomain.Duct,
-                MepRun.CableTray => MepDomain.CableTray,
+                MepRun.CableTray or MepRun.Busway => MepDomain.CableTray,
                 _ => MepDomain.Pipe
             };
             var spec = MepSystemCatalog.FromLayer(linkName, domain);
@@ -350,6 +384,8 @@ internal static class MepFromCad
             var preset = spec is null ? null : systems.Select(s => (string?)s.Name).FirstOrDefault(n =>
                 MepSystemCatalog.Match(spec, new[] { new ExistingSystem { Name = n!, Abbreviation = systems.First(x => x.Name == n).Abbr, Domain = domain } })
                     .Kind != SystemMatchKind.None);
+            if (choice.Run == MepRun.Busway)
+                preset = systems.Select(s => (string?)s.Name).FirstOrDefault(n => systems.First(x => x.Name == n).Abbr == "BW") ?? preset;
             var systemBox = dlg.AddCombo(domain == MepDomain.CableTray ? "Hệ (ghi vào Service Type)" : "System", systems.Select(s => s.Name), preset ?? systems[0].Name);
 
             // The drawing's layers: those naming the chosen system's code ticked until the list is touched by hand.
@@ -406,8 +442,10 @@ internal static class MepFromCad
                 rectBox = dlg.AddCombo(domain == MepDomain.CableTray ? "Type máng" : "Type chữ nhật", rect.Select(t => t.Name), rect[0].Name);
             if (round.Count > 0)
                 roundBox = dlg.AddCombo(domain == MepDomain.Pipe ? "Type ống" : "Type tròn", round.Select(t => t.Name), round[0].Name);
-            var fallback = dlg.AddInput("Size khi không đọc được (vd 400x300, D100)",
-                domain == MepDomain.Pipe ? "D50" : domain == MepDomain.CableTray ? "300x100" : "400x300");
+            var fallback = choice.Run == MepRun.Busway
+                ? dlg.AddInput("Kích thước busway (rộng x cao, mm) — dùng cho mọi đoạn", "200x100")
+                : dlg.AddInput("Size khi không đọc được (vd 400x300, D100)",
+                    domain == MepDomain.Pipe ? "D50" : domain == MepDomain.CableTray ? "300x100" : "400x300");
 
             System.Windows.Controls.TextBox? slope = null;
             if (choice.Run == MepRun.DrainPipe)
@@ -626,16 +664,21 @@ internal static class MepFromCad
             }
 
             var ductProfiles = new List<List<MepPiece>>();
-            foreach (var e in net.Edges)
+            var cadEdge = new bool[net.Edges.Count];
+            for (var i = 0; i < net.Edges.Count; i++)
             {
+                var e = net.Edges[i];
                 var cad = setup.CadCenter(levelMm, e);
+                cadEdge[i] = cad is not null;
                 if (cad is not null)
                     fromCad++;
                 var z = cad ?? setup.ManualCenter(levelMm, e.Size.DepthMm) + shift[partOf[e.A]];
                 ductProfiles.Add(new List<MepPiece> { new(0, MepRoutePlanner.Length(net, e), z) });
             }
 
-            MeetAtNodes(net, edgesAt, ductProfiles);
+            // Ducts of different depths on one bottom (or top) meet through their fitting; only a height written on
+            // the CAD makes a riser, else each depth change would leave a 50 mm vertical stub.
+            MeetAtNodes(net, edgesAt, ductProfiles, cadEdge);
             pieces.AddRange(ductProfiles.Select(pr => pr.Select(x => new Piece(x.From, x.To, x.Z, x.Z)).ToList()));
             notes.AppendLine(setup.UnderStructure
                 ? $"Cao độ: mọi ống {setup.ManualRef.ToLowerInvariant()} {setup.ManualMm:0} mm so với {level.Name}; mạng có đáy dầm/sàn thấp hơn thì cả mạng hạ xuống, đỉnh ống cao nhất dưới đáy dầm thấp nhất {setup.ClearanceMm:0} mm ({byStructure}/{parts.Count} mạng hạ theo dầm)."
@@ -712,7 +755,7 @@ internal static class MepFromCad
         bool SameKind(MEPCurve c) => setup.Run switch
         {
             MepRun.Duct => c is Duct,
-            MepRun.CableTray => c is CableTray,
+            MepRun.CableTray or MepRun.Busway => c is CableTray,
             _ => c is Pipe
         };
         var existing = before.Where(SameKind).Select(c => ((LocationCurve)c.Location).Curve)
@@ -862,9 +905,10 @@ internal static class MepFromCad
 
     /// <summary>
     /// A node sits at the lowest end of the runs meeting there: a higher run drops to it near its end (a riser and two
-    /// elbows), as where two runs written at different heights meet.
+    /// elbows), as where two runs written at different heights meet. With <paramref name="only"/>, just the nodes one
+    /// of those edges touches.
     /// </summary>
-    private static void MeetAtNodes(MepNetwork net, List<List<int>> edgesAt, List<List<MepPiece>> profiles)
+    private static void MeetAtNodes(MepNetwork net, List<List<int>> edgesAt, List<List<MepPiece>> profiles, bool[]? only = null)
     {
         for (var n = 0; n < net.Nodes.Count; n++)
         {
@@ -877,7 +921,7 @@ internal static class MepFromCad
                     ends.Add((i, false));
             }
 
-            if (ends.Count < 2)
+            if (ends.Count < 2 || only is not null && !ends.Any(x => only[x.Edge]))
                 continue;
             var z = ends.Min(x => x.AtStart ? profiles[x.Edge][0].Z : profiles[x.Edge][profiles[x.Edge].Count - 1].Z);
             foreach (var (edge, atStart) in ends)
@@ -911,6 +955,7 @@ internal static class MepFromCad
                     break;
                 }
                 case MepRun.CableTray:
+                case MepRun.Busway:
                     curve = CableTray.Create(doc, setup.RectTypeId, a, b, level.Id);
                     curve.get_Parameter(BuiltInParameter.RBS_CABLETRAY_WIDTH_PARAM)?.Set(UnitConv.MmToInternal(size.IsRound ? size.DiameterMm : size.WidthMm));
                     curve.get_Parameter(BuiltInParameter.RBS_CABLETRAY_HEIGHT_PARAM)?.Set(UnitConv.MmToInternal(size.IsRound ? size.DiameterMm : size.HeightMm));

@@ -12,7 +12,7 @@ every case, not only the drawing that showed the error.
 ## Before changing modelling code
 
 1. Read `src/Dss.McpHost/Knowledge/LESSONS.md` (all of it, or the topics that apply: `cad-read`, `cad-text`,
-   `mep-elevation`, `mep-tray`, `mep-duct`, `mep-pipe`, `systems`, `combine`, `revit-api`, `debug`).
+   `mep-elevation`, `mep-tray`, `mep-duct`, `mep-pipe`, `systems`, `combine`, `structure`, `revit-api`, `debug`).
 2. Reproduce on the user's data before guessing from screenshots: `%LOCALAPPDATA%\DSSTech\mep-cad-input.txt`
    (strokes and texts read), `mcp-host.log`, the newest Revit journal, or the Feedback zip. The dump's texts only hold
    what the reader kept; read the DWG itself (ACadSharp, `FileShare.ReadWrite`) when a label seems missing.

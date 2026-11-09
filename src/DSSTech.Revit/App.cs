@@ -33,35 +33,40 @@ public sealed class App : IExternalApplication
 
         // ── Panel 1: Thiết lập ─────────────────────────────────────────────
         var setup = Panel(application, tab, "Thiết lập · Setup");
-        setup.AddItem(Large(asm, "DSSTechAbout", "Giới thiệu", "About", typeof(AboutCommand), "icon-help",
-            "Phiên bản, bản quyền trên máy này (người dùng, hạn, mã máy); mở Tài khoản và Hướng dẫn.",
-            "Version and this machine's license (holder, expiry, machine code); opens Account and Help.", ""));
+        // Nút nhỏ có chữ: giới thiệu / tài khoản / hướng dẫn, rồi tham số QS / góp ý.
         setup.AddStackedItems(
-            Small(asm, "QSSetupParameters", "Tham số QS", "QS Parameters", typeof(SetupParametersCommand), "icon-params",
-                "Gắn Shared Parameters QS_* từ Config/QS_SharedParameters.txt vào dự án.",
-                "Bind QS_* shared parameters from Config/QS_SharedParameters.txt.", "tham-so"),
+            Small(asm, "DSSTechAbout", "Giới thiệu", "About", typeof(AboutCommand), "icon-help",
+                "Phiên bản, bản quyền trên máy này (người dùng, hạn, mã máy); mở Tài khoản và Hướng dẫn.",
+                "Version and this machine's license (holder, expiry, machine code); opens Account and Help.", ""),
             Small(asm, "DSSTechAccount", "Tài khoản", "Account", typeof(AccountCommand), "icon-account",
                 "Phiên bản, mã máy (HWID) và kích hoạt key trên máy này.",
                 "Version, machine ID (HWID) and license activation.", "tai-khoan"),
             Small(asm, "DSSTechHelp", "Hướng dẫn", "Help", typeof(HelpCommand), "icon-help",
                 "Mở hướng dẫn sử dụng DSSTech. Mẹo: rê chuột lên bất kỳ nút nào rồi nhấn F1.",
                 "Open the DSSTech user guide. Tip: hover any button and press F1.", ""));
-        setup.AddItem(Large(asm, "DSSTechFeedback", "Góp ý", "Feedback", typeof(FeedbackCommand), "icon-feedback",
-            "Báo lỗi hoặc đề xuất tính năng: soạn email gửi DSSTech, kèm ảnh và nhật ký để sửa nhanh.",
-            "Report a bug or suggest a feature: drafts an email to DSSTech with screenshots and logs attached.", ""));
+        setup.AddStackedItems(
+            Small(asm, "QSSetupParameters", "Tham số QS", "QS Parameters", typeof(SetupParametersCommand), "icon-params",
+                "Gắn Shared Parameters QS_* từ Config/QS_SharedParameters.txt vào dự án.",
+                "Bind QS_* shared parameters from Config/QS_SharedParameters.txt.", "tham-so"),
+            Small(asm, "DSSTechFeedback", "Góp ý", "Feedback", typeof(FeedbackCommand), "icon-feedback",
+                "Báo lỗi hoặc đề xuất tính năng: soạn email gửi DSSTech, kèm ảnh và nhật ký để sửa nhanh.",
+                "Report a bug or suggest a feature: drafts an email to DSSTech with screenshots and logs attached.", ""));
 
         // ── Panel 2: Kiến trúc (Trục, Level là nền cho các bộ môn) ─────────
         var arch = Panel(application, tab, "Kiến trúc · Architecture");
-        arch.AddItem(Large(asm, "DSSTechCadDatum", "Trục", "Grids", typeof(ModelRevit.CadDatumCommand), "icon-part-grid",
-            "Chọn CAD link: tự đọc lưới trục (nét trục + vòng tròn tên trục, mọi layer), khoảng cách chẵn 5 mm, kèm kích thước trục.",
-            "Pick the CAD link: grids read from grid lines with named bubbles on any layer, even 5 mm spacing, with grid dimensions.", "truc-tang"));
-        arch.AddItem(Large(asm, "DSSTechModelLevel", "Level", "Levels", typeof(ModelRevit.ModelLevelCommand), "icon-level",
-            "Bảng khai báo tầng: số tầng và chiều cao từng tầng; tạo/cập nhật level và mặt bằng.",
-            "Storey table: number of storeys and each height; creates or updates levels and floor plans.", "truc-tang"));
+        // Nút to cho công cụ chính (Tường); trục / level và cửa là nút nhỏ xếp chồng để panel gọn.
+        arch.AddStackedItems(
+            Small(asm, "DSSTechCadDatum", "Trục", "Grids", typeof(ModelRevit.CadDatumCommand), "icon-part-grid",
+                "Chọn CAD link: tự đọc lưới trục (nét trục + vòng tròn tên trục, mọi layer), khoảng cách chẵn 5 mm, kèm kích thước trục.",
+                "Pick the CAD link: grids read from grid lines with named bubbles on any layer, even 5 mm spacing, with grid dimensions.", "truc-tang"),
+            Small(asm, "DSSTechModelLevel", "Level", "Levels", typeof(ModelRevit.ModelLevelCommand), "icon-level",
+                "Bảng khai báo tầng: số tầng và chiều cao từng tầng; tạo/cập nhật level và mặt bằng.",
+                "Storey table: number of storeys and each height; creates or updates levels and floor plans.", "truc-tang"));
         arch.AddSeparator();
         arch.AddItem(Part(asm, "DSSTechModelArchWall", "Tường", "Wall", typeof(ModelArchitecturalWallCommand), "icon-part-archwall"));
-        arch.AddItem(Part(asm, "DSSTechModelDoor", "Cửa", "Door", typeof(ModelDoorCommand), "icon-part-door"));
-        arch.AddItem(Part(asm, "DSSTechModelWindow", "Cửa sổ", "Window", typeof(ModelWindowCommand), "icon-part-window"));
+        arch.AddStackedItems(
+            SmallPart(asm, "DSSTechModelDoor", "Cửa", "Door", typeof(ModelDoorCommand), "icon-part-door"),
+            SmallPart(asm, "DSSTechModelWindow", "Cửa sổ", "Window", typeof(ModelWindowCommand), "icon-part-window"));
         // Walls after they are built: fit to structure, lintels, openings.
         arch.AddStackedItems(
             Small(asm, "DSSTechWallFit", "Khớp kết cấu", "Fit to Structure", typeof(ModelRevit.ModelWallFitCommand), "icon-part-wall",
@@ -81,28 +86,26 @@ public sealed class App : IExternalApplication
                 "Room finishes: finish walls (or skirting) and finish floors for the selected rooms or the whole level.", "dung-mo-hinh"),
             SmallPart(asm, "DSSTechModelCeiling", "Trần", "Ceiling", typeof(ModelCeilingCommand), "icon-part-ceiling"));
 
-        // ── Panel 3: Kết cấu ───────────────────────────────────────────────
-        var structure = Panel(application, tab, "Kết cấu · Structure");
-        structure.AddItem(Part(asm, "DSSTechModelColumn", "Cột", "Column", typeof(ModelColumnCommand), "icon-part-column"));
-        structure.AddItem(Part(asm, "DSSTechModelStructuralWall", "Vách", "RC Wall", typeof(ModelStructuralWallCommand), "icon-part-wall"));
-        structure.AddItem(Part(asm, "DSSTechModelBeam", "Dầm", "Beam", typeof(ModelBeamCommand), "icon-part-beam"));
-        structure.AddItem(Part(asm, "DSSTechModelFloor", "Sàn", "Floor", typeof(ModelFloorCommand), "icon-part-floor"));
-
-        // ── Panel 4: Móng & cọc ────────────────────────────────────────────
-        var foundation = Panel(application, tab, "Móng & cọc · Foundation");
-        foundation.AddStackedItems(
-            SmallPart(asm, "DSSTechModelPileCap", "Đài cọc", "Pile Cap", typeof(ModelPileCapCommand), "icon-part-pilecap"),
-            SmallPart(asm, "DSSTechModelFooting", "Móng đơn", "Isolated Footing", typeof(ModelIsolatedFoundationCommand), "icon-part-footing"),
-            SmallPart(asm, "DSSTechModelStrip", "Móng băng", "Strip Footing", typeof(ModelStripFoundationCommand), "icon-part-strip"));
-        foundation.AddStackedItems(
+        // ── Panel 3: Kết cấu & móng (một panel: các nút nhỏ đủ chỗ hiện chữ) ──
+        var structure = Panel(application, tab, "Kết cấu & móng · Structure");
+        // Khung (cột, vách, dầm) · cấu kiện nằm (sàn, móng bè, móng băng) · cọc và đài / móng đơn.
+        structure.AddStackedItems(
+            SmallPart(asm, "DSSTechModelColumn", "Cột", "Column", typeof(ModelColumnCommand), "icon-part-column"),
+            SmallPart(asm, "DSSTechModelStructuralWall", "Vách", "RC Wall", typeof(ModelStructuralWallCommand), "icon-part-wall"),
+            SmallPart(asm, "DSSTechModelBeam", "Dầm", "Beam", typeof(ModelBeamCommand), "icon-part-beam"));
+        structure.AddStackedItems(
+            SmallPart(asm, "DSSTechModelFloor", "Sàn", "Floor", typeof(ModelFloorCommand), "icon-part-floor"),
             SmallPart(asm, "DSSTechModelRaft", "Móng bè", "Raft", typeof(ModelRaftFoundationCommand), "icon-part-raft"),
-            SmallPart(asm, "DSSTechModelPile", "Cọc", "Pile", typeof(ModelPileCommand), "icon-part-pile"));
+            SmallPart(asm, "DSSTechModelStrip", "Móng băng", "Strip Footing", typeof(ModelStripFoundationCommand), "icon-part-strip"));
+        // Đài và móng đơn chung một nút (cùng cách đọc: type theo tên trên CAD).
+        structure.AddStackedItems(
+            SmallPart(asm, "DSSTechModelPile", "Cọc", "Pile", typeof(ModelPileCommand), "icon-part-pile"),
+            Small(asm, "DSSTechModelPileCap", "Đài / móng đơn", "Pile Cap / Footing", typeof(ModelPileCapCommand), "icon-part-pilecap",
+                "Dựng đài cọc và móng đơn từ CAD link: type theo Type Mark trùng tên trên CAD (Đ4, ĐA-1, M1), không có tên thì dùng type chọn.",
+                "Pile caps and isolated footings from the CAD link: type by the Type Mark named on the CAD, else the chosen type.", "dung-mo-hinh"));
 
         // ── Panel 5: MEPF ──────────────────────────────────────────────────
         var mepf = Panel(application, tab, "MEPF");
-        mepf.AddItem(Large(asm, "DSSTechMepSystems", "Hệ thống", "Systems", typeof(ModelRevit.MepSystemSetupCommand), "icon-mep-systems",
-            "Tạo / đồng bộ system type ống gió, ống nước theo quy định màu; báo hệ đã có hoặc tương tự để không tạo trùng.",
-            "Create or sync duct and pipe system types from the colour rules; flags existing or similar systems to avoid duplicates.", "dung-mo-hinh"));
         // Each discipline drops down to the kind of run; each then asks for the CAD link, the system and its layers.
         const string mepTip = " Chọn CAD, chọn system và tick layer của hệ (CAD có nhiều hệ); size theo chữ ghi cạnh nét, dưới đáy dầm/sàn và uốn né dầm.";
         const string mepTipEn = " Pick the CAD link, the system and its layers; size from labels, under beams and slabs with drops.";
@@ -120,9 +123,16 @@ public sealed class App : IExternalApplication
             Item(asm, "DSSTechFlexConnect", "Nối ống mềm · Flex Connect", typeof(ModelRevit.FlexConnectCommand), "icon-mep-flex",
                 "Nối ống mềm từ miệng gió / FCU / box đang chọn (hoặc mọi thiết bị chưa nối của tầng) tới ống gió cùng hệ gần nhất.",
                 "Flex duct from the selected (or every unconnected) air devices of the level to the nearest duct of their system.", "dung-mo-hinh"));
-        mepf.AddItem(Large(asm, "DSSTechMepElec", "Điện", "Electrical", typeof(ModelRevit.MepElectricalCommand), "icon-mep-elec",
-            "Máng / thang cáp, hệ ghi vào Service Type." + mepTip,
-            "Cable trays, system as Service Type." + mepTipEn, "dung-mo-hinh"));
+        Menu(mepf.AddItem(Pulldown("DSSTechMepElecMenu", "Điện\nElectrical", "icon-mep-elec",
+                "Điện (Electrical) — máng / thang cáp và busway, hệ ghi vào Service Type." + mepTip,
+                "Cable trays and busways, system as Service Type." + mepTipEn)),
+            Item(asm, "DSSTechMepElec", "Máng / thang cáp · Cable Tray", typeof(ModelRevit.MepElectricalCommand), "icon-mep-elec",
+                "Máng / thang cáp, hệ ghi vào Service Type." + mepTip,
+                "Cable trays, system as Service Type." + mepTipEn, "dung-mo-hinh"),
+            Item(asm, "DSSTechMepBusway", "Busway · Busway", typeof(ModelRevit.MepBuswayCommand), "icon-mep-elec",
+                "Busway vẽ 1 nét (polyline có bề rộng): dựng theo tim nét, kích thước chỉ định cho mọi đoạn, Service Type BW; " +
+                "cao độ lấy từ nhãn busway (Busway … H=3300), không lấy nhãn máng / ống gió.",
+                "Busways drawn as one (wide) stroke: along the stroke at the size typed in, Service Type BW; heights from busway notes only.", "dung-mo-hinh"));
         var plumbing = mepf.AddItem(Pulldown("DSSTechMepPlumb", "Nước\nPlumbing", "icon-mep-water",
             "Nước (Plumbing) — cấp nước dưới đáy dầm/sàn; thoát nước có độ dốc về điểm xả và nối vào ống có sẵn.",
             "Water supply under beams and slabs; drainage falling to its outlet and joined to the pipe there."));
@@ -142,9 +152,18 @@ public sealed class App : IExternalApplication
             Item(asm, "DSSTechFireDevices", "Tủ chữa cháy & đầu phun · Fire Devices", typeof(ModelRevit.FireDevicesCommand), "icon-dev-sprinkler",
                 "Tủ chữa cháy lên mặt tường gần nhất; đầu phun sprinkler, đầu báo cháy dưới mặt trần — từ block CAD.",
                 "Fire hose cabinets on the nearest wall; sprinklers and detectors under the ceiling — from CAD blocks.", "dung-mo-hinh"));
-        Devices(mepf, asm, "DSSTechWallDevices", "Thiết bị tường", "Wall Devices", "icon-dev-wall",
-            "Ổ cắm, công tắc, đèn ốp tường, điều hòa cục bộ từ block CAD: đặt lên mặt tường gần nhất ở cao độ lắp.",
-            "Sockets, switches, wall lights and split AC units from CAD blocks, on the nearest wall face at mounting height.",
+        // Hệ thống và hai danh sách thiết bị: nút nhỏ có chữ, xếp chồng.
+        var mepTools = mepf.AddStackedItems(
+            Small(asm, "DSSTechMepSystems", "Hệ thống", "Systems", typeof(ModelRevit.MepSystemSetupCommand), "icon-mep-systems",
+                "Tạo / đồng bộ system type ống gió, ống nước theo quy định màu; báo hệ đã có hoặc tương tự để không tạo trùng.",
+                "Create or sync duct and pipe system types from the colour rules; flags existing or similar systems to avoid duplicates.", "dung-mo-hinh"),
+            Pulldown("DSSTechWallDevices", "Thiết bị tường", "icon-dev-wall",
+                "Thiết bị tường (Wall Devices) — ổ cắm, công tắc, đèn ốp tường, điều hòa cục bộ từ block CAD: đặt lên mặt tường gần nhất ở cao độ lắp.",
+                "Sockets, switches, wall lights and split AC units from CAD blocks, on the nearest wall face at mounting height."),
+            Pulldown("DSSTechCeilingDevices", "Thiết bị trần", "icon-dev-ceiling",
+                "Thiết bị trần (Ceiling Devices) — đèn trần, đầu phun sprinkler, đầu báo cháy từ block CAD: theo cao độ trần phía trên từng thiết bị.",
+                "Ceiling lights, sprinklers and fire detectors from CAD blocks, at the ceiling over each one."));
+        Menu(mepTools.ElementAtOrDefault(1),
             Item(asm, "DSSTechWallDevicesAll", "Tất cả thiết bị tường", typeof(ModelRevit.WallDevicesCommand), "icon-dev-wall",
                 "Mọi block thiết bị tường trong CAD link, mỗi block gán một family.", "Every wall device block in the CAD link.", "dung-mo-hinh"),
             Item(asm, "DSSTechSocket", "Ổ cắm", typeof(ModelRevit.SocketCommand), "icon-dev-socket",
@@ -155,9 +174,7 @@ public sealed class App : IExternalApplication
                 "Đèn ốp tường, mặc định cao 2200 mm.", "Wall lights, 2200 mm by default.", "dung-mo-hinh"),
             Item(asm, "DSSTechSplitAc", "Điều hòa cục bộ", typeof(ModelRevit.SplitAcCommand), "icon-dev-splitac",
                 "Dàn lạnh treo tường, mặc định cao 2500 mm.", "Wall-mounted indoor units, 2500 mm by default.", "dung-mo-hinh"));
-        Devices(mepf, asm, "DSSTechCeilingDevices", "Thiết bị trần", "Ceiling Devices", "icon-dev-ceiling",
-            "Đèn trần, đầu phun sprinkler, đầu báo cháy từ block CAD: theo cao độ trần phía trên từng thiết bị.",
-            "Ceiling lights, sprinklers and fire detectors from CAD blocks, at the ceiling over each one.",
+        Menu(mepTools.ElementAtOrDefault(2),
             Item(asm, "DSSTechCeilingDevicesAll", "Tất cả thiết bị trần", typeof(ModelRevit.CeilingDevicesCommand), "icon-dev-ceiling",
                 "Mọi block thiết bị trần trong CAD link, mỗi block gán một family.", "Every ceiling device block in the CAD link.", "dung-mo-hinh"),
             Item(asm, "DSSTechCeilingLight", "Đèn trần", typeof(ModelRevit.CeilingLightCommand), "icon-dev-ceilinglight",
@@ -175,10 +192,10 @@ public sealed class App : IExternalApplication
         combine.AddItem(Build(asm, "DSSTechClashCheck", "Clash Check", typeof(ModelRevit.ClashCheckCommand), "icon-clash",
             "Kiểm tra va chạm nhóm A (model này) với nhóm B (model này và file link), rồi xem, sửa, tạo view, xuất BCF / Navisworks / Excel.",
             "Clash set A (this model) against set B (this model and links); review, fix, make views, export BCF / Navisworks / Excel.", "dung-mo-hinh"));
-        combine.AddItem(Large(asm, "DSSTechDrawingCompare", "So sánh", "Compare", typeof(ModelRevit.DrawingCompareCommand), "icon-compare",
-            "So mô hình với bản vẽ (link hoặc bản cập nhật chưa link): thiếu, thừa, lệch, khác size; hoặc so bản vẽ cũ với bản mới. Đám mây, tô màu, dời theo bản vẽ, Excel.",
-            "Model against the drawing (linked or a new revision), or old drawing against new: missing, extra, moved, changed; clouds, colours, moves, Excel.", "dung-mo-hinh"));
         combine.AddStackedItems(
+            Small(asm, "DSSTechDrawingCompare", "So sánh", "Compare", typeof(ModelRevit.DrawingCompareCommand), "icon-compare",
+                "So mô hình với bản vẽ (link hoặc bản cập nhật chưa link): thiếu, thừa, lệch, khác size; hoặc so bản vẽ cũ với bản mới. Đám mây, tô màu, dời theo bản vẽ, Excel.",
+                "Model against the drawing (linked or a new revision), or old drawing against new: missing, extra, moved, changed; clouds, colours, moves, Excel.", "dung-mo-hinh"),
             Small(asm, "DSSTechMepRaise", "Nâng sát dầm", "Raise to Structure", typeof(ModelRevit.MepRaiseCommand), "icon-raise",
                 "Nâng ống / máng đang chọn (hoặc cả một loại trên tầng) lên sát đáy dầm/sàn − 50 mm; mạng nối liền nâng cùng mức.",
                 "Raise the selected runs (or one kind on the level) to the beam/slab underside less 50 mm, each network as one.", "dung-mo-hinh"),
@@ -191,15 +208,16 @@ public sealed class App : IExternalApplication
         qty.AddItem(Large(asm, "QSNormSelector", "Chọn định mức", "Norm Selector", typeof(NormSelectorCommand), "icon-norm",
             "Phân tích cấu kiện đang chọn → công việc → mã định mức → vật liệu / nhân công / máy.",
             "Analyse the selection → work item → norm code → material / labour / machine.", "dinh-muc"));
-        qty.AddItem(Large(asm, "QSFormworkTakeoff", "Ván khuôn", "Formwork", typeof(FormworkTakeoffCommand), "icon-formwork",
-            "Đo ván khuôn cột / vách / dầm / sàn → bảng kết quả → ghi QS_Formwork* sau khi xác nhận.",
-            "Measure formwork of columns / walls / beams / slabs → review → write QS_Formwork* on confirm.", "van-khuon"));
-        qty.AddItem(Large(asm, "QSBoqExtract", "Xuất BOQ", "BOQ Export", typeof(BoqExtractCommand), "icon-boq",
-            "Trích BOQ từ cấu kiện đang chọn, gom theo mã và xuất file kiểm tra / G8.",
-            "Extract the BOQ from the selection, group by code and export audit / G8 files.", "xuat-boq"));
-        qty.AddItem(Large(asm, "QSQuantitySchedule", "Bảng khối lượng", "Qty Schedule", typeof(QuantityScheduleCommand), "icon-schedule",
-            "Tạo / cập nhật bảng thống kê 'QS-BIM Khối lượng cấu kiện' (nhiều loại cấu kiện, chạy lại không bị trùng).",
-            "Create / update the 'QS-BIM element quantities' schedule (multi-category, safe to re-run).", "bang-khoi-luong"));
+        qty.AddStackedItems(
+            Small(asm, "QSFormworkTakeoff", "Ván khuôn", "Formwork", typeof(FormworkTakeoffCommand), "icon-formwork",
+                "Đo ván khuôn cột / vách / dầm / sàn → bảng kết quả → ghi QS_Formwork* sau khi xác nhận.",
+                "Measure formwork of columns / walls / beams / slabs → review → write QS_Formwork* on confirm.", "van-khuon"),
+            Small(asm, "QSBoqExtract", "Xuất BOQ", "BOQ Export", typeof(BoqExtractCommand), "icon-boq",
+                "Trích BOQ từ cấu kiện đang chọn, gom theo mã và xuất file kiểm tra / G8.",
+                "Extract the BOQ from the selection, group by code and export audit / G8 files.", "xuat-boq"),
+            Small(asm, "QSQuantitySchedule", "Bảng khối lượng", "Qty Schedule", typeof(QuantityScheduleCommand), "icon-schedule",
+                "Tạo / cập nhật bảng thống kê 'QS-BIM Khối lượng cấu kiện' (nhiều loại cấu kiện, chạy lại không bị trùng).",
+                "Create / update the 'QS-BIM element quantities' schedule (multi-category, safe to re-run).", "bang-khoi-luong"));
 
         // ── Tài sản (FM / vận hành): Form BIM Excel + catalogue PDF → TS_* trên Type ─
         var assets = Panel(application, tab, "Tài sản · Assets");
@@ -254,25 +272,6 @@ public sealed class App : IExternalApplication
     private static RibbonPanel Panel(UIControlledApplication application, string tab, string name) =>
         application.GetRibbonPanels(tab).FirstOrDefault(x => x.Name == name)
         ?? application.CreateRibbonPanel(tab, name);
-
-    /// <summary>Nút to xổ xuống: mỗi mục là một modul thiết bị riêng.</summary>
-    private static void Devices(RibbonPanel panel, string asm, string id, string vi, string en, string icon, string tipVi, string tipEn,
-        params PushButtonData[] items)
-    {
-        RibbonState.IconById[id] = icon;
-        var data = new PulldownButtonData(id, $"{vi}\n{en}")
-        {
-            LargeImage = RibbonIcons.Load(icon, 32),
-            Image = RibbonIcons.Load(icon, 16),
-            ToolTip = tipVi,
-            LongDescription = tipEn
-        };
-        if (panel.AddItem(data) is PulldownButton pulldown)
-        {
-            foreach (var item in items)
-                pulldown.AddPushButton(item);
-        }
-    }
 
     /// <summary>Nút xổ xuống (to, hoặc nhỏ trong cột xếp chồng): các mục thêm bằng <see cref="Menu"/>.</summary>
     private static PulldownButtonData Pulldown(string id, string label, string icon, string tipVi, string tipEn)

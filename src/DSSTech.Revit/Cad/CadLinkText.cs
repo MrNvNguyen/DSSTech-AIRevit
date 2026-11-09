@@ -106,7 +106,7 @@ internal static class CadLinkText
                 var mirror = transform.BasisX.X * transform.BasisY.Y - transform.BasisX.Y * transform.BasisY.X < 0;
                 var placed = new CadPolyline
                 {
-                    Layer = poly.Layer, BlockRef = poly.BlockRef, Closed = poly.Closed, FromArc = poly.FromArc,
+                    Layer = poly.Layer, BlockRef = poly.BlockRef, Closed = poly.Closed, FromArc = poly.FromArc, WidthMm = poly.WidthMm,
                     Bulges = poly.Bulges?.Select(x => mirror ? -x : x).ToList()
                 };
                 foreach (var point in poly.Points)
@@ -504,7 +504,11 @@ internal static class CadLinkText
 
     private static void AddPolyline(string layer, IPolyline poly, Transform2 transform, UnitsType units, List<CadEntity> curves)
     {
-        var placed = new CadPolyline { Layer = layer, Closed = poly.IsClosed };
+        var placed = new CadPolyline
+        {
+            Layer = layer, Closed = poly.IsClosed,
+            WidthMm = poly is LwPolyline lw ? ToMm(lw.ConstantWidth, units) : 0
+        };
         // A mirrored insert turns a counter-clockwise bulge clockwise.
         var mirrored = transform.M11 * transform.M22 - transform.M12 * transform.M21 < 0;
         var bulges = new List<double>();

@@ -674,6 +674,7 @@ internal sealed class DeviceSetupWindow : DssDialog
                 DeviceMount.Wall => "Cao lắp (mm)", DeviceMount.Hvac => "Dưới trần (mm, âm = trên)", DeviceMount.Fire => "Cao lắp / dưới trần (mm)",
                 _ => "Dưới trần (mm)"
             }));
+        var hidden = new SortedDictionary<string, Grid>(StringComparer.CurrentCultureIgnoreCase);
         foreach (var g in groups.Take(MaxRows))
         {
             DeviceSpec? spec = null;
@@ -699,9 +700,51 @@ internal sealed class DeviceSetupWindow : DssDialog
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = DssTheme.Ink
             };
-            rows.Children.Add(Row(name, kindBox, typeBox, mm));
+            var row = Row(name, kindBox, typeBox, mm);
+            // Only the blocks that become a device are shown; the skipped ones wait in the list below to be added.
+            if (spec is null)
+            {
+                row.Visibility = System.Windows.Visibility.Collapsed;
+                hidden[$"{g.Name} ({g.Count})"] = row;
+            }
+
+            rows.Children.Add(row);
             _items.Add((g, kindBox, typeBox, mm));
         }
+
+        var addBox = DssTheme.Combo(hidden.Keys);
+        var add = DssTheme.Quiet("Thêm block");
+        void Refresh()
+        {
+            DssTheme.FillCombo(addBox, hidden.Keys, hidden.Keys.FirstOrDefault());
+            addBox.IsEnabled = add.IsEnabled = hidden.Count > 0;
+        }
+
+        add.Click += (_, _) =>
+        {
+            var key = DssTheme.ComboValue(addBox);
+            if (!hidden.TryGetValue(key, out var row))
+                return;
+            row.Visibility = System.Windows.Visibility.Visible;
+            hidden.Remove(key);
+            Refresh();
+            row.BringIntoView();
+        };
+        Refresh();
+        var addRow = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+        addRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        addRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        addRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var addLabel = Muted($"Block chưa gán ({hidden.Count}) — chọn để thêm:");
+        addLabel.VerticalAlignment = VerticalAlignment.Center;
+        addLabel.Margin = new Thickness(0, 0, 8, 0);
+        addBox.Margin = new Thickness(0, 0, 8, 0);
+        Grid.SetColumn(addBox, 1);
+        Grid.SetColumn(add, 2);
+        addRow.Children.Add(addLabel);
+        addRow.Children.Add(addBox);
+        addRow.Children.Add(add);
+        add.Click += (_, _) => addLabel.Text = $"Block chưa gán ({hidden.Count}) — chọn để thêm:";
 
         var missing = kinds.Where(s => _types[s.Kind].Count == 0).Select(s => s.Label).ToList();
         var note = new TextBlock
@@ -713,7 +756,7 @@ internal sealed class DeviceSetupWindow : DssDialog
             Margin = new Thickness(0, 6, 0, 0)
         };
         _extra = DssTheme.Input(mount == DeviceMount.Wall ? "400" : "2700");
-        AddSection(1, "Block → thiết bị", header, rows, note);
+        AddSection(1, "Block → thiết bị", header, rows, addRow, note);
         var settings = new List<UIElement>
         {
             DssTheme.Field(mount == DeviceMount.Wall ? "Khoảng tìm tường quanh block (mm)" : "Cao độ trần khi chưa có trần (mm, từ level)", _extra)

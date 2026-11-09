@@ -100,6 +100,13 @@ public static class FoundationCatalogFilter
         return nonPile.Count > 0 ? nonPile : all;
     }
 
+    /// <summary>Pile caps and isolated footings together (one tool builds both, by the Type Mark on the CAD).</summary>
+    public static IReadOnlyList<string> FilterCapsAndFootings(IReadOnlyList<string> all)
+    {
+        var either = all.Where(t => MatchesFoundationKind(t, KindPileCap) || MatchesFoundationKind(t, KindIsolated)).ToList();
+        return either.Count > 0 ? either : FilterFoundationTypes(all, KindPileCap);
+    }
+
     /// <summary>
     /// Type Mark compare for Đài cọc: trim + case-insensitive; Vietnamese Đ/đ kept as the same letter.
     /// Does not fold Đ→D (CAD "Đ4" must match Revit Type Mark "Đ4", not "D4").
