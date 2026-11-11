@@ -263,9 +263,13 @@ internal static class MepFromCad
 
             // Runs drawn a few degrees off square get no fitting: tees slid square along the main, free stubs turned to 90°.
             var (teesSquared, cornersSquared) = MepRoutePlanner.SquareUp(net);
-            // Sprinkler pipes reduce 150 mm past the head or the branch tee, not at it.
+            // Sprinkler and water supply pipes reduce 150 mm past the head or the branch tee, not at it.
             ReducerNodes.Clear();
-            var reducersMoved = choice.Group == MepSystemCatalog.Fire ? MepRoutePlanner.ReducersPast(net, reducers: ReducerNodes) : 0;
+            var reducersMoved = choice.Group == MepSystemCatalog.Fire || (choice.Group == MepSystemCatalog.Plumb && choice.Run == MepRun.PressurePipe)
+                ? MepRoutePlanner.ReducersPast(net, reducers: ReducerNodes) : 0;
+            // The pipe's real outside diameter per size, as Revit makes it (the segment the type routes with for that size).
+            if (choice.Run is MepRun.PressurePipe or MepRun.DrainPipe)
+                Setup.ProbeOuter(doc, setup, level, net.Edges.Where(e => e.Size.IsRound).Select(e => e.Size.DiameterMm));
             var report = Build(doc, net, level, topLevel, setup, outlets, heads, texts);
             if (reducersMoved > 0)
                 report += $"Côn giảm dời {150} mm qua đầu phun / tê nhánh sang phía ống nhỏ: {reducersMoved} chỗ.\n";
@@ -443,6 +447,14 @@ internal static class MepFromCad
                 var own = systems.Where(s => Drains(s.Id) == (choice.Run == MepRun.DrainPipe)).ToList();
                 if (own.Count > 0)
                     systems = own;
+                // Pressure pipes: only the tool's own group (Cấp nước: cold / hot water, not chiller, fire or equalizer).
+                if (choice.Run == MepRun.PressurePipe && choice.Group is { } group)
+                {
+                    var mine = systems.Where(s => doc.GetElement(s.Id) is PipingSystemType t
+                        && MepSystemCatalog.PipeInGroup(group, s.Abbr, s.Name, t.SystemClassification.ToString())).ToList();
+                    if (mine.Count > 0)
+                        systems = mine;
+                }
             }
 
             if (systems.Count == 0)
@@ -532,7 +544,7 @@ internal static class MepFromCad
                 MepRun.DrainPipe => "Điểm đầu tuyến (cao nhất) cách đáy dầm/sàn bằng khe hở dưới; cao độ còn lại nội suy theo độ dốc về điểm xả",
                 MepRun.Duct => "So với đáy dầm/sàn: đáy dầm thấp hơn cao độ tự nhập thì cả mạng hạ xuống dưới dầm (mọi ống cùng mặt đáy/đỉnh)",
                 _ => "Cao độ theo đáy dầm/sàn kết cấu, uốn né dầm"
-            }, overhead.Count > 0);
+            }, false); // Off on opening (every tool): ticked by hand when the runs should follow the beams.
             var clearance = dlg.AddInput(choice.Run == MepRun.DrainPipe ? "Khe hở từ đáy dầm/sàn đến đỉnh ống tại điểm đầu tuyến (mm)" : "Khe hở dưới đáy dầm/sàn (mm)",
                 choice.Run == MepRun.DrainPipe ? "150" : "50");
             var storeyMm = topLevel.Id == level.Id ? 3300 : Math.Round(UnitConv.ToMm(topLevel.Elevation - level.Elevation));
@@ -589,6 +601,46 @@ internal static class MepFromCad
                     ? PipeOuter(doc, round.First(t => t.Name == DssTheme.ComboValue(roundBox)).Id)
                     : new Dictionary<double, double>()
             };
+        }
+
+        /// <summary>
+        /// The outside diameter Revit really gives each size (the first segment rule is not always the one used for a
+        /// size, and a size missing from the segment snaps to another): a pipe of each size is drawn, read, and rolled back.
+        /// </summary>
+        internal static void ProbeOuter(Document doc, Setup setup, Level level, IEnumerable<double> diameters)
+        {
+            var sizes = diameters.Select(d => Math.Round(d)).Where(d => d > 0).Distinct().ToList();
+            if (sizes.Count == 0 || setup.RoundTypeId == ElementId.InvalidElementId || doc.IsModifiable)
+                return;
+            using var t = new Transaction(doc, "DSSTech pipe sizes");
+            var options = t.GetFailureHandlingOptions();
+            options.SetFailuresPreprocessor(new RollBackOnError());
+            t.SetFailureHandlingOptions(options);
+            try
+            {
+                t.Start();
+                foreach (var d in sizes)
+                {
+                    var z = level.ProjectElevation;
+                    var pipe = Pipe.Create(doc, setup.SystemId, setup.RoundTypeId, level.Id, new XYZ(0, 0, z), new XYZ(UnitConv.MmToInternal(1000), 0, z));
+                    pipe.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM)?.Set(UnitConv.MmToInternal(d));
+                    doc.Regenerate();
+                    var od = pipe.get_Parameter(BuiltInParameter.RBS_PIPE_OUTER_DIAMETER)?.AsDouble() ?? 0;
+                    if (od > 0)
+                        setup.PipeOuterMm[d] = UnitConv.ToMm(od);
+                }
+            }
+            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+            {
+                DssTechLog.Write($"mep pipe sizes: probe failed, segment table kept: {ex.Message}");
+            }
+            finally
+            {
+                if (t.HasStarted() && !t.HasEnded())
+                    t.RollBack();
+            }
+
+            DssTechLog.Write("mep pipe sizes: " + string.Join(", ", sizes.Where(setup.PipeOuterMm.ContainsKey).Select(d => $"D{d:0}→OD {setup.PipeOuterMm[d]:0.#}")));
         }
 
         /// <summary>Nominal → outside diameter (mm) of the segment the pipe type routes with.</summary>
