@@ -5,18 +5,21 @@ namespace Dss.Cad2Bim.Core;
 public static class CadMark
 {
 	/// <summary>
-	/// Pile-cap Type Mark style: Đ + digits + optional letter(s), e.g. Đ4, Đ2A, Đ2F, đ3.
-	/// Prefers these over beam/grid labels when associating CAD text to an outline.
+	/// Pile-cap / footing Type Mark: Đ + digits + optional letter(s) (Đ4, Đ2A, đ3), Đ + letters + number (ĐA-1, ĐC2,
+	/// ĐM-3), or a footing's M / MĐ / F + number (M1, MĐ-2, F3). Preferred over beam/grid labels near an outline.
 	/// </summary>
+	private const string FoundationIdPattern =
+		@"(?:[Đđ](?:\d+[A-Za-zĐđ]*|[A-Za-zĐđ]{1,3}[-.]?\d+[A-Za-z]?)|(?:M[ĐđD]?|F)[-.]?\d+[A-Za-z]?)";
+
 	private static readonly Regex PileCapId = new(
-		@"^[Đđ]\d+[A-Za-zĐđ]*$",
+		"^" + FoundationIdPattern + "$",
 		RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
 	/// <summary>
-	/// Leading pile-cap id in a Revit type name leaf, e.g. <c>Đ4A-1000x1000x1100mm</c> → Đ4A.
+	/// Leading pile-cap id in a Revit type name leaf, e.g. <c>Đ4A-1000x1000x1100mm</c> → Đ4A, <c>ĐA-1-1200x1200</c> → ĐA-1.
 	/// </summary>
 	private static readonly Regex PileCapIdPrefix = new(
-		@"^[Đđ]\d+[A-Za-zĐđ]*",
+		"^" + FoundationIdPattern,
 		RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
 	public static bool IsLabel(string? value)

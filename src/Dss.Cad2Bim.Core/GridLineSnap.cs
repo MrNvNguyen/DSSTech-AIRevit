@@ -35,11 +35,28 @@ public static class GridLineSnap
     private const double ReachPastEndMm = 3000;
     private const double FrameMatchDeg = 10;
 
+    /// <summary>A grid line's own direction and its offset along that direction's normal.</summary>
+    private readonly struct Line
+    {
+        public Line(double sin, double cos, double own)
+        {
+            Sin = sin;
+            Cos = cos;
+            Own = own;
+        }
+
+        public double Sin { get; }
+        public double Cos { get; }
+        public double Own { get; }
+    }
+
     private sealed class Family
     {
         public double AngleDeg;
         public double Sin, Cos;
-        public List<(double Offset, double From, double To)> Lines = new();
+        /// <summary>Each line with its own direction: grids within <see cref="SameAngleDeg"/> are one family, but a
+        /// pile is measured square to its own grid (0.0001° off the family over 15 m is 0.03 mm on the dimension).</summary>
+        public List<(double Offset, double From, double To, double Sin, double Cos, double Own)> Lines = new();
     }
 
     /// <param name="refX">Where the locating grids are looked up (a pile: its cap's middle, so every pile of the cap
@@ -52,7 +69,7 @@ public static class GridLineSnap
             return (x, y, false);
 
         var near = families.Select(f => (Family: f, Line: Nearest(f, refX ?? x, refY ?? y))).Where(t => t.Line is not null).ToList();
-        (Family F, double N)? a = null, b = null;
+        (Family F, Line L)? a = null, b = null;
         if (frameDeg is double frame)
         {
             // The frame's own directions first: the grid family along the frame, then the one most square to it.
@@ -65,8 +82,8 @@ public static class GridLineSnap
                     .ThenBy(t => Math.Abs(t.Line!.Value.Distance)).FirstOrDefault();
                 if (square.Family is not null)
                 {
-                    a = (along.Family, along.Line!.Value.Offset);
-                    b = (square.Family, square.Line!.Value.Offset);
+                    a = (along.Family, along.Line!.Value.Line);
+                    b = (square.Family, square.Line!.Value.Line);
                 }
             }
         }
@@ -83,17 +100,18 @@ public static class GridLineSnap
                 if (score >= best)
                     continue;
                 best = score;
-                a = (near[i].Family, near[i].Line!.Value.Offset);
-                b = (near[j].Family, near[j].Line!.Value.Offset);
+                a = (near[i].Family, near[i].Line!.Value.Line);
+                b = (near[j].Family, near[j].Line!.Value.Line);
             }
         }
 
         if (a is null || b is null)
             return (x, y, false);
-        var (fa, ga) = a.Value;
-        var (fb, gb) = b.Value;
-        var na = ga + ModelRevitPlanner.Round5Mm(Normal(fa, x, y) - ga);
-        var nb = gb + ModelRevitPlanner.Round5Mm(Normal(fb, x, y) - gb);
+        // Square to each locating grid's own line, not the family's angle (taken from its first grid).
+        var fa = a.Value.L;
+        var fb = b.Value.L;
+        var na = fa.Own + ModelRevitPlanner.Round5Mm(-x * fa.Sin + y * fa.Cos - fa.Own);
+        var nb = fb.Own + ModelRevitPlanner.Round5Mm(-x * fb.Sin + y * fb.Cos - fb.Own);
         // -x·sinA + y·cosA = na ; -x·sinB + y·cosB = nb
         var det = -fa.Sin * fb.Cos + fa.Cos * fb.Sin;
         if (Math.Abs(det) < 1e-9)
@@ -139,7 +157,7 @@ public static class GridLineSnap
     private static double Normal(Family f, double x, double y) => -x * f.Sin + y * f.Cos;
 
     /// <summary>Nearest line of the family that runs past the point; any line of it when none does.</summary>
-    private static (double Offset, double Distance)? Nearest(Family f, double x, double y)
+    private static (double Offset, double Distance, Line Line)? Nearest(Family f, double x, double y)
     {
         var n = Normal(f, x, y);
         var s = x * f.Cos + y * f.Sin;
@@ -148,7 +166,7 @@ public static class GridLineSnap
         if (pool.Count == 0)
             return null;
         var line = pool.OrderBy(l => Math.Abs(n - l.Offset)).First();
-        return (line.Offset, n - line.Offset);
+        return (line.Offset, n - line.Offset, new Line(line.Sin, line.Cos, line.Own));
     }
 
     private static List<Family> Families(IReadOnlyList<GridSegment>? grids)
@@ -170,16 +188,21 @@ public static class GridLineSnap
             }
 
             var offset = -g.X0 * f.Sin + g.Y0 * f.Cos;
+            // The line's own direction, turned the family's way round.
+            var (ls, lc) = ((g.Y1 - g.Y0) / len, (g.X1 - g.X0) / len);
+            if (ls * f.Sin + lc * f.Cos < 0)
+                (ls, lc) = (-ls, -lc);
+            var own = -g.X0 * ls + g.Y0 * lc;
             var s0 = g.X0 * f.Cos + g.Y0 * f.Sin;
             var s1 = g.X1 * f.Cos + g.Y1 * f.Sin;
             var same = f.Lines.FindIndex(l => Math.Abs(l.Offset - offset) <= SameOffsetMm);
             if (same >= 0)
             {
                 var l = f.Lines[same];
-                f.Lines[same] = (l.Offset, Math.Min(l.From, Math.Min(s0, s1)), Math.Max(l.To, Math.Max(s0, s1)));
+                f.Lines[same] = (l.Offset, Math.Min(l.From, Math.Min(s0, s1)), Math.Max(l.To, Math.Max(s0, s1)), l.Sin, l.Cos, l.Own);
             }
             else
-                f.Lines.Add((offset, Math.Min(s0, s1), Math.Max(s0, s1)));
+                f.Lines.Add((offset, Math.Min(s0, s1), Math.Max(s0, s1), ls, lc, own));
         }
 
         return families;

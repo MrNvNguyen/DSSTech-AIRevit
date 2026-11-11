@@ -54,7 +54,7 @@ public sealed class ModelWallFitCommand : IExternalCommand
               $"Hạ đỉnh tới đáy dầm/sàn phía trên: {fit.Lowered} tường." +
               (fit.Uneven > 0 ? $"\n{fit.Uneven} tường có đáy dầm/sàn không đều dọc tường: lấy mức gặp trên phần lớn chiều dài." : "") +
               "\nCột có cửa ở cả hai phía: chỉ cắt hai đầu tường (cửa không chuyển sang đoạn mới được).";
-        TaskDialog.Show("DSSTech — Khớp kết cấu", text);
+        DoneReport.Show("DSSTech — Khớp kết cấu", text);
         return Result.Succeeded;
     }
 }

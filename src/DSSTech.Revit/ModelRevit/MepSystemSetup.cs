@@ -124,7 +124,7 @@ public sealed class MepSystemSetupCommand : IExternalCommand
             summary.AppendLine($"Ghi đè mã vào tên hệ ({renamed.Count}): " + string.Join("; ", renamed));
         if (failed.Count > 0)
             summary.AppendLine("Lỗi: " + string.Join("; ", failed));
-        TaskDialog.Show(Title, summary.ToString());
+        DoneReport.Show(Title, summary.ToString());
         return Result.Succeeded;
     }
 

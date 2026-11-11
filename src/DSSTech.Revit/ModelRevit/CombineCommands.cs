@@ -154,7 +154,7 @@ public sealed class MepRaiseCommand : IExternalCommand
             sb.AppendLine($"Bỏ qua {sloped} mạng ống dốc (thoát nước): giữ độ dốc và điểm xả.");
         if (locked > 0)
             sb.AppendLine($"Bỏ qua {locked} mạng bị khóa (pin, hoặc hệ khóa trong quy tắc Combine như Gas).");
-        TaskDialog.Show(Title, sb.ToString());
+        DoneReport.Show(Title, sb.ToString());
         return Result.Succeeded;
     }
 }
@@ -214,7 +214,7 @@ public sealed class MepAvoidCommand : IExternalCommand
                 .Select(e => MepCombine.Box(MepCombine.Solids(e)))
                 .Where(b => b is not null).Select(b => b!.Value).ToList();
             var (made, notes) = Apply(doc, runs, others, under, clearance);
-            TaskDialog.Show(Title,
+            DoneReport.Show(Title,
                 $"{yieldKind} {(under ? "đi dưới" : "đi trên")} {string.Join(", ", kinds.Where(k => k != yieldKind))}: {made} chỗ đổi tuyến " +
                 $"(4 cút mỗi chỗ, khe hở {UnitConv.ToMm(clearance):0} mm).\n" + MepCombine.Summary(notes));
             return Result.Succeeded;

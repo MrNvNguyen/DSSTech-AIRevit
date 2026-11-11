@@ -12,7 +12,7 @@ public enum DeviceMount
     Ceiling,
     /// <summary>Air-conditioning devices: at the ceiling (or a typed height), joined to the ducts by flex duct.</summary>
     Hvac,
-    /// <summary>Fire protection: cabinets on the wall, sprinklers and detectors at the ceiling.</summary>
+    /// <summary>Fire protection equipment (cabinets, hydrants, FM200 cylinders): at the block, the level plus a set height.</summary>
     Fire
 }
 
@@ -28,7 +28,19 @@ public enum DeviceKind
     AirTerminal,
     FanCoil,
     AirBox,
-    FireCabinet
+    FireCabinet,
+    /// <summary>Large fire equipment standing on the floor: FM200 / gas cylinders, alarm valves, fire pumps.</summary>
+    FireEquipment,
+    /// <summary>Portable and wheeled extinguishers (powder, CO2, foam).</summary>
+    FireExtinguisher,
+    /// <summary>Fire alarm control panels and gas-release / pump control panels.</summary>
+    FireAlarmPanel,
+    /// <summary>Manual call points and gas-release buttons, on the wall at hand height.</summary>
+    ManualCallPoint,
+    /// <summary>Fire bells, horns, strobes and gas-discharge signs, on the wall high up.</summary>
+    FireBell,
+    /// <summary>Emergency lights and exit signs.</summary>
+    EmergencyLight
 }
 
 /// <summary>One kind of device: where it mounts, its Revit category and the default height.</summary>
@@ -91,10 +103,38 @@ public static class DevicePlanner
     // Most specific first: "ĐÈN ỐP TƯỜNG" is a wall light before it is a light; a detector is not a sprinkler.
     public static readonly IReadOnlyList<DeviceSpec> Specs = new[]
     {
-        // Fire hose cabinets on the wall, height of the cabinet's foot (they sit among mechanical equipment in Revit).
-        new DeviceSpec(DeviceKind.FireCabinet, DeviceMount.Fire, "Tủ chữa cháy", "OST_FireProtection;OST_MechanicalEquipment;OST_SpecialityEquipment", 600,
+        // Fire protection equipment (TCVN 3890): each at the level plus its own height. Most specific first: a gas
+        // cylinder is not a portable extinguisher, a call point or a panel is not a detector ("BAO CHAY").
+        new DeviceSpec(DeviceKind.FireEquipment, DeviceMount.Fire, "Thiết bị PCCC lớn (FM200, bình khí, van, bơm)",
+            "OST_FireProtection;OST_MechanicalEquipment;OST_SpecialityEquipment;OST_PipeAccessory", 0,
+            new[] { "FM200", "FM 200", "HFC 227", "NOVEC", "INERGEN", "ARGONITE", "IG 541", "BINH KHI", "CHUA CHAY KHI", "GAS SUPPRESSION",
+                "CLEAN AGENT", "CYLINDER", "VAN BAO DONG", "ALARM VALVE", "DELUGE", "VAN TRAN", "CUM VAN", "BOM CHUA CHAY", "FIRE PUMP",
+                "JOCKEY", "BOM BU", "BINH TICH AP", "PRESSURE TANK", "HONG TIEP NUOC", "TIEP NUOC", "SIAMESE", "FDC", "TRU CHUA CHAY",
+                "TRU NUOC", "PILLAR HYDRANT" },
+            new[] { "FM200" }),
+        new DeviceSpec(DeviceKind.FireAlarmPanel, DeviceMount.Fire, "Tủ trung tâm / điều khiển chữa cháy",
+            "OST_FireAlarmDevices;OST_ElectricalEquipment;OST_SpecialityEquipment", 1200,
+            new[] { "TRUNG TAM BAO CHAY", "TU TRUNG TAM", "TU DIEU KHIEN", "CONTROL PANEL", "FACP", "FIRE ALARM PANEL", "RELEASING PANEL" },
+            new[] { "FACP", "FCP", "TTBC" }),
+        new DeviceSpec(DeviceKind.ManualCallPoint, DeviceMount.Fire, "Nút ấn báo cháy / xả khí", "OST_FireAlarmDevices", 1400,
+            new[] { "NUT AN", "NUTAN", "NUT NHAN", "BAO CHAY KHAN CAP", "CALL POINT", "MANUAL STATION", "BREAK GLASS", "PULL STATION",
+                "XA KHI", "ABORT" },
+            new[] { "MCP", "NA" }),
+        new DeviceSpec(DeviceKind.FireBell, DeviceMount.Fire, "Chuông / còi / đèn báo cháy", "OST_FireAlarmDevices", 2300,
+            new[] { "CHUONG", "COI DEN", "COI BAO", "DEN CHOP", "BELL", "HORN", "STROBE", "SOUNDER", "BEACON", "FLASHER" },
+            new[] { "HS" }),
+        new DeviceSpec(DeviceKind.EmergencyLight, DeviceMount.Fire, "Đèn sự cố / EXIT", "OST_LightingFixtures;OST_LightingDevices;OST_FireAlarmDevices", 2200,
+            new[] { "DEN SU CO", "SU CO", "EXIT", "LOI THOAT", "THOAT NAN", "CHI DAN", "EMERGENCY", "EMG" },
+            new[] { "EMG" }),
+        new DeviceSpec(DeviceKind.FireExtinguisher, DeviceMount.Fire, "Bình chữa cháy xách tay / xe đẩy",
+            "OST_FireProtection;OST_SpecialityEquipment;OST_MechanicalEquipment", 0,
+            new[] { "BINH CHUA CHAY", "BINH BOT", "BINH CO2", "BINH XACH TAY", "XE DAY", "EXTINGUISHER", "PORTABLE", "MFZ", "MT3", "MT5" },
+            new[] { "BCC", "MFZ", "MFT" }),
+        // Fire hose cabinets, hose reels and wall hydrants, at the cabinet's foot above the level.
+        new DeviceSpec(DeviceKind.FireCabinet, DeviceMount.Fire, "Tủ / họng chữa cháy vách tường",
+            "OST_FireProtection;OST_MechanicalEquipment;OST_SpecialityEquipment", 600,
             new[] { "TU CHUA CHAY", "TUCHUACHAY", "HOP CHUA CHAY", "TU PCCC", "TUPCCC", "HONG NUOC", "HONG CHUA CHAY", "HYDRANT", "FIRE HOSE",
-                "HOSE REEL", "FIRE CABINET", "FIRECABINET", "BINH CHUA CHAY", "EXTINGUISHER" },
+                "HOSE REEL", "CUON VOI", "FIRE CABINET", "FIRECABINET", "LANG PHUN" },
             new[] { "FHC", "HCC", "TCC", "FH" }),
         new DeviceSpec(DeviceKind.Sprinkler, DeviceMount.Ceiling, "Đầu phun sprinkler", "OST_Sprinklers", 0,
             new[] { "SPRINKLER", "SPRINK", "DAU PHUN", "DAUPHUN", "PENDENT", "UPRIGHT" }, new[] { "SPK", "SPR" }),
@@ -124,14 +164,21 @@ public static class DevicePlanner
     public static DeviceSpec Spec(DeviceKind kind) => Specs.First(s => s.Kind == kind);
 
     /// <summary>Fire-protection kinds: kept off the air-conditioning tool's family lists.</summary>
-    public static bool IsFire(DeviceKind? kind) => kind is DeviceKind.FireCabinet or DeviceKind.Sprinkler or DeviceKind.FireAlarm;
+    public static bool IsFire(DeviceKind? kind) =>
+        kind is DeviceKind.FireCabinet or DeviceKind.FireEquipment or DeviceKind.FireExtinguisher or DeviceKind.FireAlarmPanel or
+            DeviceKind.ManualCallPoint or DeviceKind.FireBell or DeviceKind.EmergencyLight or DeviceKind.Sprinkler or DeviceKind.FireAlarm;
 
-    /// <summary>The kinds one tool offers: the PCCC tool takes the cabinets and the fire kinds of the ceiling.</summary>
-    public static bool Offers(DeviceMount mount, DeviceSpec spec) =>
-        spec.Mount == mount || (mount == DeviceMount.Fire && IsFire(spec.Kind));
+    /// <summary>
+    /// The kinds one tool offers. The PCCC tool takes cabinets and large equipment only; sprinklers and detectors stay
+    /// with the ceiling devices, which follow the ceiling above each one.
+    /// </summary>
+    public static bool Offers(DeviceMount mount, DeviceSpec spec) => spec.Mount == mount;
 
-    /// <summary>Placed on a wall face (wall devices, fire cabinets) rather than under the ceiling.</summary>
-    public static bool OnWall(DeviceSpec spec) => spec.Mount is DeviceMount.Wall or DeviceMount.Fire;
+    /// <summary>Placed on a wall face (wall devices) rather than under the ceiling.</summary>
+    public static bool OnWall(DeviceSpec spec) => spec.Mount == DeviceMount.Wall;
+
+    /// <summary>Placed at the block, the level plus the row's height (cabinets, FM200, extinguishers, call points, bells…).</summary>
+    public static bool OnFloor(DeviceSpec spec) => spec.Mount == DeviceMount.Fire;
 
     private static readonly double[] RoundDuctMm = { 100, 125, 150, 160, 200, 250, 300, 315, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 900, 1000 };
 

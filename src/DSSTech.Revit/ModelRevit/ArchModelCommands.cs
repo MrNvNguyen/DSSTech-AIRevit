@@ -85,7 +85,7 @@ public sealed class ModelLintelCommand : IExternalCommand
         summary.AppendLine($"Lanh tô: {lintels} (cửa sát nhau dùng chung một lanh tô; lanh tô dừng ở đầu tường).");
         summary.AppendLine($"Bổ trụ: {ops.Count - lintels} (cửa rộng từ {LintelPlanner.StiffenerMinOpeningMm:0}; bỏ phía sát đầu tường).");
         ArchModelOpenings.AppendResults(summary, result.Data);
-        TaskDialog.Show("DSSTech — Lanh tô, bổ trụ", summary.ToString());
+        DoneReport.Show("DSSTech — Lanh tô, bổ trụ", summary.ToString());
         return Result.Succeeded;
     }
 
@@ -195,7 +195,7 @@ public sealed class ModelWallOpeningCommand : IExternalCommand
         summary.AppendLine($"Lỗ mở: tạo {created}, đã có {existing}" + (failed > 0 ? $", lỗi {failed} (xem log)" : "") + $"; khe hở {clearanceMm:0} mm mỗi phía.");
         summary.AppendLine("Ống chéo tường: lỗ rộng thêm theo góc xiên qua bề dày tường. Ống đứng (qua sàn) và ống chạy dọc tường không đục.");
         summary.AppendLine("Tường trong file link không đục được; tủ PCCC nhận theo tên family/type (PCCC, chữa cháy, FHC, fire hose).");
-        TaskDialog.Show("DSSTech — Lỗ mở tường", summary.ToString());
+        DoneReport.Show("DSSTech — Lỗ mở tường", summary.ToString());
         return Result.Succeeded;
     }
 
