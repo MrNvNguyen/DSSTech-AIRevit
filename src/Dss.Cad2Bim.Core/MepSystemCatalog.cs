@@ -114,6 +114,25 @@ public static class MepSystemCatalog
     };
 
     /// <summary>
+    /// Whether a piping system type of the model belongs to a tool's group (Cấp nước lists water supply only, PCCC the
+    /// fire systems, Chiller the chilled water): its code (abbreviation, else a word of its name) when the catalog
+    /// knows it, else its Revit classification. Drainage (Sanitary, Vent) never counts: it has its own tool.
+    /// </summary>
+    public static bool PipeInGroup(string group, string? abbreviation, string? name, string classification)
+    {
+        var pipes = All.Where(s => s.Domain == MepDomain.Pipe).ToList();
+        foreach (var words in new[] { Words(abbreviation), Words(name) })
+        {
+            var known = pipes.Where(s => words.Contains(s.Abbr)).ToList();
+            if (known.Count > 0)
+                return known.Any(s => s.Group == group && s.Classification is not ("Sanitary" or "Vent"));
+        }
+
+        return pipes.Any(s => s.Group == group && s.Classification is not ("Sanitary" or "Vent")
+            && string.Equals(s.Classification, classification, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// The existing system type that already is this system, best first: same abbreviation (or the abbreviation as
     /// a word of the name) beats a name that says the same thing (Supply Air, Cấp gió). Only the same domain counts.
     /// </summary>

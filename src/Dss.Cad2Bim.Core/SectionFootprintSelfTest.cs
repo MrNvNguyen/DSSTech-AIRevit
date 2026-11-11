@@ -3661,6 +3661,25 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // «Cấp nước» lists water supply only: cold / hot water by code or classification, never chiller, equalizer,
+        // fire or drainage systems; PCCC the other way round.
+        var plumb = MepSystemCatalog.Plumb;
+        if (!MepSystemCatalog.PipeInGroup(plumb, "CWS", "P-CWS-Cold Water Supply (Cấp Nước Lạnh)", "DomesticColdWater")
+            || !MepSystemCatalog.PipeInGroup(plumb, "HWR", "P-HWR-Hot Water Return", "OtherPipe")
+            || !MepSystemCatalog.PipeInGroup(plumb, "", "Domestic Cold Water", "DomesticColdWater")
+            || MepSystemCatalog.PipeInGroup(plumb, "", "AC_PIS-CHWS_ChilledWaterSupply", "SupplyHydronic")
+            || MepSystemCatalog.PipeInGroup(plumb, "EP", "EP - Equalizer Pipe", "OtherPipe")
+            || MepSystemCatalog.PipeInGroup(plumb, "FDR", "F-FDR-Drencher (Chữa Cháy Màng Ngăn)", "FireProtectPreaction")
+            || MepSystemCatalog.PipeInGroup(plumb, "", "F-SPK_FireSprinklerSystem", "FireProtectWet")
+            || MepSystemCatalog.PipeInGroup(plumb, "", "Hydronic Supply", "SupplyHydronic")
+            || MepSystemCatalog.PipeInGroup(plumb, "RWP", "P-RWP-Rain Water", "Sanitary")
+            || !MepSystemCatalog.PipeInGroup(MepSystemCatalog.Fire, "", "F-SPK_FireSprinklerSystem", "FireProtectWet")
+            || MepSystemCatalog.PipeInGroup(MepSystemCatalog.Fire, "CWS", "P-CWS-Cold Water Supply", "DomesticColdWater"))
+        {
+            message = "pipe systems by group: water supply list holds other groups' systems";
+            return false;
+        }
+
         // Pipe bottoms written at the ends (BOP=-0.50 by end 0, BOP = -570 by end 4); one mid-run (by node 3) is not an
         // end's; a plinth's "BỆ MÁY H 200" is no bottom.
         var bops = MepRoutePlanner.EndBottoms(fromStart, fromStartPart, new List<CadText>
