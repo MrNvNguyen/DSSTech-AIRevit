@@ -16,6 +16,27 @@ internal static class DssTheme
     public static readonly SolidColorBrush Line = Freeze(Color.FromRgb(0xD5, 0xDB, 0xE1));
     public static readonly FontFamily Font = new("Segoe UI");
 
+    /// <summary>
+    /// The DSS Technology logo (Assets\dss-logo.png, cut from the brand file by scripts\extract-brand-mark.ps1),
+    /// scaled to <paramref name="width"/>; a plain "DSSTech" title when the file is missing.
+    /// </summary>
+    public static FrameworkElement Logo(double width)
+    {
+        var dir = System.IO.Path.GetDirectoryName(typeof(DssTheme).Assembly.Location) ?? "";
+        var path = System.IO.Path.Combine(dir, "Assets", "dss-logo.png");
+        if (!System.IO.File.Exists(path))
+            return new TextBlock { Text = "DSSTech", FontSize = 28, FontWeight = FontWeights.Bold, Foreground = Green };
+        var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+        bitmap.BeginInit();
+        bitmap.UriSource = new System.Uri(path, System.UriKind.Absolute);
+        bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+        bitmap.EndInit();
+        bitmap.Freeze();
+        var image = new Image { Source = bitmap, Width = width, Stretch = Stretch.Uniform, SnapsToDevicePixels = true };
+        RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+        return image;
+    }
+
     public static void Paint(Window window)
     {
         window.FontFamily = Font;

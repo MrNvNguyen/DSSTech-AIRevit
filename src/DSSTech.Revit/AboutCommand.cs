@@ -17,9 +17,13 @@ public sealed class AboutCommand : IExternalCommand
         var app = commandData.Application;
         var version = typeof(AboutCommand).Assembly.GetName().Version;
         var info = LicenseService.Info;
-        var dlg = new DssDialog("DSSTech — Giới thiệu", "Bộ công cụ dựng mô hình từ CAD, phối hợp MEPF và khối lượng cho Revit.", 560, 460);
+        var dlg = new DssDialog("DSSTech — Giới thiệu", "Bộ công cụ dựng mô hình từ CAD, phối hợp MEPF và khối lượng cho Revit.", 560, 560);
         dlg.SetOwner(app.MainWindowHandle);
         var body = new StackPanel();
+        var logo = DssTheme.Logo(160);
+        logo.HorizontalAlignment = HorizontalAlignment.Left;
+        logo.Margin = new Thickness(0, 0, 0, 14);
+        body.Children.Add(logo);
         void Row(string label, string value) =>
             body.Children.Add(DssTheme.Field(label, new TextBlock { Text = value, Foreground = DssTheme.Ink, TextWrapping = TextWrapping.Wrap }));
         Row("Sản phẩm", "DSSTech for Revit");
