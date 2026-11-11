@@ -3661,6 +3661,25 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // Pipe bottoms written at the ends (BOP=-0.50 by end 0, BOP = -570 by end 4); one mid-run (by node 3) is not an
+        // end's; a plinth's "BỆ MÁY H 200" is no bottom.
+        var bops = MepRoutePlanner.EndBottoms(fromStart, fromStartPart, new List<CadText>
+        {
+            new() { Value = @"\A1;BOP=-0.50", X = -300, Y = 800 },
+            new() { Value = "BOP = -570", X = 10500, Y = 5900 },
+            new() { Value = "BOP=-0.55", X = 1600, Y = 2500 },
+            new() { Value = "BỆ MÁY H 200", X = 1300, Y = -2900 },
+            // A D140 sleeve's bottom by end 2 (a D110 pipe): the sleeve's, not the pipe's.
+            new() { Value = "D140 CHỜ XUYÊN MÓNG", X = 1500, Y = -3300 },
+            new() { Value = "BOP=-0.47", X = 1500, Y = -3900 }
+        });
+        if (bops.Count != 2 || Math.Abs(bops[0].BottomMm + 500) > 1e-6 || Math.Abs(bops[4].BottomMm + 570) > 1e-6
+            || !MepRoutePlanner.TryParseBottom("BOD=-0.49", out var bod) || Math.Abs(bod + 490) > 1e-6)
+        {
+            message = "drain end bottoms: " + string.Join(" ", bops.Select(kv => $"{kv.Key}:{kv.Value.BottomMm}"));
+            return false;
+        }
+
         // Lowest floor, one exit only: a floor drain (THOÁT SÀN) by end 0 and a clean-water tank (BỂ NGẦM NƯỚC SH)
         // by it do not make it an exit; another pipe's sleeve (D140 CHỜ XUYÊN MÓNG) by end 4 neither; the pump pit
         // (HỐ BƠM) by end 2 does: end 2 is the one exit.

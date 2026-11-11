@@ -544,6 +544,83 @@ public static class MepRoutePlanner
         @"(?<![\p{L}\d])(?:H\s*(?:[=:]\s*\+?|\+)|(?:BOT|BOD)\s*[=:]?\s*\+?|(FFL)\s*(?:[=:]\s*\+?|\+))\s*(\d+(?:[.,]\d+)?)\s*(MM|M)?(?![\p{L}\d])",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    /// <summary>A pipe bottom written on a drain: BOP=-0.57, BOP = -570, BOD=-0.49 (bottom of pipe, from the level).</summary>
+    private static readonly Regex BottomLabel = new(
+        @"(?<![\p{L}\d])(?:BOP|BOD|BOT|IL|INV)\s*[=:]?\s*([+-]?\s*\d+(?:[.,]\d+)?)\s*(MM|M)?(?![\p{L}\d])",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>The pipe bottom a note gives (mm from the level): BOP=-0.57 → -570, BOP=-570 → -570.</summary>
+    public static bool TryParseBottom(string? text, out double mm)
+    {
+        mm = 0;
+        var m = text is null ? Match.Empty : BottomLabel.Match(text);
+        if (!m.Success || !double.TryParse(m.Groups[1].Value.Replace(" ", "").Replace(',', '.'),
+                System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v))
+            return false;
+        var unit = m.Groups[2].Value.ToUpperInvariant();
+        var metres = unit == "M" || unit != "MM" && Math.Abs(v) < 30;
+        mm = metres ? v * 1000 : v;
+        return true;
+    }
+
+    /// <summary>
+    /// The pipe bottoms written at a drain network's open ends (BOP=-0.50 by the end of the run): each note within
+    /// <paramref name="reachMm"/> of the pipe, its foot on the pipe within <paramref name="endMm"/> (along it) of an open
+    /// end, gives that end. Notes along the middle of a run are not used: the ends fix it, the fall does the rest.
+    /// </summary>
+    public static Dictionary<int, (double BottomMm, string Text)> EndBottoms(
+        MepNetwork net, IReadOnlyCollection<int> part, IEnumerable<CadText> texts, double reachMm = 2000, double endMm = 2500)
+    {
+        var adjacent = Adjacency(net);
+        var inPart = new HashSet<int>(part);
+        var edges = net.Edges.Where(e => inPart.Contains(e.A) && !e.IsTransition).ToList();
+        var ends = part.Where(n => adjacent[n].Count == 1).ToList();
+        var found = new Dictionary<int, (double BottomMm, string Text, double D)>();
+        var all = texts.ToList();
+        // Sleeve notes with a size (D140 CHỜ XUYÊN MÓNG): a BOP written under one is that sleeve's.
+        var sleeves = all.Select(s => (Text: DevicePlanner.Plain(s.Value), X: s.CenterX ?? s.X, Y: s.CenterY ?? s.Y))
+            .Where(s => SleeveNote.IsMatch(s.Text) && SizeIn(s.Text) is not null).ToList();
+        foreach (var t in all)
+        {
+            if (!TryParseBottom(Regex.Replace(t.Value ?? "", @"\\[A-Za-z][^;\\]*;|[{}]", ""), out var mm))
+                continue;
+            var tx = t.CenterX ?? t.X;
+            var ty = t.CenterY ?? t.Y;
+            // The sleeve line stands over its BOP line; a long sleeve note's middle is ~2-3 m from a short BOP's.
+            var pairedSize = sleeves.Where(s => Math.Sqrt(Sq(s.X - tx) + Sq(s.Y - ty)) <= 3000)
+                .OrderBy(s => Sq(s.X - tx) + Sq(s.Y - ty)).Select(s => SizeIn(s.Text)).FirstOrDefault();
+            // The foot of the note on the nearest run of this network.
+            var (best, bd, fx, fy) = ((MepEdge?)null, reachMm, 0.0, 0.0);
+            foreach (var e in edges)
+            {
+                var (x0, y0) = net.Nodes[e.A];
+                var (x1, y1) = net.Nodes[e.B];
+                var l2 = Sq(x1 - x0) + Sq(y1 - y0);
+                var u = l2 < 1 ? 0 : Math.Max(0, Math.Min(1, ((tx - x0) * (x1 - x0) + (ty - y0) * (y1 - y0)) / l2));
+                var (px, py) = (x0 + (x1 - x0) * u, y0 + (y1 - y0) * u);
+                var d = Math.Sqrt(Sq(px - tx) + Sq(py - ty));
+                if (d < bd)
+                    (best, bd, fx, fy) = (e, d, px, py);
+            }
+
+            if (best is null || pairedSize is double ps && Math.Abs(ps - best.Size.DiameterMm) >= 1)
+                continue;
+            // The open end this foot lies near, along the pipe.
+            foreach (var n in ends)
+            {
+                var along = DistancesFrom(net, n);
+                var a = Math.Min(
+                    (along.TryGetValue(best.A, out var da) ? da : double.MaxValue) + Math.Sqrt(Sq(fx - net.Nodes[best.A].X) + Sq(fy - net.Nodes[best.A].Y)),
+                    (along.TryGetValue(best.B, out var db) ? db : double.MaxValue) + Math.Sqrt(Sq(fx - net.Nodes[best.B].X) + Sq(fy - net.Nodes[best.B].Y)));
+                if (a > endMm || found.TryGetValue(n, out var had) && had.D <= a + bd)
+                    continue;
+                found[n] = (mm, t.Value ?? "", a + bd);
+            }
+        }
+
+        return found.ToDictionary(kv => kv.Key, kv => (kv.Value.BottomMm, kv.Value.Text));
+    }
+
     /// <summary>Heights of building parts, not of a run: plinths, pads, doors, tanks, pits.</summary>
     private static readonly Regex NotRunHeight = new(
         @"(?<!\p{L})(?:BỆ|BE MAY|ĐẾ|PAD|PLINTH|CỬA|BỂ|HỐ|SILL)(?!\p{L})",

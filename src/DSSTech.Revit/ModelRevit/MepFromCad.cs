@@ -774,6 +774,28 @@ internal static class MepFromCad
                 offFallCount += offFall.Count;
                 if (runEnds.Count == 0)
                     continue;
+                // Pipe bottoms written at the run's ends (BOP=-0.50): a run with one at each of its two ends falls
+                // straight from the one to the other; else the bottom at the outlet (or the head, or another end)
+                // fixes the height and the drawn falls do the rest.
+                var bottoms = MepRoutePlanner.EndBottoms(net, parts[p], texts);
+                var partEnds = parts[p].Where(n => edgesAt[n].Count == 1).ToList();
+                double EndDepth(int n) => edgesAt[n].Max(i => setup.Depth(net.Edges[i].Size));
+                double RiseAt(int n) => runEnds.Where(kv => kv.Key.A == n || kv.Key.B == n)
+                    .Select(kv => kv.Key.A == n ? kv.Value.A : kv.Value.B).DefaultIfEmpty(0).First();
+                var bopNote = "";
+                if (partEnds.Count == 2 && bottoms.Count == 2 && !setup.Vent)
+                {
+                    var low = bottoms.OrderBy(kv => kv.Value.BottomMm).First().Key;
+                    var high = partEnds.First(n => n != low);
+                    var along = MepRoutePlanner.DistancesFrom(net, low);
+                    var fall = bottoms[high].BottomMm + EndDepth(high) / 2 - (bottoms[low].BottomMm + EndDepth(low) / 2);
+                    var length = along.TryGetValue(high, out var lh) && lh > 0 ? lh : 1;
+                    runEnds = runEnds.ToDictionary(kv => kv.Key,
+                        kv => (along.TryGetValue(kv.Key.A, out var da) ? da / length * fall : 0, along.TryGetValue(kv.Key.B, out var db) ? db / length * fall : 0));
+                    outlets = new List<int> { low };
+                    bopNote = $"; cao độ theo BOP hai đầu ({bottoms[high].BottomMm:0} → {bottoms[low].BottomMm:0} mm, dốc {fall / length * 100:0.##}%)";
+                }
+
                 var top = runEnds.SelectMany(kv => new[] { (Node: kv.Key.A, Rise: kv.Value.A, Edge: kv.Key), (Node: kv.Key.B, Rise: kv.Value.B, Edge: kv.Key) })
                     .OrderByDescending(x => x.Rise).First();
                 var headRise = top.Rise;
@@ -782,6 +804,21 @@ internal static class MepFromCad
                 var under = setup.UnderStructure ? Under(hx, hy) : null;
                 var headZ = under is double u ? u - setup.ClearanceMm - headDepth / 2 : setup.ManualCenter(levelMm, headDepth);
                 var baseZ = headZ - headRise;
+                var anchor = bottoms.Keys.OrderByDescending(n => outlets.Contains(n)).ThenByDescending(n => n == top.Node).Cast<int?>().FirstOrDefault();
+                if (anchor is int an)
+                {
+                    baseZ = levelMm + bottoms[an].BottomMm + EndDepth(an) / 2 - RiseAt(an);
+                    headZ = baseZ + headRise;
+                    if (bopNote.Length == 0)
+                    {
+                        bopNote = $"; cao độ theo BOP tại ({net.Nodes[an].X:0},{net.Nodes[an].Y:0}) = {bottoms[an].BottomMm:0} mm";
+                        var off = bottoms.Where(kv => kv.Key != an)
+                            .Select(kv => (kv.Key, Diff: baseZ + RiseAt(kv.Key) - EndDepth(kv.Key) / 2 - levelMm - kv.Value.BottomMm))
+                            .Where(x => Math.Abs(x.Diff) > 20).ToList();
+                        if (off.Count > 0)
+                            bopNote += "; lệch BOP ghi ở " + string.Join(", ", off.Select(x => $"({net.Nodes[x.Key].X:0},{net.Nodes[x.Key].Y:0}) {x.Diff:+0;-0} mm"));
+                    }
+                }
                 foreach (var (e, r) in runEnds)
                 {
                     edgeZ[e] = (baseZ + r.A, baseZ + r.B);
@@ -816,8 +853,8 @@ internal static class MepFromCad
                 var at = string.Join(", ", outlets.Select(o =>
                     $"({net.Nodes[o].X:0},{net.Nodes[o].Y:0}){(nodeZ.TryGetValue(o, out var oz) ? $" tâm {oz - levelMm:0}" : "")}"));
                 notes.AppendLine($"Mạng {p + 1}: điểm đầu tuyến ({hx:0},{hy:0}) tâm ống {headZ - levelMm:0} mm so với {level.Name} " +
-                                 $"({(under is null ? "cao độ tự nhập" : $"cách đáy dầm/sàn {setup.ClearanceMm:0} mm")}); {outlets.Count} điểm xả " +
-                                 $"{(setup.DrainMode != DrainPickOutlets ? "(" + headWhy[p] + ")" : pickedParts[p] ? "đã pick" : "đầu ống lớn nhất")} {at} mm; dốc theo chữ trên tuyến (D110-1%, i=..%), chỗ không ghi {setup.SlopePercent:0.##}%.");
+                                 $"({(anchor is not null ? "theo BOP ghi trên CAD" : under is null ? "cao độ tự nhập" : $"cách đáy dầm/sàn {setup.ClearanceMm:0} mm")}); {outlets.Count} điểm xả " +
+                                 $"{(setup.DrainMode != DrainPickOutlets ? "(" + headWhy[p] + ")" : pickedParts[p] ? "đã pick" : "đầu ống lớn nhất")} {at} mm; dốc theo chữ trên tuyến (D110-1%, i=..%), chỗ không ghi {setup.SlopePercent:0.##}%{bopNote}.");
             }
 
             if (clashes > 0)
