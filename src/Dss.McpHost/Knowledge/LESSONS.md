@@ -422,3 +422,9 @@ Mã chủ đề trong ngoặc vuông dùng cho `get_lessons {"topic": "..."}`.
 - Fix: a label within 0.7 m of the run, of a near size (smaller / larger >= 0.6, e.g. 75/90, 110/140), wins over the layer. A far or very different label (Dn40 by SD-D150) still loses.
 - Update (user rule): the label on the drawing comes first; the layer's size only where no label is written (many drawings name no size on the layer). A label of a near size (>= 0.6 ratio) by a run wins at the usual label reach and carries along that run on the same layer (through bends / joints, straight through tees) up to another label. Only a far-off size (Dn40 by SD-D150) still yields to the layer.
 - Trap: size labels inside an xref of another discipline ("XR TANG HAM$0$…$0$VNBT-FF-TEXT" D65 of a fire main) sat nearer some drain pipes than their own labels and gave them Ø65. A size label counts only from the drawing itself or from the xref the pipes are drawn in.
+
+## Drain heights from BOP notes at the run's ends
+- User rule: drawings write the pipe bottom (BOP=-0.57, BOD=-0.49, from the level); use the BOP at the start and end of a run, not the ones along the middle.
+- Read: BOP / BOD / BOT / IL / INV = value (metres if |v| < 30, else mm), from the raw text (DevicePlanner.Plain drops "=" and "-"). A note counts for an open end when it lies within 2 m of the network and its foot on the pipe is within 2.5 m (along the pipe) of that end.
+- A BOP stacked under a sleeve note of another size ("D140 CHỜ XUYÊN MÓNG" over "BOP=-0.47", centres up to 3 m apart) is that sleeve's, not the pipe's.
+- Build: a run with a BOP at both its two ends falls straight from the higher to the lower (that end is the outlet, slope reported); otherwise the BOP at the outlet (else the head, else any end) fixes the height and the drawn falls do the rest, other written BOPs off by more than 20 mm reported.

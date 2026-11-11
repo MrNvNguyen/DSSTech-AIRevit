@@ -1,5 +1,8 @@
 <Project>
   <PropertyGroup>
     <DefaultItemExcludes>$(DefaultItemExcludes);obj\**\*</DefaultItemExcludes>
+    <!-- The product version shown in Account / About comes from the repo's VERSION file (same as the MSI). -->
+    <DssVersionFile>$(MSBuildThisFileDirectory)..\..\VERSION</DssVersionFile>
+    <Version Condition="Exists('$(DssVersionFile)')">$([System.IO.File]::ReadAllText('$(DssVersionFile)').Trim())</Version>
   </PropertyGroup>
 </Project>

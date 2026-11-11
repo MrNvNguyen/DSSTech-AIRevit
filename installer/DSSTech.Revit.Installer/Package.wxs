@@ -14,8 +14,14 @@
         Manufacturer="OneCAD Viet Nam" />
 
     <MajorUpgrade
+        AllowSameVersionUpgrades="yes"
         DowngradeErrorMessage="A newer version of DSSTech Revit is already installed. Setup will now exit."
         Schedule="afterInstallInitialize" />
+
+    <!-- Always lay every file down, whatever version is installed: the add-in DLL was 1.0.0.0 before it took its
+         number from VERSION (0.1.2.0 now), and Windows Installer skips a file "older" than the one present and then
+         the old product's removal deletes it (DSSTech.dll missing after the upgrade). -->
+    <Property Id="REINSTALLMODE" Value="amus" />
 
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
