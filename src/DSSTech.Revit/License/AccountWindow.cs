@@ -27,31 +27,23 @@ internal sealed class AccountWindow : DssDialog
         _expiry = Value("");
         _status = Value("");
 
+        // Brand panel: the DSS Technology logo on white (its teal / blue / green letters would vanish on the green fill).
         var brand = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        brand.Children.Add(new TextBlock
-        {
-            Text = "DSS",
-            FontSize = 42,
-            FontWeight = FontWeights.Bold,
-            Foreground = System.Windows.Media.Brushes.White
-        });
-        brand.Children.Add(new TextBlock
-        {
-            Text = "DSSTech",
-            FontSize = 18,
-            Foreground = System.Windows.Media.Brushes.White,
-            Margin = new Thickness(0, 4, 0, 0)
-        });
+        var logo = DssTheme.Logo(180);
+        logo.HorizontalAlignment = HorizontalAlignment.Center;
+        brand.Children.Add(logo);
         brand.Children.Add(new TextBlock
         {
             Text = "Bản quyền trên máy này",
-            Foreground = System.Windows.Media.Brushes.White,
-            Opacity = 0.85,
-            Margin = new Thickness(0, 12, 0, 0)
+            Foreground = DssTheme.Muted,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(0, 18, 0, 0)
         });
         var left = new Border
         {
-            Background = DssTheme.Green,
+            Background = DssTheme.Card,
+            BorderBrush = DssTheme.Line,
+            BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(20),
             Margin = new Thickness(0, 0, 12, 0),
