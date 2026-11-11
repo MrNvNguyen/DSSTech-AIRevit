@@ -100,11 +100,16 @@ public static class FoundationCatalogFilter
         return nonPile.Count > 0 ? nonPile : all;
     }
 
-    /// <summary>Pile caps and isolated footings together (one tool builds both, by the Type Mark on the CAD).</summary>
+    /// <summary>
+    /// Pile caps and isolated footings together (one tool builds both, by the Type Mark on the CAD): every structural
+    /// foundation type loaded, the ones named as a cap or footing first. A family named otherwise (M-Foundation_Box,
+    /// Đài_Cọc read as a pile) is still the user's to pick: filtering by name dropped it from the list.
+    /// </summary>
     public static IReadOnlyList<string> FilterCapsAndFootings(IReadOnlyList<string> all)
     {
-        var either = all.Where(t => MatchesFoundationKind(t, KindPileCap) || MatchesFoundationKind(t, KindIsolated)).ToList();
-        return either.Count > 0 ? either : FilterFoundationTypes(all, KindPileCap);
+        bool Named(string t) => MatchesFoundationKind(t, KindPileCap) || MatchesFoundationKind(t, KindIsolated);
+        return all.Where(Named).Concat(all.Where(t => !Named(t) && !LooksLikePile(t))).Concat(all.Where(t => !Named(t) && LooksLikePile(t)))
+            .ToList();
     }
 
     /// <summary>

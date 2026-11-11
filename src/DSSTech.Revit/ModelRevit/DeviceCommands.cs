@@ -90,7 +90,7 @@ public sealed class HvacDevicesCommand : IExternalCommand
         DeviceTool.Run(data.Application, DeviceMount.Hvac, null);
 }
 
-// ── Thiết bị PCCC: tủ chữa cháy trên tường, đầu phun sprinkler và đầu báo cháy dưới trần ──
+// ── Thiết bị PCCC: tủ / họng chữa cháy, FM200 và thiết bị lớn, theo cao độ sàn + cao lắp ──
 [Transaction(TransactionMode.Manual)]
 public sealed class FireDevicesCommand : IExternalCommand
 {
@@ -104,6 +104,14 @@ public sealed class FlexConnectCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData data, ref string message, ElementSet elements) =>
         HvacFlex.Run(data.Application);
+}
+
+/// <summary>DN20 flexible hose from the selected (else every unconnected) sprinkler heads of the level to their branch.</summary>
+[Transaction(TransactionMode.Manual)]
+public sealed class SprinklerConnectCommand : IExternalCommand
+{
+    public Result Execute(ExternalCommandData data, ref string message, ElementSet elements) =>
+        SprinklerPipes.Run(data.Application);
 }
 
 /// <summary>One block name mapped to the family type it becomes.</summary>
@@ -171,7 +179,8 @@ internal static class DeviceTool
                 dlg.IgnoreCeiling, placed);
             if (mount == DeviceMount.Hvac && dlg.ConnectFlex && placed.Count > 0)
                 report += "\n" + HvacFlex.Connect(doc, placed, dlg.FlexReachMm);
-            TaskDialog.Show(title, report);
+            // Sprinkler heads are joined by «Nối đầu phun» only (rigid or flexible, chosen there).
+            DoneReport.Show(title, report);
             return Result.Succeeded;
         }
         catch (Autodesk.Revit.Exceptions.OperationCanceledException)
@@ -207,6 +216,9 @@ internal static class DeviceTool
         var noCeiling = 0;
         var skipped = 0;
         var notes = new List<string>();
+        // Per run: a type's facing and the face finders hold for this document as it stands now.
+        UnturnedFacing.Clear();
+        Finders.Clear();
         using (var tx = new Transaction(doc, "DSSTech devices from CAD"))
         {
             tx.Start();
@@ -235,7 +247,9 @@ internal static class DeviceTool
                 try
                 {
                     var wall = DevicePlanner.OnWall(row.Spec);
-                    var outcome = wall
+                    var outcome = DevicePlanner.OnFloor(row.Spec)
+                        ? OnFloor(doc, level, row, x, y, hit.Insert.RotationDeg, notes)
+                        : wall
                         ? OnWall(doc, view3D, level, row, walls, x, y, hit.Insert.RotationDeg, reachMm, notes)
                         : OnCeiling(doc, view3D, level, storey, row, x, y, hit.Insert.RotationDeg, defaultCeilingMm, notes, ignoreCeiling, placed);
                     if (outcome is null)
@@ -265,7 +279,9 @@ internal static class DeviceTool
 
         var sb = new StringBuilder();
         sb.AppendLine($"Level {level.Name}: " + (made.Count == 0 ? "không dựng thiết bị nào." : string.Join(", ", made.Select(m => $"{m.Key} {m.Value}")) + "."));
-        sb.AppendLine($"Gắn vào mặt {mount switch { DeviceMount.Wall => "tường", DeviceMount.Fire => "tường / trần", _ => "trần" }}: {hosted}; đặt tự do theo cao độ: {free}.");
+        sb.AppendLine(mount == DeviceMount.Fire
+            ? $"Đặt tại điểm block, cao độ = level + cao lắp từng loại: {free}."
+            : $"Gắn vào mặt {(mount == DeviceMount.Wall ? "tường" : "trần")}: {hosted}; đặt tự do theo cao độ: {free}.");
         if (noWall > 0)
             sb.AppendLine($"Không thấy tường trong {reachMm:0} mm: {noWall} (đặt tại điểm block, theo hướng block).");
         if (mount != DeviceMount.Wall && ignoreCeiling)
@@ -330,6 +346,20 @@ internal static class DeviceTool
         return (false, false);
     }
 
+    /// <summary>At the block, the level plus the row's height, turned as the block (cabinets, hydrants, FM200).</summary>
+    private static (bool Hosted, bool Missing)? OnFloor(Document doc, Level level, DeviceRow row, double x, double y, double rotationDeg,
+        List<string> notes)
+    {
+        if (row.Symbol.Family.FamilyPlacementType is not (FamilyPlacementType.OneLevelBased or FamilyPlacementType.WorkPlaneBased))
+        {
+            notes.Add($"{row.Group.Name}: family {row.Symbol.FamilyName} cần chủ (tường / mặt), dùng family đặt theo level");
+            return null;
+        }
+
+        Free(doc, row.Symbol, level, new XYZ(UnitConv.MmToInternal(x), UnitConv.MmToInternal(y), 0), row.Mm, Turn(rotationDeg));
+        return (false, false);
+    }
+
     /// <summary>Under the ceiling over the block (else at the default ceiling height), less the row's drop.</summary>
     private static (bool Hosted, bool Missing)? OnCeiling(Document doc, View3D view3D, Level level, double storey, DeviceRow row,
         double x, double y, double rotationDeg, double defaultCeilingMm, List<string> notes, bool ignoreCeiling = false,
@@ -364,14 +394,25 @@ internal static class DeviceTool
         return (false, hit is null && !ignoreCeiling);
     }
 
+    /// <summary>
+    /// The way a type faces when placed unturned: read once per type (it needs a regeneration, which for hundreds of
+    /// sprinklers took minutes when done for each one).
+    /// </summary>
+    private static readonly Dictionary<ElementId, XYZ> UnturnedFacing = new();
+
     /// <summary>A free-standing instance on the level at <paramref name="heightMm"/>, its face turned to <paramref name="facing"/>.</summary>
     private static FamilyInstance Free(Document doc, FamilySymbol symbol, Level level, XYZ plan, double heightMm, XYZ facing)
     {
         var at = new XYZ(plan.X, plan.Y, level.ProjectElevation);
         var fi = doc.Create.NewFamilyInstance(at, symbol, level, StructuralType.NonStructural);
         Offset(fi, heightMm);
-        doc.Regenerate();
-        var current = fi.FacingOrientation;
+        if (!UnturnedFacing.TryGetValue(symbol.Id, out var current))
+        {
+            doc.Regenerate();
+            current = fi.FacingOrientation;
+            UnturnedFacing[symbol.Id] = current;
+        }
+
         var angle = Math.Atan2(current.X * facing.Y - current.Y * facing.X, current.X * facing.X + current.Y * facing.Y);
         if (Math.Abs(angle) > 1e-6)
             ElementTransformUtils.RotateElement(doc, fi.Id, Line.CreateBound(at, at + XYZ.BasisZ), angle);
@@ -397,12 +438,20 @@ internal static class DeviceTool
         return new XYZ(Math.Cos(r), Math.Sin(r), 0);
     }
 
+    /// <summary>One face finder per view and category for a run (set up once, not for each device).</summary>
+    private static readonly Dictionary<(ElementId View, BuiltInCategory Category), ReferenceIntersector> Finders = new();
+
     private static (Reference Reference, XYZ Point)? Nearest(View3D view, BuiltInCategory category, XYZ origin, XYZ direction, double maxDistance)
     {
-        var finder = new ReferenceIntersector(new ElementCategoryFilter(category), FindReferenceTarget.Face, view)
+        if (!Finders.TryGetValue((view.Id, category), out var finder))
         {
-            FindReferencesInRevitLinks = true
-        };
+            finder = new ReferenceIntersector(new ElementCategoryFilter(category), FindReferenceTarget.Face, view)
+            {
+                FindReferencesInRevitLinks = true
+            };
+            Finders[(view.Id, category)] = finder;
+        }
+
         var ctx = finder.FindNearest(origin, direction);
         if (ctx is null || ctx.Proximity > maxDistance)
             return null;
@@ -638,7 +687,6 @@ internal sealed class DeviceSetupWindow : DssDialog
     private readonly CheckBox? _ignoreCeiling;
     private readonly CheckBox? _flex;
     private readonly TextBox? _flexReach;
-    private readonly TextBox? _reach;
 
     public DeviceSetupWindow(Document doc, string title, DeviceMount mount, IReadOnlyList<DeviceSpec> kinds, List<DeviceBlockGroup> groups, string levelName)
         : base(title,
@@ -647,8 +695,8 @@ internal sealed class DeviceSetupWindow : DssDialog
                 DeviceMount.Wall => $"Level {levelName}. Mỗi block của CAD thành một loại thiết bị: đặt lên mặt tường gần nhất (model hoặc link), cao độ lắp tính từ level.",
                 DeviceMount.Hvac => $"Level {levelName}. Miệng gió, FCU, box gió từ block CAD: theo mặt trần phía trên (hoặc cao độ chỉ định); số âm = nằm trên trần. " +
                                     "Sau khi đặt, tự nối ống mềm từ cổng gió của thiết bị tới ống gió cùng hệ gần nhất.",
-                DeviceMount.Fire => $"Level {levelName}. Tủ chữa cháy đặt lên mặt tường gần nhất (cao lắp = chân tủ từ level); đầu phun sprinkler, " +
-                                    "đầu báo cháy dưới mặt trần phía trên (khoảng dưới trần 0 thì gắn vào mặt trần).",
+                DeviceMount.Fire => $"Level {levelName}. Tủ / họng chữa cháy, FM200, bình khí, van, bơm từ block CAD: đặt tại điểm block, " +
+                                    "cao độ = level + cao lắp (chân thiết bị). Đầu phun sprinkler, đầu báo cháy: Thiết bị trần.",
                 _ => $"Level {levelName}. Mỗi block của CAD thành một loại thiết bị: đặt dưới mặt trần phía trên (model hoặc link); khoảng dưới trần 0 thì gắn vào mặt trần."
             },
             860, 680)
@@ -671,7 +719,7 @@ internal sealed class DeviceSetupWindow : DssDialog
         var header = Row(Muted("Block CAD (số lượng)"), Muted("Loại thiết bị"), Muted("Family : Type"),
             Muted(mount switch
             {
-                DeviceMount.Wall => "Cao lắp (mm)", DeviceMount.Hvac => "Dưới trần (mm, âm = trên)", DeviceMount.Fire => "Cao lắp / dưới trần (mm)",
+                DeviceMount.Wall => "Cao lắp (mm)", DeviceMount.Hvac => "Dưới trần (mm, âm = trên)", DeviceMount.Fire => "Cao lắp từ sàn (mm)",
                 _ => "Dưới trần (mm)"
             }));
         var hidden = new SortedDictionary<string, Grid>(StringComparer.CurrentCultureIgnoreCase);
@@ -761,12 +809,6 @@ internal sealed class DeviceSetupWindow : DssDialog
         {
             DssTheme.Field(mount == DeviceMount.Wall ? "Khoảng tìm tường quanh block (mm)" : "Cao độ trần khi chưa có trần (mm, từ level)", _extra)
         };
-        if (mount == DeviceMount.Fire)
-        {
-            _reach = DssTheme.Input("400");
-            settings.Add(DssTheme.Field("Khoảng tìm tường quanh tủ chữa cháy (mm)", _reach));
-        }
-
         if (mount == DeviceMount.Hvac)
         {
             _ignoreCeiling = DssTheme.Option("Cao độ chỉ định: bỏ qua trần, mọi thiết bị theo cao độ trần ở trên", false);
@@ -777,7 +819,9 @@ internal sealed class DeviceSetupWindow : DssDialog
             settings.Add(DssTheme.Field("Khoảng tìm ống gió quanh thiết bị (mm, mặt bằng)", _flexReach));
         }
 
-        AddSection(2, "Thiết lập", settings.ToArray());
+        // PCCC: each kind at its own height above the level, nothing else to set.
+        if (mount != DeviceMount.Fire)
+            AddSection(2, "Thiết lập", settings.ToArray());
         PrimaryButton.Content = "Dựng";
         PrimaryButton.Click += (_, _) =>
         {
@@ -832,17 +876,6 @@ internal sealed class DeviceSetupWindow : DssDialog
             ReachMm = extra;
         else
             DefaultCeilingMm = extra;
-        if (_reach is not null)
-        {
-            if (!double.TryParse(_reach.Text.Trim(), out var wallReach) || wallReach <= 0)
-            {
-                error = "Khoảng tìm tường phải là số mm > 0.";
-                return false;
-            }
-
-            ReachMm = wallReach;
-        }
-
         IgnoreCeiling = _ignoreCeiling?.IsChecked == true;
         ConnectFlex = _flex?.IsChecked == true;
         if (_flexReach is not null)

@@ -24,7 +24,10 @@ public sealed class SetupParametersCommand : IExternalCommand
             var failed = result.StartsWith("Không", StringComparison.OrdinalIgnoreCase) ||
                          result.StartsWith("Thiếu", StringComparison.OrdinalIgnoreCase) ||
                          result.Contains("readParamDatabase", StringComparison.OrdinalIgnoreCase);
-            TaskDialog.Show("DSSTech", result);
+            if (failed)
+                TaskDialog.Show("DSSTech", result);
+            else
+                DoneReport.Show("DSSTech — Tham số QS", result);
             return failed ? Result.Failed : Result.Succeeded;
         }
         catch (Exception ex)

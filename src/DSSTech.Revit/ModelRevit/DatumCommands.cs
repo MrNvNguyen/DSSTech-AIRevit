@@ -122,7 +122,7 @@ public sealed class CadDatumCommand : IExternalCommand
                 : "View đang mở không phải mặt bằng: không tạo kích thước trục.");
             if (renamedFail.Count > 0)
                 summary.AppendLine($"Tên đã có trong model, giữ tên Revit tự đặt: {string.Join(", ", renamedFail)}.");
-            TaskDialog.Show(Title, summary.ToString());
+            DoneReport.Show(Title, summary.ToString());
             return Result.Succeeded;
         }
         catch (Autodesk.Revit.Exceptions.OperationCanceledException)
@@ -278,12 +278,15 @@ public sealed class ModelLevelCommand : IExternalCommand
             // Names may swap between rows: park the kept levels on temporary names first.
             var kept = table.Where(r => r.Id is not null).Select(r => (Level)doc.GetElement(r.Id)).ToList();
             foreach (var level in kept)
-                level.Name = "~dsst " + level.Id.Value;
+                level.Name = "dsst-tmp " + level.Id.Value;
             var planType = new FilteredElementCollector(doc).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
                 .FirstOrDefault(t => t.ViewFamily == ViewFamily.FloorPlan);
+            var levelType = LevelTypeFor(doc, levels);
             for (var i = 0; i < table.Count; i++)
             {
                 var row = table[i];
+                // Revit refuses names with \ : { } [ ] | ; < > ? ` ~ (the whole command failed on them).
+                row.Name = CleanName(row.Name);
                 var elevation = UnitConv.MmToInternal(elevations[i]);
                 Level level;
                 if (row.Id is not null)
@@ -298,6 +301,10 @@ public sealed class ModelLevelCommand : IExternalCommand
                 else
                 {
                     level = Level.Create(doc, elevation);
+                    // Level.Create takes the project's default type (often "No Head"): the type the levels already
+                    // there use instead.
+                    if (levelType is not null && level.GetTypeId() != levelType)
+                        level.ChangeTypeId(levelType);
                     made++;
                     if (planType is not null)
                     {
@@ -338,8 +345,32 @@ public sealed class ModelLevelCommand : IExternalCommand
             summary.AppendLine($"Level không có trong bảng (giữ nguyên): {string.Join(", ", left)}.");
         if (failed.Count > 0)
             summary.AppendLine($"Không đặt được tên (trùng tên khác trong model): {string.Join(", ", failed)}.");
-        TaskDialog.Show(Title, summary.ToString());
+        DoneReport.Show(Title, summary.ToString());
         return Result.Succeeded;
+    }
+
+    /// <summary>
+    /// The type for new levels: the one most of the levels already there use (those with a head first); with none, a
+    /// level type with a head symbol, not "No Head".
+    /// </summary>
+    private static ElementId? LevelTypeFor(Document doc, IEnumerable<Level> existing)
+    {
+        static bool Headed(Element? type) =>
+            type is not null && type.Name.IndexOf("No Head", StringComparison.OrdinalIgnoreCase) < 0 &&
+            type.get_Parameter(BuiltInParameter.LEVEL_HEAD_TAG)?.AsElementId() is { } head && head != ElementId.InvalidElementId;
+        var used = existing.GroupBy(l => l.GetTypeId())
+            .OrderByDescending(g => Headed(doc.GetElement(g.Key)) ? 1 : 0).ThenByDescending(g => g.Count())
+            .Select(g => g.Key).FirstOrDefault();
+        if (used is not null && Headed(doc.GetElement(used)))
+            return used;
+        return new FilteredElementCollector(doc).OfClass(typeof(LevelType)).FirstOrDefault(Headed)?.Id ?? used;
+    }
+
+    /// <summary>A level name Revit takes: its prohibited characters dropped, blank as "Level".</summary>
+    private static string CleanName(string name)
+    {
+        var clean = new string(name.Where(c => "\\:{}[]|;<>?`~".IndexOf(c) < 0).ToArray()).Trim();
+        return clean.Length > 0 ? clean : "Level";
     }
 }
 
@@ -357,6 +388,24 @@ internal sealed class LevelSetupWindow : DssDialog
     private readonly StackPanel _rows = new();
     private readonly TextBox _base;
     private readonly List<(LevelRow Row, TextBox Name, TextBox Height, TextBlock Elevation, System.Windows.Controls.Grid Line)> _items = new();
+
+    /// <summary>
+    /// The name of a storey added on top: one more than the highest "TẦNG n" in the table (basements, "TẦNG HẦM 1",
+    /// are not counted: two basements and TẦNG 1–4 give TẦNG 5, not TẦNG 7); with no numbered storey, the storeys
+    /// above the basements counted.
+    /// </summary>
+    private string NextStoreyName()
+    {
+        var names = _items.Select(i => i.Name.Text.Trim()).ToList();
+        var numbers = names
+            .Select(n => System.Text.RegularExpressions.Regex.Match(n, @"^(?:TẦNG|TANG|LEVEL|L)\s*(\d+)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            .Where(m => m.Success).Select(m => int.Parse(m.Groups[1].Value)).ToList();
+        var next = numbers.Count > 0
+            ? numbers.Max() + 1
+            : names.Count(n => n.IndexOf("HẦM", StringComparison.OrdinalIgnoreCase) < 0 && n.IndexOf("HAM", StringComparison.OrdinalIgnoreCase) < 0) + 1;
+        return $"TẦNG {next}";
+    }
 
     public List<LevelRow> Result { get; } = new();
     public double BaseMm { get; private set; }
@@ -377,7 +426,7 @@ internal sealed class LevelSetupWindow : DssDialog
             // The new storey goes on top: the old top level gets a height.
             if (_items.Count > 0 && string.IsNullOrWhiteSpace(_items[_items.Count - 1].Height.Text))
                 _items[_items.Count - 1].Height.Text = "3600";
-            Add(new LevelRow { Name = $"TẦNG {_items.Count + 1}" });
+            Add(new LevelRow { Name = NextStoreyName() });
             Recalc();
         };
         AddSection(1, "Cao độ level thấp nhất", DssTheme.Field("Cao độ (mm)", _base));

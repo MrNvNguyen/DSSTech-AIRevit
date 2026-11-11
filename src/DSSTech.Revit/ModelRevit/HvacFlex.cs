@@ -69,7 +69,7 @@ internal static class HvacFlex
         if (!dlg.ShowFor(uiApp.MainWindowHandle))
             return Result.Cancelled;
         var reachMm = double.TryParse(reach.Text.Trim(), out var r) && r > 0 ? r : 3000;
-        TaskDialog.Show(title, Connect(doc, devices.Select(d => d.Id).ToList(), reachMm));
+        DoneReport.Show(title, Connect(doc, devices.Select(d => d.Id).ToList(), reachMm));
         return Result.Succeeded;
     }
 

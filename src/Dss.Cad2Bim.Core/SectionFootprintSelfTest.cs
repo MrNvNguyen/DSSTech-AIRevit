@@ -253,6 +253,175 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // Sprinkler drops: under the branch straight up; 300 off to the side an arm; past the open end the branch is
+        // drawn on to it; past a joined end nothing.
+        var under = SprinklerDropPlanner.Plan(0, 0, 3000, 0, 1500, 10, 1000);
+        var side = SprinklerDropPlanner.Plan(0, 0, 3000, 0, 1500, 300, 1000);
+        var last = SprinklerDropPlanner.Plan(0, 0, 3000, 0, 3150, 0, 1000, openB: true);
+        var closed = SprinklerDropPlanner.Plan(0, 0, 3000, 0, 3150, 0, 1000);
+        if (under is not { Arm: false, End: 0 } u || Math.Abs(u.TapX - 1500) > 1e-9 || side is not { Arm: true } s || Math.Abs(s.OffsetMm - 300) > 1e-9
+            || last is not { End: 2, Arm: false } l || Math.Abs(l.TapX - 3150) > 1e-9 || closed is not { End: 0 } c || Math.Abs(c.TapX - 2900) > 1e-9)
+        {
+            message = $"sprinkler drop: under {under?.TapX} side {side?.Arm} last {last?.End}/{last?.TapX} closed {closed?.TapX}";
+            return false;
+        }
+
+        // Heads a little off their branch (≤ 200) are put on its axis: 120 off yes, 300 off (an arm over) and on it no.
+        var offBranch = SprinklerDropPlanner.Plan(0, 0, 3000, 0, 1500, 120, 1000);
+        if (offBranch is not { } ob || !SprinklerDropPlanner.Aligns(ob, 200) || Math.Abs(ob.TapY) > 1e-9
+            || SprinklerDropPlanner.Aligns(SprinklerDropPlanner.Plan(0, 0, 3000, 0, 1500, 300, 1000)!.Value, 200)
+            || SprinklerDropPlanner.Aligns(SprinklerDropPlanner.Plan(0, 0, 3000, 0, 1500, 0, 1000)!.Value, 200))
+        {
+            message = "sprinkler align";
+            return false;
+        }
+
+        // An upright head stands on its branch: 100 mm over a DN25 axis (rigid drop room), 159 over a DN150 (168.3 OD).
+        if (Math.Abs(SprinklerDropPlanner.UprightRiseMm(33.4) - 100) > 1e-9 || Math.Abs(SprinklerDropPlanner.UprightRiseMm(168.3) - 159.15) > 1e-9)
+        {
+            message = $"sprinkler upright {SprinklerDropPlanner.UprightRiseMm(33.4)} {SprinklerDropPlanner.UprightRiseMm(168.3)}";
+            return false;
+        }
+
+        // Sprinkler hose: 1.5 m at least, 2 m / 2.5 m further, none past; the slack bows out level, square to the run
+        // (a head straight under: along the side given).
+        var bowSide = SprinklerHose.Bow(0, 0, 0, 1000, 0, 0, 1500, 0, 1);
+        var bowUnder = SprinklerHose.Bow(0, 0, 0, 0, 0, -600, 1000, 1, 0);
+        // Lengths kept to a few: all short one; short and long two (a third saves too little); one past 1.8 m left out.
+        var hoseUsed = new[] { 700.0, 1500 };
+        if (SprinklerHose.Pick(400, hoseUsed) != 700 || SprinklerHose.Pick(900, hoseUsed) != 1500 || SprinklerHose.Pick(1600, hoseUsed) is not null
+            || !SprinklerHose.PickSet(new[] { 600.0, 650 }).SequenceEqual(new[] { 700.0 })
+            || !SprinklerHose.PickSet(new[] { 600.0, 1400, 1450 }).SequenceEqual(new[] { 700.0, 1500 })
+            || !SprinklerHose.PickSet(new[] { 2000.0, 900 }).SequenceEqual(new[] { 1000.0 })
+            || bowSide is not { } bs || Math.Abs(bs.X - 500) > 1e-6 || Math.Abs(Math.Abs(bs.Y) - Math.Sqrt(750 * 750 - 500 * 500)) > 1e-6
+            || bowUnder is not { } bu || Math.Abs(bu.X - 400) > 1e-6 || Math.Abs(bu.Z + 300) > 1e-6
+            || SprinklerHose.Bow(0, 0, 0, 1000, 0, 0, 900, 0, 1) is not null)
+        {
+            message = $"sprinkler hose: side {bowSide} under {bowUnder}";
+            return false;
+        }
+
+        // Hangers: 10 m of DN50 three evenly; 3 m of DN25 to its last head one in the middle and one 300 from that end;
+        // a short pipe between fittings none.
+        var hangLong = HangerPlanner.Plan(10000, 50, false, false);
+        var hangEnd = HangerPlanner.Plan(3000, 25, false, true);
+        if (hangLong.Count != 3 || Math.Abs(hangLong[1] - 5000) > 1e-6 || Math.Abs(hangLong[0] - 10000.0 / 6) > 1e-6
+            || hangEnd.Count != 2 || Math.Abs(hangEnd[0] - 1500) > 1e-6 || Math.Abs(hangEnd[1] - 2700) > 1e-6
+            || HangerPlanner.Plan(500, 25, false, false).Count != 0)
+        {
+            message = $"hangers: long {string.Join("/", hangLong)} end {string.Join("/", hangEnd)}";
+            return false;
+        }
+
+        // Hose loss: 100 L/min through 1" Sch 40 loses 0.0497 bar/m; a K80 head at 0.5 bar (56.6 L/min) on a hose
+        // rated 7 m of pipe loses 0.121 bar.
+        if (Math.Abs(HoseLoss.PerMetreBar(100) - 0.04967) > 1e-4 || Math.Abs(HoseLoss.Flow(80, 0.5) - 56.5685) > 1e-3
+            || Math.Abs(HoseLoss.Bar(HoseLoss.Flow(80, 0.5), 7) - 0.12119) > 1e-4)
+        {
+            message = $"hose loss: {HoseLoss.PerMetreBar(100)} / {HoseLoss.Bar(HoseLoss.Flow(80, 0.5), 7)}";
+            return false;
+        }
+
+        // Branch to main after Combine (heights kept): level with it a side tap at the axis; 400 over a riser; 120 over
+        // an offset of two 45° elbows 175 back from the axis, too close when the branch is too short for one; 20 over a
+        // duct's side tap but a pipe's offset (a pipe's tap only on centre); a drain under its main nothing to drain into;
+        // along the main, at its end, or far off nothing.
+        BranchJoin? Joint(double z, double x = 3000, double y = 60, bool gravity = false, double fy = 1500, bool eccentric = true) =>
+            BranchJoinPlanner.Plan(x, fy, z, x, y, z, 0, 0, 3000, 6000, 0, 3000, 100, 100, 50, 50, 600, gravity, eccentric);
+        if (Joint(3000) is not { Kind: BranchJoinKind.Side } js || Math.Abs(js.X - 3000) > 1e-6 || Math.Abs(js.Y) > 1e-6
+            || Math.Abs(js.AlongMain - 3000) > 1e-6 || Math.Abs(js.ReachMm - 60) > 1e-6
+            || Joint(3400) is not { Kind: BranchJoinKind.Riser, RiseMm: var jr } || Math.Abs(jr - 400) > 1e-6
+            || Joint(3120) is not { Kind: BranchJoinKind.Offset, KneeMm: var jk } || Math.Abs(jk - 175) > 1e-6
+            || Joint(3120, fy: 400) is not { Kind: BranchJoinKind.TooClose }
+            || Joint(3020) is not { Kind: BranchJoinKind.Side } || Joint(3020, eccentric: false) is not { Kind: BranchJoinKind.Offset }
+            || Joint(2700, gravity: true) is not { Kind: BranchJoinKind.Uphill }
+            || Joint(3000, x: 50) is not null || Joint(3000, y: 1200) is not null
+            || BranchJoinPlanner.Plan(1000, 500, 3000, 2000, 500, 3000, 0, 0, 3000, 6000, 0, 3000, 100, 100, 50, 50, 600) is not null)
+        {
+            message = $"branch join: side {Joint(3000)?.Kind} riser {Joint(3400)?.Kind} close {Joint(3120)?.Kind}";
+            return false;
+        }
+
+        // Drawn a few degrees off square (up to 8°): a branch 50 askew off a main has its tee slid 50 along the main; a free
+        // 207 stub at 95° turned to 90° about its corner; a run square already stays; at a cross the askew branch gets
+        // a tee of its own 50 along the main, the square one stays.
+        var sq = new MepNetwork();
+        sq.Nodes.AddRange(new[] { (0.0, 0.0), (0.0, 2000.0), (0.0, 5000.0), (-1115.0, 2050.0), (-5000.0, 2050.0),
+            (20000.0, 0.0), (20000.0, -3000.0), (20206.0, -20.0), (19000.0, -3000.0),
+            (40000.0, 0.0), (40000.0, 2000.0), (40000.0, 5000.0), (38000.0, 2000.0), (41115.0, 2050.0) });
+        foreach (var (ea, eb) in new[] { (0, 1), (1, 2), (1, 3), (3, 4), (5, 6), (5, 7), (6, 8), (9, 10), (10, 11), (10, 12), (10, 13) })
+            sq.Edges.Add(new MepEdge { A = ea, B = eb, Size = new MepSize(0, 0, 50) });
+        var squared = MepRoutePlanner.SquareUp(sq);
+        var crossTee = sq.Nodes.Count == 15 ? sq.Edges.FirstOrDefault(e => e.A == 13 || e.B == 13) : null;
+        if (squared != (2, 1) || crossTee is null || (crossTee.A == 13 ? crossTee.B : crossTee.A) != 14
+            || Math.Abs(sq.Nodes[14].Y - 2050) > 1e-6 || sq.Nodes[10] != (40000.0, 2000.0) || Math.Abs(sq.Nodes[1].Y - 2050) > 1e-6 || Math.Abs(sq.Nodes[1].X) > 1e-6
+            || Math.Abs(sq.Nodes[7].Y) > 1e-6 || Math.Abs(sq.Nodes[7].X - 20000 - Math.Sqrt(206.0 * 206 + 20 * 20)) > 1e-6
+            || sq.Nodes[6] != (20000.0, -3000.0))
+        {
+            message = $"square up: {squared} tee {sq.Nodes[1]} stub {sq.Nodes[7]}";
+            return false;
+        }
+
+        // Sprinkler pipes reduce 150 mm past the head into the smaller run; a corner keeps its reducer.
+        var red = new MepNetwork();
+        red.Nodes.AddRange(new[] { (0.0, 0.0), (3000.0, 0.0), (6000.0, 0.0), (6000.0, 3000.0) });
+        red.Edges.Add(new MepEdge { A = 0, B = 1, Size = new MepSize(0, 0, 50) });
+        red.Edges.Add(new MepEdge { A = 1, B = 2, Size = new MepSize(0, 0, 40) });
+        red.Edges.Add(new MepEdge { A = 2, B = 3, Size = new MepSize(0, 0, 32) });
+        if (MepRoutePlanner.ReducersPast(red) != 1 || Math.Abs(red.Nodes[1].X - 3150) > 1e-9 || red.Nodes[2].X != 6000)
+        {
+            message = $"reducers past the head: {red.Nodes[1]} {red.Nodes[2]}";
+            return false;
+        }
+
+        // At a branch tee too: DN40 main on to DN25 with a DN25 branch off; the DN25 main split 150 mm on, the piece
+        // to the tee DN40.
+        var teeRed = new MepNetwork();
+        teeRed.Nodes.AddRange(new[] { (0.0, 0.0), (3000.0, 0.0), (6000.0, 0.0), (3000.0, 2000.0) });
+        teeRed.Edges.Add(new MepEdge { A = 0, B = 1, Size = new MepSize(0, 0, 40) });
+        teeRed.Edges.Add(new MepEdge { A = 1, B = 2, Size = new MepSize(0, 0, 25) });
+        teeRed.Edges.Add(new MepEdge { A = 1, B = 3, Size = new MepSize(0, 0, 25) });
+        var teeAt = new List<int>();
+        var teeMoved = MepRoutePlanner.ReducersPast(teeRed, reducers: teeAt);
+        var piece = teeRed.Edges.FirstOrDefault(e => e.A == 1 && e.B == 4);
+        if (teeMoved != 1 || teeRed.Nodes.Count != 5 || Math.Abs(teeRed.Nodes[4].X - 3150) > 1e-9 || piece is null
+            || piece.Size.DiameterMm != 40 || teeRed.Edges[1].A != 4 || teeRed.Edges[2].A != 1 || teeAt.Count != 1 || teeAt[0] != 4)
+        {
+            message = $"reducers past the tee: {teeMoved} {teeRed.Nodes.Count}";
+            return false;
+        }
+
+        // A finished command shows only what failed: counts, rules and fallbacks go to the log.
+        var doneErrors = ReportErrors.Lines(
+            "Tuyến: 1229 đoạn, 1230 nút, 6 mạng. Tạo: 1229 đoạn, 365 fitting.\n" +
+            "Nhánh chưa nối vào tuyến chính: tuyến chính liền qua chỗ rẽ.\n" +
+            "Không có trần phía trên: 3 (đặt ở cao độ trần mặc định 2700 mm).\n" +
+            "Kết quả: tạo 12 | bỏ qua (đã có) 0 | lỗi 0\n" +
+            "Lỗ mở: tạo 4, đã có 1; khe hở 50\n" +
+            "Không tạo được: 0 đoạn, 8 fitting (đoạn ống quá ngắn).\n" +
+            "Không tạo được: 0 đoạn, 0 fitting.\n" +
+            "Kết quả: tạo 3 | bỏ qua (đã có) 0 | lỗi 2\n" +
+            "  lỗi: type not found");
+        if (doneErrors.Count != 3 || !doneErrors[0].StartsWith("Không tạo được: 0 đoạn, 8") || !doneErrors[1].EndsWith("lỗi 2")
+            || doneErrors[2] != "lỗi: type not found")
+        {
+            message = $"done report errors: {string.Join(" | ", doneErrors)}";
+            return false;
+        }
+
+        // Every foundation type is offered for caps / footings, the ones named so first: a family named otherwise was
+        // missing from the list.
+        var capList = FoundationCatalogFilter.FilterCapsAndFootings(new[]
+        {
+            "BT-Khoi : Đ4", "S-FOUN-PHC-Cir : D400", "S-FOUN-CAP-Rec : Đ1", "Footing-Rectangular : M1"
+        });
+        if (capList.Count != 4 || capList[0] != "S-FOUN-CAP-Rec : Đ1" || capList[1] != "Footing-Rectangular : M1"
+            || capList[2] != "BT-Khoi : Đ4")
+        {
+            message = $"filter: caps and footings {string.Join(" | ", capList)}";
+            return false;
+        }
+
         if (!CadMark.IsLabel("Đ4") || !CadMark.IsLabel("Đ2F")
             || !CadMark.LooksLikePileCapId("Đ4A") || !CadMark.LooksLikePileCapId("đ2F")
             || CadMark.LooksLikePileCapId("GMY23(50X100)") || CadMark.LooksLikePileCapId("B3")
@@ -3144,7 +3313,20 @@ public static class SectionFootprintSelfTest
         gridPlan.Entities.Add(new CadText { Layer = "BUB", Value = "A", X = -900, Y = 0 });
         gridPlan.Entities.Add(new CadLine { Layer = "AXIS", X0 = -500, Y0 = 0.4, X1 = 17000, Y1 = 0.4 });
         gridPlan.Entities.Add(new CadLine { Layer = "AXIS", X0 = 3000, Y0 = 6000, X1 = 9000, Y1 = 6000 });
+        // A skewed grid named letter + number (B1), its line at 30°: a grid of its own direction.
+        gridPlan.Entities.Add(new CadCircle { Layer = "BUB", Cx = 30000, Cy = 30000, Radius = 400 });
+        gridPlan.Entities.Add(new CadText { Layer = "BUB", Value = "B1", X = 30000, Y = 30000 });
+        gridPlan.Entities.Add(new CadLine { Layer = "AXIS", X0 = 30000 + 400 * Math.Cos(Math.PI / 6), Y0 = 30000 + 400 * Math.Sin(Math.PI / 6),
+            X1 = 30000 + 10000 * Math.Cos(Math.PI / 6), Y1 = 30000 + 10000 * Math.Sin(Math.PI / 6) });
         var gridLines = GridPlanner.Plan(gridPlan);
+        var skewGrid = gridLines.FirstOrDefault(g => g.Name == "B1");
+        if (skewGrid is null || Math.Abs(Math.Atan2(skewGrid.Y1 - skewGrid.Y0, skewGrid.X1 - skewGrid.X0) - Math.PI / 6) > 1e-6)
+        {
+            message = "skewed grid B1: " + (skewGrid is null ? "missing" : $"({skewGrid.X0:0},{skewGrid.Y0:0})-({skewGrid.X1:0},{skewGrid.Y1:0})");
+            return false;
+        }
+
+        gridLines.Remove(skewGrid);
         var g2 = gridLines.FirstOrDefault(g => g.Name == "2");
         var g3 = gridLines.FirstOrDefault(g => g.Name == "3");
         if (gridLines.Count != 4 || g2 is null || g3 is null || Math.Abs(g2.X0 - 8000) > 1e-6 || Math.Abs(g3.X0 - 16000) > 1e-6 ||
@@ -3352,6 +3534,170 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // The fall in a run's own label (D110-1%) is read and wins over a lone i=0,5% nearer it; an i=..% on an xref's
+        // layer (the architect's floor fall) is not a pipe's.
+        var labelled = MepRoutePlanner.Build(new CadEntity[] { L(0, 0, 7000, 0), L(0, 3000, 7000, 3000) }, null,
+            new MepSize(0, 0, 110), new[]
+            {
+                new CadText { Value = @"\A1;D110-1%", X = 3500, Y = -400 },
+                new CadText { Value = "i=0,5%", X = 3500, Y = 150 },
+                new CadText { Value = "I=0,5%", X = 3500, Y = 3200, Layer = "XR TANG HAM$0$XR-TXTN T HAM$0$Ky hieu" }
+            }, false);
+        var lower = labelled.Edges.FirstOrDefault(e => Math.Abs(labelled.Nodes[e.A].Y) < 1);
+        var upper = labelled.Edges.FirstOrDefault(e => Math.Abs(labelled.Nodes[e.A].Y - 3000) < 1);
+        if (lower?.SlopePercent != 1 || upper is null || upper.SlopePercent is not null)
+        {
+            message = $"drain fall labels: lower {lower?.SlopePercent} upper {upper?.SlopePercent}";
+            return false;
+        }
+
+        // A run's own label (D200-0.5%-23.6M, a dimension's text) names the whole straight run: the pieces split at
+        // the tees where branches join take 0.5% too; the branches keep none of it.
+        var spine = MepRoutePlanner.Build(new CadEntity[]
+            {
+                L(0, 0, 0, 20000), L(0, 6000, 5000, 6000), L(0, 13000, -5000, 13000)
+            }, null, new MepSize(0, 0, 200),
+            new[] { new CadText { Value = @"\A1;D200-0.5%-23.6M", X = -400, Y = 3000, RotationDeg = 90 } }, false);
+        var spinePieces = spine.Edges.Where(e => Math.Abs(spine.Nodes[e.A].X) < 1 && Math.Abs(spine.Nodes[e.B].X) < 1).ToList();
+        var spineBranches = spine.Edges.Except(spinePieces).ToList();
+        if (spinePieces.Count < 3 || spinePieces.Any(e => e.SlopePercent != 0.5) || spineBranches.Any(e => e.SlopePercent == 0.5))
+        {
+            message = "drain straight-run label: " + string.Join(" ", spine.Edges.Select(e => $"{spine.Nodes[e.A]}-{spine.Nodes[e.B]}:{e.SlopePercent}"));
+            return false;
+        }
+
+        // A drain with two outlets (two septic tanks) falls toward the nearer: the middle is the high point.
+        var twoOut = new MepNetwork();
+        twoOut.Nodes.AddRange(new[] { (0.0, 0.0), (5000.0, 0.0), (10000.0, 0.0) });
+        twoOut.Edges.Add(new MepEdge { A = 0, B = 1, Size = new MepSize(0, 0, 110) });
+        twoOut.Edges.Add(new MepEdge { A = 1, B = 2, Size = new MepSize(0, 0, 110) });
+        var rises = MepRoutePlanner.RisesFrom(twoOut, new[] { 0, 2 }, 1);
+        if (rises[0] != 0 || rises[2] != 0 || Math.Abs(rises[1] - 50) > 1e-9)
+        {
+            message = $"drain two outlets: {rises[0]} {rises[1]} {rises[2]}";
+            return false;
+        }
+
+        // The head of that drain (where its height is fixed under the beam) is the high point between the outlets.
+        if (MepRoutePlanner.HeadNode(rises) != 1)
+        {
+            message = $"drain head: {MepRoutePlanner.HeadNode(rises)}";
+            return false;
+        }
+
+        // Every run straight at its drawn fall, every joint at one height, no run broken: 0-1 at 1% (fall 50) and 1-2 at
+        // 2% (fall 100) between two outlets. Node 1 is the high point (water parts there): 100 over outlet 2, 50 over
+        // outlet 0, so outlet 0 stands 50 over outlet 2.
+        twoOut.Edges[1].SlopePercent = 2;
+        var (runEnds, offFall) = MepRoutePlanner.RunRises(twoOut, new[] { 0, 2 }, 1);
+        var e0 = runEnds[twoOut.Edges[0]];
+        var e1 = runEnds[twoOut.Edges[1]];
+        if (offFall.Count != 0 || Math.Abs(e0.A - 50) > 1e-9 || Math.Abs(e0.B - 100) > 1e-9 || Math.Abs(e1.A - 100) > 1e-9 || Math.Abs(e1.B) > 1e-9)
+        {
+            message = $"drain run rises: off {offFall.Count} {e0} {e1}";
+            return false;
+        }
+
+        // Never back toward a start: start 0 drains 0-1-2 to outlet 2; the run 1-3 (node 3 nearer outlet 2 by way of 1
+        // than outlet 4) flows away from the start, 1 down to 3 and on to outlet 4, not from the main back to the start.
+        var fromStart = new MepNetwork();
+        fromStart.Nodes.AddRange(new[] { (0.0, 0.0), (1000.0, 0.0), (1000.0, -3000.0), (1000.0, 5000.0), (11000.0, 5000.0) });
+        foreach (var (ea, eb) in new[] { (0, 1), (1, 2), (1, 3), (3, 4) })
+            fromStart.Edges.Add(new MepEdge { A = ea, B = eb, Size = new MepSize(0, 0, 110) });
+        var (startEnds, startOff) = MepRoutePlanner.RunRises(fromStart, new[] { 2, 4 }, 1);
+        var side = startEnds[fromStart.Edges[2]];
+        if (startOff.Count != 0 || Math.Abs(side.A - 150) > 1e-9 || Math.Abs(side.B - 100) > 1e-9 || Math.Abs(startEnds[fromStart.Edges[0]].A - 160) > 1e-9)
+        {
+            message = $"drain away from start: {side} {startEnds[fromStart.Edges[0]]}";
+            return false;
+        }
+
+        twoOut.Edges[1].SlopePercent = null;
+
+        // The head read from the drawing: of the same network's open ends 0, 2, 4, the one with "TR" beside it (2) even
+        // though 0 is farther from the tank notes; with no riser note, the end farthest from the BỂ PHỐT / TÁCH MỠ
+        // notes (0); with another network's end beside 4 (risers side by side), 4.
+        var fromStartPart = Enumerable.Range(0, fromStart.Nodes.Count).ToList();
+        var tankNotes = new List<CadText>
+        {
+            new() { Value = "BỂ PHỐT 5M3", X = 11000, Y = 6000 },
+            new() { Value = "MÁY TÁCH MỠ", X = 1000, Y = -3800 }
+        };
+        var (riserHead, riserWhy) = MepRoutePlanner.DrainHead(fromStart, fromStartPart,
+            tankNotes.Append(new CadText { Value = "TR", X = 1300, Y = -2600 }), Array.Empty<(double, double)>());
+        var (plainHead, _) = MepRoutePlanner.DrainHead(fromStart, fromStartPart, tankNotes, Array.Empty<(double, double)>());
+        var (besideHead, _) = MepRoutePlanner.DrainHead(fromStart, fromStartPart, tankNotes, new[] { (11000.0, 4400.0) });
+        if (riserHead != 2 || !riserWhy.Contains("TR") || plainHead != 0 || besideHead != 4)
+        {
+            message = $"drain head from CAD: riser {riserHead} ({riserWhy}), plain {plainHead}, beside {besideHead}";
+            return false;
+        }
+
+        // Flow by floor: riser "TR" at end 2. An upper floor (no tank notes) drains WCs 0 and 4 to the riser 2; the lowest
+        // floor, or tank notes at the other ends, runs from the riser out to 0 and 4.
+        var trOnly = new List<CadText> { new() { Value = "TR", X = 1300, Y = -2600 } };
+        var upperFloor = MepRoutePlanner.DrainFlow(fromStart, fromStartPart, trOnly, Array.Empty<(double, double)>(), false);
+        var lowest = MepRoutePlanner.DrainFlow(fromStart, fromStartPart, trOnly, Array.Empty<(double, double)>(), true);
+        var tanked = MepRoutePlanner.DrainFlow(fromStart, fromStartPart,
+            trOnly.Append(new CadText { Value = "HỐ GA", X = 11000, Y = 6000 }).ToList(), Array.Empty<(double, double)>(), false);
+        if (upperFloor.FromRiser || !upperFloor.Outlets.SequenceEqual(new[] { 2 }) || !lowest.FromRiser || !lowest.Outlets.SequenceEqual(new[] { 4 })
+            || !tanked.FromRiser || !tanked.Outlets.SequenceEqual(new[] { 4 }))
+        {
+            message = $"drain flow by floor: upper {string.Join(",", upperFloor.Outlets)} lowest {string.Join(",", lowest.Outlets)} tanked {string.Join(",", tanked.Outlets)}";
+            return false;
+        }
+
+        // A vent climbs the other way: riser end 2 the top, the WC ends 0 and 4 low, each run at its own fall; the
+        // system or the layers tell it.
+        var (drainEnds, _) = MepRoutePlanner.RunRises(fromStart, new[] { 2 }, 1);
+        var vent = MepRoutePlanner.VentRises(drainEnds);
+        double VentAt(int n) => vent.First(kv => kv.Key.A == n || kv.Key.B == n) is var kv && kv.Key.A == n ? kv.Value.A : vent.First(x => x.Key.A == n || x.Key.B == n).Value.B;
+        if (VentAt(2) <= VentAt(1) || VentAt(1) <= VentAt(0) || VentAt(1) <= VentAt(4) || Math.Abs(VentAt(2) - VentAt(1) - 30) > 1e-6
+            || !MepRoutePlanner.IsVent(false, "P-VP-Vent (Thông Hơi)", "VP", Array.Empty<string>())
+            || !MepRoutePlanner.IsVent(false, "Sanitary", "SAN", new[] { "P - TH D110", "P - HX D60" })
+            || MepRoutePlanner.IsVent(false, "P-BWS-Black Sewage", "BWS", new[] { "P - TX D200", "P - TH D110" }))
+        {
+            message = $"vent rises: end0 {VentAt(0)} node1 {VentAt(1)} riser {VentAt(2)} end4 {VentAt(4)}";
+            return false;
+        }
+
+        // Lowest floor, one exit only: a floor drain (THOÁT SÀN) by end 0 and a clean-water tank (BỂ NGẦM NƯỚC SH)
+        // by it do not make it an exit; another pipe's sleeve (D140 CHỜ XUYÊN MÓNG) by end 4 neither; the pump pit
+        // (HỐ BƠM) by end 2 does: end 2 is the one exit.
+        var pump = MepRoutePlanner.DrainFlow(fromStart, fromStartPart, new List<CadText>
+        {
+            new() { Value = "THOÁT SÀN D75", X = -1500, Y = 1500 },
+            new() { Value = "BỂ NGẦM NƯỚC SH (510M3)", X = 0, Y = 3000 },
+            new() { Value = "D140 CHỜ XUYÊN MÓNG", X = 11000, Y = 6500 },
+            new() { Value = "HỐ BƠM SỰ CỐ 500X500", X = 1000, Y = -7000 }
+        }, Array.Empty<(double, double)>(), true);
+        if (!pump.Outlets.SequenceEqual(new[] { 2 }))
+        {
+            message = $"drain lowest floor one exit: outlets {string.Join(",", pump.Outlets)} ({pump.Why})";
+            return false;
+        }
+
+        // Lowest floor with several risers coming down (TKT29 by end 0, TG3 by end 2) onto one collector that leaves at
+        // the septic tank by end 4: only end 4 is an outlet; the riser feet stay high.
+        var collector = MepRoutePlanner.DrainFlow(fromStart, fromStartPart, new List<CadText>
+        {
+            new() { Value = "TKT29", X = -500, Y = 300 },
+            new() { Value = "TG3", X = 1300, Y = -3300 },
+            new() { Value = "BỂ PHỐT 2 NGẦM 40M3", X = 11000, Y = 7000 },
+            new() { Value = "BỂ PHỐT 5M3", X = 3000, Y = -4000 }
+        }, Array.Empty<(double, double)>(), true);
+        // A machine plinth (BỆ MÁY) by end 0 is not a tank (BỂ): end 0 is no outlet.
+        var plinth = MepRoutePlanner.DrainFlow(fromStart, fromStartPart, trOnly.Concat(new List<CadText>
+        {
+            new() { Value = "BỆ MÁY H 200", X = 0, Y = 1500 },
+            new() { Value = "BỂ PHỐT 2 NGẦM 40M3", X = 11000, Y = 7000 }
+        }).ToList(), Array.Empty<(double, double)>(), true);
+        if (!collector.FromRiser || !collector.Outlets.SequenceEqual(new[] { 4 }) || !plinth.Outlets.SequenceEqual(new[] { 4 }))
+        {
+            message = $"drain lowest floor collector: riser {collector.Riser} outlets {string.Join(",", collector.Outlets)}";
+            return false;
+        }
+
         // A shoe drawn slanting to -x where a 200 branch leaves a 450 main downward: -1 along +x.
         var shoe = new CadPolyline { Closed = true };
         foreach (var (x, y) in new[] { (-100.0, -341.0), (100.0, -341.0), (100.0, -225.0), (-224.0, -225.0) })
@@ -3371,13 +3717,27 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
-        // A fire cabinet family is told apart from air equipment; the PCCC tool offers it, the air tool does not.
-        if (DevicePlanner.Guess("Fire Hydrant cabinet 700x1000x240 : type 1", "") != DeviceKind.FireCabinet ||
+        // A fire cabinet family is told apart from air equipment; the PCCC tool offers it, the air tool does not. The PCCC
+        // tool takes the equipment of TCVN 3890 at the level plus a height; sprinklers and detectors stay with the
+        // ceiling devices (they follow the ceiling).
+        var fireGuesses = new (string Name, DeviceKind Kind)[]
+        {
+            ("Fire Hydrant cabinet 700x1000x240 : type 1", DeviceKind.FireCabinet), ("FM200-15L", DeviceKind.FireEquipment),
+            ("BINH CHUA CHAY KHI FM-200", DeviceKind.FireEquipment), ("Bình chữa cháy xách tay MFZ4", DeviceKind.FireExtinguisher),
+            ("BINH CO2 MT3", DeviceKind.FireExtinguisher), ("Nút ấn báo cháy", DeviceKind.ManualCallPoint),
+            ("Chuông báo cháy", DeviceKind.FireBell), ("Tủ trung tâm báo cháy", DeviceKind.FireAlarmPanel),
+            ("ĐÈN EXIT", DeviceKind.EmergencyLight), ("Van báo động", DeviceKind.FireEquipment),
+            ("Đầu báo khói", DeviceKind.FireAlarm), ("SPK-PENDENT", DeviceKind.Sprinkler), ("Đèn downlight", DeviceKind.CeilingLight)
+        };
+        var wrongFire = fireGuesses.Where(g => DevicePlanner.Guess(g.Name, "") != g.Kind).Select(g => $"{g.Name} → {DevicePlanner.Guess(g.Name, "")}").ToList();
+        if (wrongFire.Count > 0 ||
             DevicePlanner.Guess("M-MEEQ_FCU 2.2kW-16.0kW : 7.1KW", "") == DeviceKind.FireCabinet ||
             DevicePlanner.Specs.Any(s => s.Kind == DeviceKind.FireCabinet && DevicePlanner.Offers(DeviceMount.Hvac, s)) ||
-            !DevicePlanner.Specs.Any(s => s.Kind == DeviceKind.Sprinkler && DevicePlanner.Offers(DeviceMount.Fire, s)))
+            DevicePlanner.Specs.Any(s => s.Kind is DeviceKind.Sprinkler or DeviceKind.FireAlarm && DevicePlanner.Offers(DeviceMount.Fire, s)) ||
+            !DevicePlanner.Specs.Any(s => s.Kind == DeviceKind.Sprinkler && DevicePlanner.Offers(DeviceMount.Ceiling, s)) ||
+            DevicePlanner.Specs.Where(s => DevicePlanner.Offers(DeviceMount.Fire, s)).Any(s => !DevicePlanner.OnFloor(s) || DevicePlanner.OnWall(s)))
         {
-            message = "fire devices: cabinet guess or tool offers";
+            message = "fire devices: " + (wrongFire.Count > 0 ? string.Join("; ", wrongFire) : "tool offers / placement");
             return false;
         }
 
@@ -3639,6 +3999,59 @@ public static class SectionFootprintSelfTest
                 return false;
             }
 
+            // A main on SD-D150 with a branch's "Dn40" written beside it (the branch on SD-D40, not picked): the main
+            // stays DN150. A line on a layer naming no size takes the label.
+            {
+                var main = new List<CadEntity> { new CadLine { Layer = "SD-D150", X0 = 0, Y0 = 0, X1 = 10000, Y1 = 0 } };
+                var dn40 = new List<CadText> { new() { Layer = "VNBT-F-TEXT", Value = "Dn40", X = 5000, Y = 150 } };
+                var onMain = MepRoutePlanner.Build(main, null, new MepSize(0, 0, 50), dn40, false).Edges;
+                var plain = MepRoutePlanner.Build(new List<CadEntity> { new CadLine { Layer = "PCCC-ONG", X0 = 0, Y0 = 0, X1 = 10000, Y1 = 0 } },
+                    null, new MepSize(0, 0, 50), dn40, false).Edges;
+                if (onMain.Any(e => Math.Abs(e.Size.DiameterMm - 150) > 0.5) || plain.Any(e => Math.Abs(e.Size.DiameterMm - 40) > 0.5))
+                {
+                    message = $"layer size over labels: main {string.Join(",", onMain.Select(e => e.Size))}, plain {string.Join(",", plain.Select(e => e.Size))}";
+                    return false;
+                }
+
+                // Labels first: "D75" written by a pipe drawn on "P - TR D90" is its size, along the run through its bend
+                // (the piece after the bend on the same layer too); with no label the layer's D90 stands.
+                var wrongLayer = new List<CadEntity>
+                {
+                    new CadLine { Layer = "P - TR D90", X0 = 0, Y0 = 0, X1 = 3000, Y1 = 0 },
+                    new CadLine { Layer = "P - TR D90", X0 = 3000, Y0 = 0, X1 = 3000, Y1 = 3000 }
+                };
+                var on = MepRoutePlanner.Build(wrongLayer, null, new MepSize(0, 0, 50),
+                    new List<CadText> { new() { Value = @"\A1;D75", X = 1500, Y = 600 } }, false).Edges;
+                // A fire main's "D65" in an xref (XR…$0$…VNBT-FF-TEXT) nearer the pipe than nothing is not its label.
+                var off = MepRoutePlanner.Build(wrongLayer, null, new MepSize(0, 0, 50), new List<CadText>
+                {
+                    new() { Value = "D65", X = 1500, Y = 200, Layer = "XR TANG HAM$0$XR-TXTN T HAM$0$VNBT-FF-TEXT" }
+                }, false).Edges;
+                if (on.Count != 2 || on.Any(e => Math.Abs(e.Size.DiameterMm - 75) > 0.5) || off.Any(e => Math.Abs(e.Size.DiameterMm - 90) > 0.5))
+                {
+                    message = $"label on a pipe on the wrong layer: on {string.Join(",", on.Select(e => e.Size))}, off {string.Join(",", off.Select(e => e.Size))}";
+                    return false;
+                }
+            }
+
+            // A DWG drawn ~79 km from its origin: Revit shows it moved, the file read through the link's transform lands
+            // far off. The lines that match (length, direction) give the shift; a file already in place gives none.
+            {
+                var read = new List<CadLine>();
+                for (var i = 0; i < 12; i++)
+                    read.Add(new CadLine { X0 = 78_879_863.6 + i * 3000, Y0 = 42_389_035.8, X1 = 78_879_863.6 + i * 3000, Y1 = 42_389_035.8 + 1000 + i * 700 });
+                read.Add(new CadLine { X0 = 78_879_863.6, Y0 = 42_389_035.8, X1 = 78_953_196.7, Y1 = 42_389_035.8 });
+                var shown = read.Select(l => new CadLine { X0 = l.X0 - 78_988_000.4, Y0 = l.Y0 - 42_344_327.1, X1 = l.X1 - 78_988_000.4, Y1 = l.Y1 - 42_344_327.1 })
+                    .Concat(new[] { new CadLine { X0 = 0, Y0 = 0, X1 = 2500, Y1 = 0 } }).ToList();
+                var shift = CadAlign.Offset(shown, read);
+                if (shift is not var (sx, sy) || Math.Abs(sx + 78_988_000.4) > 1 || Math.Abs(sy + 42_344_327.1) > 1 ||
+                    CadAlign.Offset(read, read) is not null)
+                {
+                    message = $"cad align: {shift}";
+                    return false;
+                }
+            }
+
             // Busway hidden under a ladder: two runs on one line, ends facing 4.7 m apart, are bridged once; the parallel
             // pair 700 aside is not crossed over, nor is an end that does not point back along the line.
             {
@@ -3688,6 +4101,20 @@ public static class SectionFootprintSelfTest
                 if (meetProf[2].Count != 1 || meetProf[2][0].Z != 3150 || meetProf[3][0].Z != 2650)
                 {
                     message = $"meet at nodes: 1200 ladder {string.Join("/", meetProf[2].Select(x => x.Z))}, 200 branch start {meetProf[3][0].Z}";
+                    return false;
+                }
+            }
+
+            {
+                // A cross on a DN150 main: DN32 up and DN50 down are straight on too, but the main is the DN150 pair.
+                var cross = new List<(double X, double Y, double Z, double Across)>
+                {
+                    (0, 1, 0, 42), (1, 0, 0, 168), (0, -1, 0, 60), (-1, 0, 0, 168)
+                };
+                var tee = new List<(double X, double Y, double Z, double Across)> { (0, 1, 0, 42), (1, 0, 0, 168), (-1, 0, 0, 114) };
+                if (MepRoutePlanner.MainPair(cross) != (1, 3) || MepRoutePlanner.MainPair(tee) != (1, 2))
+                {
+                    message = $"main pair: cross {MepRoutePlanner.MainPair(cross)}, tee {MepRoutePlanner.MainPair(tee)}";
                     return false;
                 }
             }
@@ -3833,6 +4260,26 @@ public static class SectionFootprintSelfTest
             if (Math.Abs(cpy - 2000) > 1e-6)
             {
                 message = $"pile grid snap from its cap's grid: y={cpy:0.######}";
+                return false;
+            }
+
+            // Two grids of one family 0.02° apart (the first sets the family's angle): a pile by the second is whole
+            // 5 mm square to that grid's own line, not to the family's angle (dimensioned 49.973 instead of 50).
+            var gridSkew = (30 + 0.02) * Math.PI / 180;
+            var (ox2, oy2) = (20000 * Math.Cos(gRad) - 15000 * Math.Sin(gRad), 20000 * Math.Sin(gRad) + 15000 * Math.Cos(gRad));
+            var skewGrids = new[]
+            {
+                Rot(-20000, 0, 20000, 0),
+                new GridSegment(ox2 - 20000 * Math.Cos(gridSkew), oy2 - 20000 * Math.Sin(gridSkew), ox2 + 20000 * Math.Cos(gridSkew), oy2 + 20000 * Math.Sin(gridSkew)),
+                Rot(20000, -20000, 20000, 30000)
+            };
+            // 49.6 mm off the second grid, square to it, beside the cross grid.
+            var (ex, ey) = (ox2 - 49.6 * Math.Sin(gridSkew) + 300 * Math.Cos(gridSkew), oy2 + 49.6 * Math.Cos(gridSkew) + 300 * Math.Sin(gridSkew));
+            var (kx, ky, okSkew) = GridLineSnap.Snap(ex, ey, skewGrids, 30);
+            var off = -(kx - ox2) * Math.Sin(gridSkew) + (ky - oy2) * Math.Cos(gridSkew);
+            if (!okSkew || Math.Abs(off - 50) > 1e-6)
+            {
+                message = $"pile grid snap on its own grid's line: {off:0.######} from the grid";
                 return false;
             }
         }

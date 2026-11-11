@@ -118,7 +118,7 @@ public sealed class ModelRevitCommand : IExternalCommand
                 }
 
                 var marks = catalog.DoorTypeMarks.Concat(catalog.WindowTypeMarks).ToList();
-                TaskDialog.Show("DSSTech — Phòng", ModelRevitRooms.Run(doc, view, roomLevel, geom, marks));
+                DoneReport.Show("DSSTech — Phòng", ModelRevitRooms.Run(doc, view, roomLevel, geom, marks));
                 return Result.Succeeded;
             }
 
@@ -465,7 +465,7 @@ public sealed class ModelRevitCommand : IExternalCommand
                         : "Dimension tới trục: 0 (không có grid song song trong tầm hoặc view không phải plan).");
             }
 
-            TaskDialog.Show("DSSTech — ModelRevit", summary.ToString());
+            DoneReport.Show("DSSTech — ModelRevit", summary.ToString());
             return Result.Succeeded;
         }
         catch (Autodesk.Revit.Exceptions.OperationCanceledException)

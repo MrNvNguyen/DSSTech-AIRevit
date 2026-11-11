@@ -149,9 +149,21 @@ public sealed class App : IExternalApplication
                 "Sprinkler, họng vách tường, màn ngăn (Pipe)." + mepTip, "Sprinkler, hose and drencher pipes." + mepTipEn, "dung-mo-hinh"),
             Item(asm, "DSSTechMepSmoke", "Tăng áp / hút khói · Smoke Duct", typeof(ModelRevit.MepSmokeDuctCommand), "icon-mep-smoke",
                 "Ống gió tạo áp, hút khói (Duct)." + mepTip, "Pressurisation and smoke exhaust ducts." + mepTipEn, "dung-mo-hinh"),
-            Item(asm, "DSSTechFireDevices", "Tủ chữa cháy & đầu phun · Fire Devices", typeof(ModelRevit.FireDevicesCommand), "icon-dev-sprinkler",
-                "Tủ chữa cháy lên mặt tường gần nhất; đầu phun sprinkler, đầu báo cháy dưới mặt trần — từ block CAD.",
-                "Fire hose cabinets on the nearest wall; sprinklers and detectors under the ceiling — from CAD blocks.", "dung-mo-hinh"));
+            Item(asm, "DSSTechSprinklerConnect", "Nối đầu phun · Sprinkler Connect", typeof(ModelRevit.SprinklerConnectCommand), "icon-mep-flex",
+                "Nối đầu phun đang chọn (hoặc mọi đầu phun chưa nối của tầng) vào ống nhánh. Ống cứng (trần bê tông / trần hở): tê + ống đứng DN25, tay ngang khi lệch ống, côn thu tại đầu phun. " +
+                "Ống mềm (trần thả / thạch cao): tê hông + nipple DN20, ống mềm DN20 dài 700 / 1000 / 1200 / 1500 / 1800 mm (dùng 1–3 loại), côn thu DN20×DN15. Dựng tuyến và đặt đầu phun không tự nối.",
+                "Joins the selected (or every unconnected) sprinkler heads of the level to their branch: rigid DN25 drops / arms over with a reducer, or DN20 flexible hoses of 1–3 stock lengths.", "dung-mo-hinh"),
+            Item(asm, "DSSTechHoseLoss", "Tổn thất ống mềm · Hose Loss", typeof(ModelRevit.HoseLossCommand), "icon-mep-fire",
+                "Tổn thất áp lực từng ống mềm đầu phun (đang chọn hoặc trong view): chiều dài tương đương theo catalogue hãng (GS Fire Safety, DAEJIN… nhập trong " +
+                "%APPDATA%\\DSSTech\\sprinkler-hose.json) × Hazen–Williams tại Q = K·√P; ghi vào Comments.",
+                "Friction loss of each sprinkler hose from the maker's equivalent length, Hazen–Williams at Q = K·√P; written to Comments.", "dung-mo-hinh"),
+            Item(asm, "DSSTechFireHangers", "Giá treo PCCC · Fire Hangers", typeof(ModelRevit.FireHangerCommand), "icon-mep-fire",
+                "Đặt giá treo (family chọn) trên ống PCCC đang chọn hoặc cả tầng: ≤ 3,6 m (≤ DN32) / ≤ 4,5 m (≥ DN40), đầu nhánh ≤ 0,9 / 1,2 m, tránh phụ kiện; " +
+                "ghi đường kính và chiều dài ty tới dầm / sàn. Tùy chọn giá đỡ đầu phun nối ống mềm.",
+                "Hangers (a chosen family) on the selected or the level's fire pipes, spaced by size, near branch ends; rod to the structure. Optional brackets at hose-fed heads.", "dung-mo-hinh"),
+            Item(asm, "DSSTechFireDevices", "Tủ & thiết bị PCCC · Fire Equipment", typeof(ModelRevit.FireDevicesCommand), "icon-dev-sprinkler",
+                "Tủ / họng chữa cháy, bình FM200, bình khí, van báo động, bơm từ block CAD: đặt tại điểm block, cao độ = sàn + cao lắp. Đầu phun, đầu báo cháy: Thiết bị trần.",
+                "Hose cabinets, hydrants, FM200 cylinders, alarm valves and pumps from CAD blocks, at the level plus a set height. Sprinklers and detectors: Ceiling Devices.", "dung-mo-hinh"));
         // Hệ thống và hai danh sách thiết bị: nút nhỏ có chữ, xếp chồng.
         var mepTools = mepf.AddStackedItems(
             Small(asm, "DSSTechMepSystems", "Hệ thống", "Systems", typeof(ModelRevit.MepSystemSetupCommand), "icon-mep-systems",
@@ -189,6 +201,12 @@ public sealed class App : IExternalApplication
         combine.AddItem(Build(asm, "DSSTechCombineAvoid", "Combine", typeof(ModelRevit.CombineSmartCommand), "icon-combine",
             "Combine MEPF: phân loại 7 hệ (thoát nước, ống gió, máng cáp, PCCC, nước lạnh, cấp nước, gas), kiểm tra khe hở theo cặp hệ, phụ kiện đúng kỹ thuật (thoát nước chữ Y / cút 45°), vùng phun sprinkler; hệ ưu tiên thấp tự né hệ ưu tiên cao. Xem trước, áp dụng, xuất Excel.",
             "MEPF Combine: classifies 7 systems, checks pair clearances, fitting rules (drainage wyes / 45° bends) and sprinkler zones; lower-priority runs detour round higher ones. Preview, apply, Excel report.", "dung-mo-hinh"));
+        combine.AddItem(Build(asm, "DSSTechBranchJoin", "Nối nhánh", typeof(ModelRevit.BranchJoinCommand), "icon-mep-systems",
+            "Sau Combine: nối mọi đầu ống nhánh còn hở (ống nước, ống gió — đang chọn hoặc trong view) vào ống chính cùng hệ gần nhất, không đổi cao độ tuyến nào. " +
+            "Ngang tâm: tap / tê bên hông; cao hơn hoặc thấp hơn: cút + ống đứng + tap / tê trên đỉnh hoặc đáy ống chính. Thoát nước chỉ nối khi nhánh cao hơn ống chính; " +
+            "lệch quá ít để đặt cút + tê thì báo để nối tay.",
+            "After Combine: joins every open branch end (pipes, ducts — selected or in the view) to the nearest main of its system, no run's height changed: " +
+            "a side tap / tee when level, else an elbow, a riser and a tap / tee on the main's top or bottom.", "dung-mo-hinh"));
         combine.AddItem(Build(asm, "DSSTechClashCheck", "Clash Check", typeof(ModelRevit.ClashCheckCommand), "icon-clash",
             "Kiểm tra va chạm nhóm A (model này) với nhóm B (model này và file link), rồi xem, sửa, tạo view, xuất BCF / Navisworks / Excel.",
             "Clash set A (this model) against set B (this model and links); review, fix, make views, export BCF / Navisworks / Excel.", "dung-mo-hinh"));

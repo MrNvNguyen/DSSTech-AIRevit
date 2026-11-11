@@ -44,6 +44,16 @@ internal static class CadLinkText
         }
 
         var transform = import.GetTotalTransform();
+        // A DWG far from its origin is moved by Revit on linking, and the transform does not say so: shift what is
+        // read from the file onto the lines Revit shows.
+        if (content.Curves.Count > 0 &&
+            CadAlign.Offset(geom.Entities.OfType<CadLine>(), content.Curves.OfType<CadLine>().Select(c => (CadLine)PlaceCurve(c, transform)).ToList())
+                is var (dx, dy))
+        {
+            transform = Transform.CreateTranslation(new XYZ(UnitConv.MmToInternal(dx), UnitConv.MmToInternal(dy), 0)).Multiply(transform);
+            DSSTech.Revit.DssTechLog.Write($"cad align: file read {dx:0},{dy:0} mm off the link as shown; shifted");
+        }
+
         if (content.Labels.Count == 0)
         {
             // Marks may be missing. Outlines below still replace Revit strokes when the DWG has curves.
@@ -389,6 +399,15 @@ internal static class CadLinkText
                     Cy = ToMm(center.Y, units),
                     Radius = ToMm(circle.Radius * scale, units)
                 });
+                break;
+            case ACadSharp.Entities.Dimension dimension when depth < 8 && dimension.Block is not null:
+                // A pipe's label written as a dimension's text (D200-0.5%-23.6M): the words are only in the
+                // dimension's own block (*D..). Its texts with words are read (a plain measured length is not a
+                // label); its lines and arrows are not strokes.
+                foreach (var child in dimension.Block.Entities)
+                    if (((child as MText)?.Value ?? (child as TextEntity)?.Value) is { } words &&
+                        System.Text.RegularExpressions.Regex.Replace(words, @"\\[A-Za-z][^;\\]*;", "").Any(char.IsLetter))
+                        Collect(child, units, labels, curves, transform, depth + 1, layer);
                 break;
             case Insert insert when depth < 8 && insert.Block is not null:
                 foreach (var attribute in insert.Attributes)

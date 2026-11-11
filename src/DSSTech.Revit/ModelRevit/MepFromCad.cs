@@ -25,7 +25,8 @@ internal enum MepRun
     Busway
 }
 
-internal sealed record MepChoice(MepRun Run, string Label, string Detail, string? Group);
+/// <param name="Codes">Systems listed first in the dialog, where not the whole group's (smoke: SEAD, PAD).</param>
+internal sealed record MepChoice(MepRun Run, string Label, string Detail, string? Group, string[]? Codes = null);
 
 // Each discipline is a drop-down on the ribbon; each item builds one kind of run.
 
@@ -107,7 +108,8 @@ public sealed class MepSmokeDuctCommand : IExternalCommand
 {
     public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements) =>
         MepFromCad.Run(commandData.Application, "DSSTech — PCCC",
-            new MepChoice(MepRun.Duct, "Tăng áp / hút khói", "Ống gió tạo áp, hút khói (Duct)", null));
+            // Ducts as «ĐHKK ▸ Ống gió» makes them; only the smoke exhaust and pressurisation systems come first.
+            new MepChoice(MepRun.Duct, "Tăng áp / hút khói", "Ống gió tạo áp, hút khói (Duct)", MepSystemCatalog.Mech, new[] { "SEAD", "PAD" }));
 }
 
 /// <summary>
@@ -125,6 +127,9 @@ internal static class MepFromCad
     private const string TopOf = "Đỉnh (Top Elevation)";
     private const string CenterOf = "Tâm (Middle Elevation)";
     private const string BottomOf = "Đáy (Bottom Elevation)";
+    private const string DrainAuto = "Tự đọc CAD: tầng trên WC / phễu thu → trục; tầng dưới cùng trục → hố ga / bể";
+    private const string DrainPickHead = "Pick trục (ống đứng) mỗi mạng, chiều chảy theo tầng như trên";
+    private const string DrainPickOutlets = "Pick điểm xả (mạng gom nhiều nhánh về điểm xả)";
 
     public static Result Run(UIApplication uiApp, string title, MepChoice choice)
     {
@@ -206,18 +211,21 @@ internal static class MepFromCad
                 return Result.Cancelled;
             }
 
-            // Drainage: the outlets are picked on the plan (Esc when done); a network with none uses its largest end.
+            // Drainage: read from the CAD (one head per network, every other open end an outlet), the head of each network
+            // picked, or (a network gathering many branches to one outlet) the outlets picked; Esc when done.
             var outlets = new List<XYZ>();
-            if (choice.Run == MepRun.DrainPipe)
+            var heads = new List<XYZ>();
+            if (choice.Run == MepRun.DrainPipe && setup.DrainMode == DrainPickHead)
             {
                 TaskDialog.Show(title,
-                    "Pick điểm xả (cuối tuyến, chỗ nối vào ống đứng / ống có sẵn) cho từng mạng thoát, Esc khi xong.\n" +
-                    "Mạng không pick: điểm xả là đầu hở của đoạn ống lớn nhất.");
+                    "Pick đầu ống tại TRỤC (ống đứng) của từng mạng — mỗi mạng 1 điểm. Tầng trên: WC / phễu thu chảy về trục; " +
+                    "tầng dưới cùng (hoặc có chữ bể / hố ga ở đầu ống): từ trục ra mọi đầu hở còn lại. Esc khi xong.\n" +
+                    "Mạng không pick: trục tự nhận theo chữ trên CAD (TR, ống đứng) rồi đến ống lớn nhất.");
                 while (true)
                 {
                     try
                     {
-                        outlets.Add(uidoc.Selection.PickPoint("Pick điểm xả của mạng thoát (Esc khi xong)."));
+                        heads.Add(uidoc.Selection.PickPoint("Pick đầu tuyến (mỗi mạng 1 điểm) — Esc khi xong."));
                     }
                     catch (Autodesk.Revit.Exceptions.OperationCanceledException)
                     {
@@ -230,7 +238,40 @@ internal static class MepFromCad
                 }
             }
 
-            var report = Build(doc, net, level, topLevel, setup, outlets);
+            if (choice.Run == MepRun.DrainPipe && setup.DrainMode == DrainPickOutlets)
+            {
+                TaskDialog.Show(title,
+                    "Pick MỌI điểm xả: điểm CUỐI tuyến, nơi ống xả vào bể tự hoại / hố ga / ống đứng (không pick điểm đầu tuyến). " +
+                    "Một mạng có thể có nhiều điểm xả: mỗi đoạn dốc về điểm xả gần nó nhất theo đường ống. Esc khi xong.\n" +
+                    "Mạng không pick: điểm xả là đầu hở của đoạn ống lớn nhất.");
+                while (true)
+                {
+                    try
+                    {
+                        outlets.Add(uidoc.Selection.PickPoint("Pick điểm xả (cuối tuyến, chỗ xả vào bể / hố ga) — pick hết các điểm xả, Esc khi xong."));
+                    }
+                    catch (Autodesk.Revit.Exceptions.OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            // Runs drawn a few degrees off square get no fitting: tees slid square along the main, free stubs turned to 90°.
+            var (teesSquared, cornersSquared) = MepRoutePlanner.SquareUp(net);
+            // Sprinkler pipes reduce 150 mm past the head or the branch tee, not at it.
+            ReducerNodes.Clear();
+            var reducersMoved = choice.Group == MepSystemCatalog.Fire ? MepRoutePlanner.ReducersPast(net, reducers: ReducerNodes) : 0;
+            var report = Build(doc, net, level, topLevel, setup, outlets, heads, texts);
+            if (reducersMoved > 0)
+                report += $"Côn giảm dời {150} mm qua đầu phun / tê nhánh sang phía ống nhỏ: {reducersMoved} chỗ.\n";
+            if (teesSquared + cornersSquared > 0)
+                report += $"Nét CAD lệch vài độ được chỉnh vuông: {teesSquared} tê trượt dọc ống chính, {cornersSquared} góc có đầu tự do xoay về 90°.\n";
+            // Heads are joined by «Nối đầu phun» only (rigid or flexible, chosen there), not here.
             var sources = string.Join(", ", net.Edges.GroupBy(e => e.SizeFrom).Select(g => g.Key switch
             {
                 "text" => $"chữ cạnh nét {g.Count()}",
@@ -253,7 +294,7 @@ internal static class MepFromCad
                 report = (choice.Run == MepRun.Duct
                     ? $"Bỏ qua {devices} thiết bị vẽ trên layer ống (block / khung miệng gió, FCU, box): đặt bằng «Thiết bị ĐHKK», nối bằng «Nối ống mềm».\n"
                     : $"Bỏ qua {devices} ký hiệu van / phụ kiện vẽ trên layer ống (block): tuyến ống liền qua chỗ đó.\n") + report;
-            TaskDialog.Show(title,
+            DoneReport.Show(title,
                 $"{choice.Label} · CAD {linkName} · {layerLabel} · {setup.SystemLabel}\n" +
                 $"Size: {sources}.\n{report}");
             return Result.Succeeded;
@@ -327,14 +368,33 @@ internal static class MepFromCad
         public double ManualMm { get; init; }
         public string ManualRef { get; init; } = TopOf;
         public double SlopePercent { get; init; }
+        /// <summary>Drainage: how heads and outlets are found (read from the CAD, start picked, or outlets picked).</summary>
+        public string DrainMode { get; init; } = DrainAuto;
+        /// <summary>Vent (thông hơi): rises from the branch ends (low) to the riser (high), the other way from a drain.</summary>
+        public bool Vent { get; init; }
         /// <summary>Elevations written on the CAD (H=2800) are used where a run has one.</summary>
         public bool UseCadElevation { get; init; }
         /// <summary>What a CAD elevation measures: the run's bottom, middle or top.</summary>
         public string CadRef { get; init; } = BottomOf;
+        /// <summary>
+        /// Branches joined to the main by tees, crosses and taps. Off: the main runs on through each junction and the
+        /// branch stops at its side, to be joined after Combine has moved the runs.
+        /// </summary>
+        public bool JoinBranches { get; init; } = true;
+
+        /// <summary>
+        /// Outside diameter (mm) of each nominal size of the pipe type's segment: a DN150 steel pipe is 168.3 across, and
+        /// a bottom at 2600 is its outside, not its nominal bore. Empty for ducts and trays.
+        /// </summary>
+        public Dictionary<double, double> PipeOuterMm { get; init; } = new();
+
+        /// <summary>What a run's height is measured over: the pipe's outside diameter, else the section's depth.</summary>
+        public double Depth(MepSize size) =>
+            size.IsRound && PipeOuterMm.TryGetValue(Math.Round(size.DiameterMm), out var od) ? od : size.DepthMm;
 
         /// <summary>Centerline (absolute mm) of a run whose CAD note gives its height; null where none or not used.</summary>
         public double? CadCenter(double levelMm, MepEdge e) =>
-            UseCadElevation && e.ElevationMm is double h ? levelMm + h + Offset(CadRef, e.Size.DepthMm) : null;
+            UseCadElevation && e.ElevationMm is double h ? levelMm + h + Offset(CadRef, Depth(e.Size)) : null;
 
         private static double Offset(string reference, double depthMm) => reference switch
         {
@@ -374,6 +434,17 @@ internal static class MepFromCad
             else
                 systems = MepSystemCatalog.All.Where(s => s.Domain == MepDomain.CableTray)
                     .Select(s => (ElementId.InvalidElementId, $"{s.Abbr} - {s.NameVi}", s.Abbr)).ToList();
+            // Each tool its own systems: drainage (Sanitary, Vent) only under «Thoát nước», never under «Cấp nước» or PCCC,
+            // so a drain is never modelled without its fall. A project whose systems are not classified keeps them all.
+            if (domain == MepDomain.Pipe)
+            {
+                bool Drains(ElementId id) => doc.GetElement(id) is PipingSystemType t
+                    && t.SystemClassification is MEPSystemClassification.Sanitary or MEPSystemClassification.Vent;
+                var own = systems.Where(s => Drains(s.Id) == (choice.Run == MepRun.DrainPipe)).ToList();
+                if (own.Count > 0)
+                    systems = own;
+            }
+
             if (systems.Count == 0)
             {
                 TaskDialog.Show(title, "Project chưa có system cho loại này. Chạy «Hệ thống» để tạo hệ theo quy định trước.");
@@ -381,7 +452,7 @@ internal static class MepFromCad
             }
 
             // The group's systems first (PCCC shows fire systems first), the one named by the link preselected.
-            var groupCodes = MepSystemCatalog.All.Where(s => s.Group == choice.Group).Select(s => s.Abbr).ToHashSet();
+            var groupCodes = choice.Codes?.ToHashSet() ?? MepSystemCatalog.All.Where(s => s.Group == choice.Group).Select(s => s.Abbr).ToHashSet();
             systems = systems.OrderByDescending(s => groupCodes.Contains(s.Abbr)).ThenBy(s => s.Name).ToList();
             var preset = spec is null ? null : systems.Select(s => (string?)s.Name).FirstOrDefault(n =>
                 MepSystemCatalog.Match(spec, new[] { new ExistingSystem { Name = n!, Abbreviation = systems.First(x => x.Name == n).Abbr, Domain = domain } })
@@ -450,19 +521,26 @@ internal static class MepFromCad
                     domain == MepDomain.Pipe ? "D50" : domain == MepDomain.CableTray ? "300x100" : "400x300");
 
             System.Windows.Controls.TextBox? slope = null;
+            System.Windows.Controls.ComboBox? drainMode = null;
             if (choice.Run == MepRun.DrainPipe)
+            {
                 slope = dlg.AddInput("Độ dốc (%) — chảy về điểm xả", "1");
+                drainMode = dlg.AddCombo("Nhận đầu tuyến / điểm xả", new[] { DrainAuto, DrainPickHead, DrainPickOutlets }, DrainAuto);
+            }
             var underStructure = dlg.AddOption(choice.Run switch
             {
-                MepRun.DrainPipe => "Đầu tuyến cao nhất sát đáy dầm/sàn kết cấu (điểm xả tính lùi theo độ dốc)",
+                MepRun.DrainPipe => "Điểm đầu tuyến (cao nhất) cách đáy dầm/sàn bằng khe hở dưới; cao độ còn lại nội suy theo độ dốc về điểm xả",
                 MepRun.Duct => "So với đáy dầm/sàn: đáy dầm thấp hơn cao độ tự nhập thì cả mạng hạ xuống dưới dầm (mọi ống cùng mặt đáy/đỉnh)",
                 _ => "Cao độ theo đáy dầm/sàn kết cấu, uốn né dầm"
             }, overhead.Count > 0);
-            var clearance = dlg.AddInput("Khe hở dưới đáy dầm/sàn (mm)", "50");
+            var clearance = dlg.AddInput(choice.Run == MepRun.DrainPipe ? "Khe hở từ đáy dầm/sàn đến đỉnh ống tại điểm đầu tuyến (mm)" : "Khe hở dưới đáy dầm/sàn (mm)",
+                choice.Run == MepRun.DrainPipe ? "150" : "50");
             var storeyMm = topLevel.Id == level.Id ? 3300 : Math.Round(UnitConv.ToMm(topLevel.Elevation - level.Elevation));
-            var reference = dlg.AddCombo(choice.Run == MepRun.DrainPipe ? "Cao độ tự nhập tại điểm xả theo" : "Cao độ tự nhập theo",
+            var reference = dlg.AddCombo(choice.Run == MepRun.DrainPipe ? "Cao độ tự nhập tại điểm đầu tuyến theo (khi không có dầm/sàn)" : "Cao độ tự nhập theo",
                 new[] { TopOf, CenterOf, BottomOf }, choice.Run == MepRun.DrainPipe ? BottomOf : TopOf);
-            var manual = dlg.AddInput("Cao độ tự nhập so với level (mm)", (storeyMm - 500).ToString("0"));
+            // Drainage under the floor it is drawn on: below the level, a negative height.
+            var manual = dlg.AddInput(choice.Run == MepRun.DrainPipe ? "Cao độ tự nhập so với level (mm, âm = dưới level)" : "Cao độ tự nhập so với level (mm)",
+                (choice.Run == MepRun.DrainPipe ? -500 : storeyMm - 500).ToString("0"));
             // Drainage keeps its fall from the outlet; the others take the height written on the CAD where there is one.
             System.Windows.Controls.CheckBox? useCad = null;
             System.Windows.Controls.ComboBox? cadRef = null;
@@ -471,6 +549,12 @@ internal static class MepFromCad
                 useCad = dlg.AddOption("Dùng cao độ ghi trên CAD (H=2800, BOT 2600…) cho đoạn có ghi; đoạn không ghi dùng cao độ ở trên", true);
                 cadRef = dlg.AddCombo("Cao độ ghi trên CAD là", new[] { BottomOf, CenterOf, TopOf }, BottomOf);
             }
+
+            // Branches joined later (after Combine): the main runs on through, each branch stops at its side.
+            System.Windows.Controls.CheckBox? joinBranches = null;
+            if (choice.Run != MepRun.DrainPipe)
+                joinBranches = dlg.AddOption("Nối nhánh vào tuyến chính (tê, chữ thập, tap) — bỏ chọn để nối sau khi Combine",
+                    choice.Run != MepRun.PressurePipe);
 
             if (!dlg.ShowFor(uiApp.MainWindowHandle))
                 return null;
@@ -491,12 +575,42 @@ internal static class MepFromCad
                 Fallback = MepRoutePlanner.TryParseSize(fallback.Text, out var fs) ? fs : new MepSize(400, 300, 0),
                 Overhead = underStructure.IsChecked == true ? overhead : new List<ModelRevitWallFit.Piece>(),
                 ClearanceMm = Math.Max(0, Num(clearance, 50)),
-                ManualMm = Num(manual, storeyMm - 500),
+                ManualMm = Num(manual, choice.Run == MepRun.DrainPipe ? -500 : storeyMm - 500),
                 ManualRef = DssTheme.ComboValue(reference),
                 SlopePercent = Math.Max(0, Num(slope, 1)),
+                DrainMode = drainMode is null ? DrainAuto : DssTheme.ComboValue(drainMode),
+                Vent = choice.Run == MepRun.DrainPipe && MepRoutePlanner.IsVent(
+                    doc.GetElement(system.Id) is Autodesk.Revit.DB.Plumbing.PipingSystemType pst && pst.SystemClassification == MEPSystemClassification.Vent,
+                    system.Name, system.Abbr ?? "", layerBoxes.Where(b => b.IsChecked == true).Select(b => (string)b.Tag)),
                 UseCadElevation = useCad?.IsChecked == true,
-                CadRef = cadRef is null ? BottomOf : DssTheme.ComboValue(cadRef)
+                CadRef = cadRef is null ? BottomOf : DssTheme.ComboValue(cadRef),
+                JoinBranches = joinBranches is null || joinBranches.IsChecked == true,
+                PipeOuterMm = domain == MepDomain.Pipe && roundBox is not null
+                    ? PipeOuter(doc, round.First(t => t.Name == DssTheme.ComboValue(roundBox)).Id)
+                    : new Dictionary<double, double>()
             };
+        }
+
+        /// <summary>Nominal → outside diameter (mm) of the segment the pipe type routes with.</summary>
+        private static Dictionary<double, double> PipeOuter(Document doc, ElementId pipeTypeId)
+        {
+            var map = new Dictionary<double, double>();
+            try
+            {
+                var rpm = (doc.GetElement(pipeTypeId) as PipeType)?.RoutingPreferenceManager;
+                if (rpm is null || rpm.GetNumberOfRules(RoutingPreferenceRuleGroupType.Segments) == 0)
+                    return map;
+                if (doc.GetElement(rpm.GetRule(RoutingPreferenceRuleGroupType.Segments, 0).MEPPartId) is not PipeSegment segment)
+                    return map;
+                foreach (var size in segment.GetSizes())
+                    map[Math.Round(UnitConv.ToMm(size.NominalDiameter))] = UnitConv.ToMm(size.OuterDiameter);
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException ex)
+            {
+                DssTechLog.Write($"pipe outer diameters: {ex.Message}");
+            }
+
+            return map;
         }
 
         private static string Abbr(MEPSystemType s) =>
@@ -510,11 +624,24 @@ internal static class MepFromCad
     /// <summary>One piece of one edge: from/to along the edge, centerline elevation at each end (absolute mm).</summary>
     private readonly record struct Piece(double From, double To, double Z0, double Z1);
 
-    private static string Build(Document doc, MepNetwork net, Level level, Level topLevel, Setup setup, List<XYZ> outletPicks)
+    private static string Build(Document doc, MepNetwork net, Level level, Level topLevel, Setup setup, List<XYZ> outletPicks,
+        List<XYZ> headPicks, IReadOnlyList<CadText> texts)
     {
         var levelMm = UnitConv.ToMm(level.ProjectElevation);
         var fromZ = level.ProjectElevation + UnitConv.MmToInternal(500);
         var toZ = (topLevel.Id == level.Id ? level.ProjectElevation + UnitConv.MmToInternal(6000) : topLevel.ProjectElevation) + UnitConv.MmToInternal(1500);
+        if (setup.Run == MepRun.DrainPipe)
+        {
+            // Drainage hangs under the floor of the level it is drawn on, at heights below the level (negative): the beams
+            // and slab of that floor, from the level (a slab's top, its finish a little over) down to 500 mm short of the
+            // level below (3000 mm with none), not those of the floor above.
+            var below = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .Where(l => l.ProjectElevation < level.ProjectElevation - UnitConv.MmToInternal(1))
+                .OrderByDescending(l => l.ProjectElevation).FirstOrDefault();
+            var downMm = below is not null ? Math.Max(500, UnitConv.ToMm(level.ProjectElevation - below.ProjectElevation) - 500) : 3000;
+            fromZ = level.ProjectElevation - UnitConv.MmToInternal(downMm);
+            toZ = level.ProjectElevation + UnitConv.MmToInternal(50);
+        }
         // Beams and slabs by plan cell: each probe tests only those over it (a probe every 100 mm along every run).
         var overheadCells = new Dictionary<(long, long), List<ModelRevitWallFit.Piece>>();
         var overheadEverywhere = new List<ModelRevitWallFit.Piece>();
@@ -555,7 +682,7 @@ internal static class MepFromCad
                 partOf[n] = p;
         var depth = parts.Select(_ => 0.0).ToList();
         foreach (var e in net.Edges)
-            depth[partOf[e.A]] = Math.Max(depth[partOf[e.A]], e.Size.DepthMm);
+            depth[partOf[e.A]] = Math.Max(depth[partOf[e.A]], setup.Depth(e.Size));
         var edgesAt = net.Nodes.Select(_ => new List<int>()).ToList();
         for (var i = 0; i < net.Edges.Count; i++)
         {
@@ -570,19 +697,51 @@ internal static class MepFromCad
         var outletNodes = new List<int>();
         if (setup.Run == MepRun.DrainPipe)
         {
-            // Each network falls toward its outlet: the picked point nearest to one of its open ends, else its main end.
+            // Each network falls toward its outlets: every point picked (the pipe's last point, where it discharges into a
+            // septic tank or manhole), each to the open end nearest to it; none picked: its main end.
             var slope = setup.SlopePercent / 100;
             var nodeZ = new Dictionary<int, double>();
+            var partOutlets = new List<List<int>>();
+            var pickedParts = new List<bool>();
+            var headWhy = new List<string>();
+            var allEnds = Enumerable.Range(0, net.Nodes.Count).Where(n => edgesAt[n].Count == 1).ToList();
+            // The lowest floor (no level under it) runs from the riser foot out; a basement over a foundation level is
+            // told by the tank / manhole notes at its ends instead.
+            var lowestFloor = !new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .Any(l => l.ProjectElevation < level.ProjectElevation - UnitConv.MmToInternal(1));
             for (var p = 0; p < parts.Count; p++)
             {
                 var ends = parts[p].Where(n => edgesAt[n].Count == 1).ToList();
+                if (setup.DrainMode != DrainPickOutlets)
+                {
+                    // Each network meets its riser at one end (picked, else read from the CAD). Upper floors: WCs and
+                    // floor drains flow to the riser; the lowest floor: from the riser foot out to manholes and tanks.
+                    var pickedRiser = headPicks
+                        .Select(pt => ends.Select(n => (Node: n, D: PlanDistance(net, n, pt))).Where(x => x.D <= 1500)
+                            .OrderBy(x => x.D).Select(x => (int?)x.Node).FirstOrDefault())
+                        .FirstOrDefault(n => n is not null);
+                    var inPart = new HashSet<int>(parts[p]);
+                    var flow = MepRoutePlanner.DrainFlow(net, parts[p], texts,
+                        allEnds.Where(n => !inPart.Contains(n)).Select(n => net.Nodes[n]), lowestFloor, pickedRiser);
+                    pickedParts.Add(pickedRiser is not null);
+                    // Vent: every floor climbs from the branch ends to the riser; the riser is the one top (taken as
+                    // the "outlet" here, turned over below).
+                    headWhy.Add(setup.Vent
+                        ? $"trục ({net.Nodes[flow.Riser].X:0},{net.Nodes[flow.Riser].Y:0}): {flow.Why.Split(';')[0]}; thông hơi: đầu nhánh thấp, dốc lên về trục"
+                        : $"trục ({net.Nodes[flow.Riser].X:0},{net.Nodes[flow.Riser].Y:0}): {flow.Why}");
+                    partOutlets.Add(setup.Vent ? new List<int> { flow.Riser } : flow.Outlets);
+                    outletNodes.AddRange(partOutlets[p]);
+                    continue;
+                }
+
+                headWhy.Add("");
                 var picked = outletPicks
-                    .SelectMany(pt => (ends.Count > 0 ? ends : parts[p]).Select(n => (Node: n, D: PlanDistance(net, n, pt))))
-                    .Where(x => x.D <= 1500)
-                    .OrderBy(x => x.D)
-                    .Select(x => (int?)x.Node)
-                    .FirstOrDefault();
-                outletNodes.Add(picked ?? MepRoutePlanner.DefaultOutlet(net, parts[p]));
+                    .Select(pt => (ends.Count > 0 ? ends : parts[p]).Select(n => (Node: n, D: PlanDistance(net, n, pt)))
+                        .Where(x => x.D <= 1500).OrderBy(x => x.D).Select(x => (int?)x.Node).FirstOrDefault())
+                    .Where(n => n is not null).Select(n => n!.Value).Distinct().ToList();
+                pickedParts.Add(picked.Count > 0);
+                partOutlets.Add(picked.Count > 0 ? picked : new List<int> { MepRoutePlanner.DefaultOutlet(net, parts[p]) });
+                outletNodes.AddRange(partOutlets[p]);
             }
 
             // Square corners drawn on the plan become 45° wyes and pairs of 45° bends (profile rule DR-BRANCH / DR-BEND).
@@ -600,22 +759,77 @@ internal static class MepFromCad
                 }
             }
 
+            var clashes = 0;
+            var offFallCount = 0;
+            var edgeZ = new Dictionary<MepEdge, (double A, double B)>();
             for (var p = 0; p < parts.Count; p++)
             {
-                var outlet = outletNodes[p];
-                var picked = outletPicks.Count > 0 && outletPicks.Any(pt => PlanDistance(net, outlet, pt) <= 1500) ? (int?)outlet : null;
-                var outletDepth = net.Edges[edgesAt[outlet][0]].Size.DepthMm;
-                var manualCenter = setup.ManualCenter(levelMm, outletDepth);
-                var outletZ = setup.UnderStructure
-                    ? MepRoutePlanner.OutletUnderStructure(net, outlet, slope, Under, setup.ClearanceMm, StepMm, manualCenter)
-                    : manualCenter;
-                foreach (var (n, rise) in MepRoutePlanner.RisesFrom(net, outlet, setup.SlopePercent))
-                    nodeZ[n] = outletZ + rise;
-                notes.AppendLine($"Mạng {p + 1}: điểm xả {(picked is null ? "đầu ống lớn nhất" : "đã pick")} ({net.Nodes[outlet].X:0},{net.Nodes[outlet].Y:0}), tâm ống {outletZ - levelMm:0} mm so với {level.Name}, dốc theo chữ i=..% trên tuyến, chỗ không ghi {setup.SlopePercent:0.##}%.");
+                // Every run straight at the fall drawn on it (D110-1%), flowing one way, every joint at one height. The
+                // head (the highest point) fixed: its pipe top the clearance under the beam or slab over it, else at the
+                // height typed in; the rest follows down run by run (outlets may end at different heights).
+                var outlets = partOutlets[p];
+                var (runEnds, offFall) = MepRoutePlanner.RunRises(net, outlets, setup.SlopePercent);
+                if (setup.Vent)
+                    runEnds = MepRoutePlanner.VentRises(runEnds);
+                offFallCount += offFall.Count;
+                if (runEnds.Count == 0)
+                    continue;
+                var top = runEnds.SelectMany(kv => new[] { (Node: kv.Key.A, Rise: kv.Value.A, Edge: kv.Key), (Node: kv.Key.B, Rise: kv.Value.B, Edge: kv.Key) })
+                    .OrderByDescending(x => x.Rise).First();
+                var headRise = top.Rise;
+                var headDepth = edgesAt[top.Node].Max(i => setup.Depth(net.Edges[i].Size));
+                var (hx, hy) = net.Nodes[top.Node];
+                var under = setup.UnderStructure ? Under(hx, hy) : null;
+                var headZ = under is double u ? u - setup.ClearanceMm - headDepth / 2 : setup.ManualCenter(levelMm, headDepth);
+                var baseZ = headZ - headRise;
+                foreach (var (e, r) in runEnds)
+                {
+                    edgeZ[e] = (baseZ + r.A, baseZ + r.B);
+                    nodeZ[e.A] = baseZ + r.A;
+                    nodeZ[e.B] = baseZ + r.B;
+                }
+
+                // Where a deeper beam further down the fall comes lower than the pipe: counted, to be looked at.
+                if (setup.UnderStructure)
+                {
+                    foreach (var (e, r) in runEnds)
+                    {
+                        var (ax, ay) = net.Nodes[e.A];
+                        var (bx, by) = net.Nodes[e.B];
+                        var len = MepRoutePlanner.Length(net, e);
+                        for (var s = 0.0; ; s += StepMm)
+                        {
+                            var t = len > 0 ? Math.Min(s, len) / len : 0;
+                            var pipeTop = baseZ + r.A + (r.B - r.A) * t + setup.Depth(e.Size) / 2;
+                            if (Under(ax + (bx - ax) * t, ay + (by - ay) * t) is double ub && pipeTop > ub)
+                            {
+                                clashes++;
+                                break;
+                            }
+
+                            if (s >= len)
+                                break;
+                        }
+                    }
+                }
+
+                var at = string.Join(", ", outlets.Select(o =>
+                    $"({net.Nodes[o].X:0},{net.Nodes[o].Y:0}){(nodeZ.TryGetValue(o, out var oz) ? $" tâm {oz - levelMm:0}" : "")}"));
+                notes.AppendLine($"Mạng {p + 1}: điểm đầu tuyến ({hx:0},{hy:0}) tâm ống {headZ - levelMm:0} mm so với {level.Name} " +
+                                 $"({(under is null ? "cao độ tự nhập" : $"cách đáy dầm/sàn {setup.ClearanceMm:0} mm")}); {outlets.Count} điểm xả " +
+                                 $"{(setup.DrainMode != DrainPickOutlets ? "(" + headWhy[p] + ")" : pickedParts[p] ? "đã pick" : "đầu ống lớn nhất")} {at} mm; dốc theo chữ trên tuyến (D110-1%, i=..%), chỗ không ghi {setup.SlopePercent:0.##}%.");
             }
 
+            if (clashes > 0)
+                notes.AppendLine($"Lỗi: {clashes} đoạn ống thoát nước chạm đáy dầm/sàn sâu hơn ở giữa tuyến (cao độ theo điểm đầu tuyến) — xem lại hoặc hạ điểm đầu.");
+            if (offFallCount > 0)
+                notes.AppendLine($"Lỗi: {offFallCount} đoạn khép mạch vòng, hai đầu không khớp độ dốc bản vẽ (dựng theo cao độ hai đầu) — xem lại.");
+
             foreach (var e in net.Edges)
-                pieces.Add(new List<Piece> { new(0, MepRoutePlanner.Length(net, e), nodeZ[e.A], nodeZ[e.B]) });
+            {
+                var (za, zb) = edgeZ.TryGetValue(e, out var z) ? z : (nodeZ.TryGetValue(e.A, out var a) ? a : levelMm, nodeZ.TryGetValue(e.B, out var b) ? b : levelMm);
+                pieces.Add(new List<Piece> { new(0, MepRoutePlanner.Length(net, e), za, zb) });
+            }
         }
         else if (setup.Run == MepRun.Duct)
         {
@@ -722,7 +936,7 @@ internal static class MepFromCad
             var runZ = new double[parts.Count];
             for (var p = 0; p < parts.Count; p++)
             {
-                var manual = levelMm + Math.Floor((setup.ManualCenter(levelMm, depth[p]) - levelMm) / 5) * 5;
+                var manual = setup.ManualCenter(levelMm, depth[p]);
                 runZ[p] = MepRoutePlanner.BuswayHeight(cadZ[p], manual, lowest[p] == double.MaxValue ? null : lowest[p],
                     setup.ClearanceMm, depth[p]);
                 if (cadZ[p] is null && runZ[p] < manual)
@@ -749,7 +963,8 @@ internal static class MepFromCad
                 var (bx, by) = net.Nodes[e.B];
                 var len = MepRoutePlanner.Length(net, e);
                 var netDepth = depth[partOf[e.A]];
-                var manualCenter = levelMm + Math.Floor((setup.ManualCenter(levelMm, netDepth) - levelMm) / 5) * 5;
+                // The typed height exactly (a bottom typed 2600 is 2600, outside the pipe).
+                var manualCenter = setup.ManualCenter(levelMm, netDepth);
                 if (setup.CadCenter(levelMm, e) is double cad)
                 {
                     fromCad++;
@@ -891,11 +1106,15 @@ internal static class MepFromCad
 
         tx.Commit();
 
-        for (var n = 0; n < net.Nodes.Count; n++)
+        // Junctions before corners: a main made one through a branch first leaves the elbow next to it a run long
+        // enough (an elbow on the short piece between a corner and a branch close by takes more than its length).
+        foreach (var n in Enumerable.Range(0, net.Nodes.Count).OrderBy(i => nodeEnds[i].Count >= 3 ? 0 : 1))
         {
             var ends = nodeEnds[n];
             if (ends.Count >= 2)
-                jobs.Add(new FittingJob(Describe(ends[0].At), f => Join(doc, ends.Select(x => End(doc, x.Curve, x.At)).ToList(), f)));
+                jobs.Add(new FittingJob(Describe(ends[0].At), f => ends.Count >= 3 && !setup.JoinBranches
+                    ? Unjoined(doc, ends.Select(x => End(doc, x.Curve, x.At)).ToList(), f)
+                    : Join(doc, ends.Select(x => End(doc, x.Curve, x.At)).ToList(), f)));
         }
 
         // A reducer drawn off-centre: a transition between the two runs' ends, each run kept on its own line.
@@ -922,6 +1141,7 @@ internal static class MepFromCad
         }
 
         fittings += RunFittings(doc, jobs, failures);
+        ReducersOnStart(doc, nodeEnds);
 
         // Drainage outlets join the pipe already there (riser, main of another drawing).
         var outletJobs = new List<FittingJob>();
@@ -944,14 +1164,31 @@ internal static class MepFromCad
         }
 
         joined = RunFittings(doc, outletJobs, failures);
+
+        // A run drawn through a junction (the piece after it deleted into it) can come out with System Type Undefined.
+        var systemsFilled = 0;
+        if (setup.Run is not (MepRun.CableTray or MepRun.Busway))
+        {
+            var known = beforeIds.ToHashSet();
+            systemsFilled = MepSystemFill.Fill(doc, new FilteredElementCollector(doc).OfClass(typeof(MEPCurve))
+                .Where(c => !known.Contains(c.Id)).Select(c => c.Id).ToList(), setup.SystemId);
+            // Runs of an earlier run of the tool (kept where this one found them already modelled): only from what
+            // they are joined to, they may be of another system.
+            systemsFilled += MepSystemFill.Fill(doc, before.Where(c => c.IsValidObject && SameKind(c)).Select(c => c.Id).ToList(), byType: false);
+        }
+
         group.Assimilate();
 
         var sb = new StringBuilder();
         sb.AppendLine($"Tuyến: {net.Edges.Count} đoạn, {net.Nodes.Count} nút, {parts.Count} mạng. Tạo: {curves} đoạn, {risers} đoạn đứng né dầm, {fittings} fitting.");
+        if (!setup.JoinBranches)
+            sb.AppendLine("Nhánh chưa nối vào tuyến chính: tuyến chính liền qua chỗ rẽ, nhánh dừng ở mép ống — nối sau khi Combine.");
         if (setup.Run == MepRun.DrainPipe)
             sb.AppendLine($"Điểm xả nối vào ống có sẵn: {joined}/{outletNodes.Count}.");
         if (skipped > 0)
             sb.AppendLine($"Đã có ống/máng trùng vị trí, bỏ qua: {skipped} đoạn.");
+        if (systemsFilled > 0)
+            sb.AppendLine($"Ống bị System Type Undefined được gán lại system: {systemsFilled}.");
         sb.Append(notes);
         if (failed + failures.Count > 0)
             sb.AppendLine($"Không tạo được: {failed} đoạn, {failures.Count} fitting (đoạn ống quá ngắn cho fitting, hoặc type thiếu Routing Preferences cho cút, tê, côn). Ống vẫn giữ, nối tay chỗ đó. Xem log.");
@@ -1102,6 +1339,66 @@ internal static class MepFromCad
         }
     }
 
+    /// <summary>The nodes the sprinkler reducers were moved to (150 mm past the head / branch tee): where reducing starts.</summary>
+    private static readonly List<int> ReducerNodes = new();
+
+    /// <summary>
+    /// Revit centres a transition on the joint it is made at, so the reducing starts short of it: each reducer at a
+    /// moved node is slid along its run until its large end is on the node (150 mm from the head / branch), the runs
+    /// at its ends drawn on or back with it.
+    /// </summary>
+    private static void ReducersOnStart(Document doc, List<List<(ElementId Curve, XYZ At)>> nodeEnds)
+    {
+        if (ReducerNodes.Count == 0)
+            return;
+        int slid = 0, failed = 0;
+        var guard = new RollBackOnError();
+        using var t = new Transaction(doc, "DSSTech reducers");
+        var options = t.GetFailureHandlingOptions();
+        options.SetFailuresPreprocessor(guard);
+        options.SetClearAfterRollback(true);
+        t.SetFailureHandlingOptions(options);
+        t.Start();
+        foreach (var n in ReducerNodes)
+        {
+            if (n >= nodeEnds.Count || nodeEnds[n].Count == 0)
+                continue;
+            var (curveId, at) = nodeEnds[n][0];
+            if (doc.GetElement(curveId) is not MEPCurve curve)
+                continue;
+            var end = End(curve, at);
+            if (end.AllRefs.Cast<Connector>().Select(c => c.Owner).OfType<FamilyInstance>().FirstOrDefault() is not { } reducer)
+                continue;
+            var ends = reducer.MEPModel?.ConnectorManager?.Connectors.Cast<Connector>().Where(c => c.ConnectorType == ConnectorType.End).ToList();
+            if (ends is not { Count: 2 } || Math.Abs(ends[0].Radius - ends[1].Radius) < 1e-6)
+                continue;
+            var large = ends[0].Radius > ends[1].Radius ? ends[0] : ends[1];
+            var move = new XYZ(at.X - large.Origin.X, at.Y - large.Origin.Y, 0);
+            if (move.GetLength() < UnitConv.MmToInternal(1))
+                continue;
+            using var sub = new SubTransaction(doc);
+            sub.Start();
+            try
+            {
+                ElementTransformUtils.MoveElement(doc, reducer.Id, move);
+                doc.Regenerate();
+                sub.Commit();
+                slid++;
+            }
+            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+            {
+                sub.RollBack();
+                failed++;
+                DssTechLog.Write($"mep fitting: reducer at {Describe(at)} not slid onto its start: {ex.Message}");
+            }
+        }
+
+        if (t.Commit() != TransactionStatus.Committed || guard.Error is not null)
+            DssTechLog.Write($"mep fitting: reducers not slid (Revit refused: {guard.Error}); left centred on the joint");
+        else
+            DssTechLog.Write($"mep fitting: reducers slid so reducing starts 150 mm past the head / branch: {slid}, failed {failed}");
+    }
+
     /// <summary>The end of the run with this id nearest the point (read fresh: fittings change and roll back runs).</summary>
     private static Connector End(Document doc, ElementId curve, XYZ near)
     {
@@ -1119,7 +1416,14 @@ internal static class MepFromCad
     /// The elbow at a bend drawn round takes the drawn radius (at the duct's centre): a radius parameter of the elbow
     /// set to it, or a radius multiplier to it over the duct's width, where the family lets either be set.
     /// </summary>
-    private static void Round(FamilyInstance? elbow, Connector at)
+    /// <summary>What <see cref="Round"/> needs of a connector, read before the elbow is tried (a refused try is undone, and the connector with it).</summary>
+    private readonly record struct EndInfo(Domain Domain, XYZ Origin, double Width)
+    {
+        public static EndInfo Of(Connector c) =>
+            new(c.Domain, c.Origin, c.Shape == ConnectorProfileType.Round ? 2 * c.Radius : c.Width);
+    }
+
+    private static void Round(FamilyInstance? elbow, EndInfo at)
     {
         if (elbow is null || at.Domain != Domain.DomainHvac || Reduced.Contains(elbow.Id))
             return;
@@ -1136,7 +1440,7 @@ internal static class MepFromCad
             return;
         }
 
-        var width = at.Shape == ConnectorProfileType.Round ? 2 * at.Radius : at.Width;
+        var width = at.Width;
         var multipliers = new[] { "Radius Multiplier", "Bend Radius Multiplier", "Multiplier" };
         if (multipliers.Select(Settable).FirstOrDefault(q => q is not null) is { } m && width > 0)
         {
@@ -1210,7 +1514,10 @@ internal static class MepFromCad
                 {
                     var straight = Math.Abs(at[0].CoordinateSystem.BasisZ.DotProduct(at[1].CoordinateSystem.BasisZ)) > 0.999;
                     if (!straight)
-                        Round(NewElbow(doc, at[0], at[1]), at[0]);
+                    {
+                        var end = EndInfo.Of(at[0]);
+                        Round(NewElbow(doc, at[0], at[1]), end);
+                    }
                     else if (SameSize(at[0], at[1]))
                         at[0].ConnectTo(at[1]);
                     else
@@ -1233,6 +1540,12 @@ internal static class MepFromCad
                     }
                     catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
                     {
+                        // A branch the type's tee does not take (a 45° wye on a drain, a sloped branch): another tee or
+                        // wye family loaded in the project.
+                        if (OtherFamily(doc, keys[0].Id, RoutingPreferenceRuleGroupType.Junctions, new[] { PartType.Tee, PartType.Wye, PartType.LateralTee },
+                                () => doc.Create.NewTeeFitting(End(doc, keys[0].Id, keys[0].Origin), End(doc, keys[1].Id, keys[1].Origin),
+                                    End(doc, keys[2].Id, keys[2].Origin)), where) is not null)
+                            return 1;
                         // No fitting for the branch: the main still runs straight on as one duct, the branch ends at
                         // its side, to be joined by hand.
                         if (!MainOnly(doc, keys))
@@ -1245,8 +1558,24 @@ internal static class MepFromCad
                 {
                     var (m1, m2) = MostOpposite(at);
                     var rest = at.Where(c => c != m1 && c != m2).ToList();
-                    doc.Create.NewCrossFitting(m1, m2, rest[0], rest[1]);
-                    return 1;
+                    // Read before trying: a fitting Revit refuses is undone, and the connectors read before go with it.
+                    var keys = new[] { m1, m2, rest[0], rest[1] }.Select(c => (c.Owner.Id, c.Origin)).ToArray();
+                    using (var sub = new SubTransaction(doc))
+                    {
+                        sub.Start();
+                        try
+                        {
+                            doc.Create.NewCrossFitting(m1, m2, rest[0], rest[1]);
+                            sub.Commit();
+                            return 1;
+                        }
+                        catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+                        {
+                            sub.RollBack();
+                            LogJunctions(doc, doc.GetElement(keys[0].Id) is MEPCurve mc ? mc.GetTypeId() : ElementId.InvalidElementId);
+                            return CrossByParts(doc, keys, where, ex.Message, failures);
+                        }
+                    }
                 }
                 default:
                     failures.Add($"{at.Count} runs at {Describe(at[0].Origin)}: join by hand");
@@ -1256,6 +1585,106 @@ internal static class MepFromCad
         catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
         {
             failures.Add($"node {where} ({at.Count} runs): {ex.Message}");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// A junction left for after Combine: the two runs going straight on made one (the same size) or joined by a
+    /// reducer, each branch drawn back to the main's side and left open. Returns the fittings made (the reducer).
+    /// </summary>
+    private static int Unjoined(Document doc, List<Connector> at, List<string> failures)
+    {
+        // The widest straight pair: at a cross the branches (DN32 up, DN50 down) are straight on too.
+        static double Across(Connector c) => c.Shape == ConnectorProfileType.Round ? 2 * c.Radius : c.Width;
+        var (i1, i2) = MepRoutePlanner.MainPair(at.Select(c =>
+            (c.CoordinateSystem.BasisZ.X, c.CoordinateSystem.BasisZ.Y, c.CoordinateSystem.BasisZ.Z, Across(c))).ToList());
+        var (m1, m2) = (at[i1], at[i2]);
+        if (m1.CoordinateSystem.BasisZ.DotProduct(m2.CoordinateSystem.BasisZ) > -0.999)
+            return 0; // no main straight on (a corner with a branch): left open as drawn
+        var branches = at.Where(c => c != m1 && c != m2).Select(c => (c.Owner.Id, c.Origin)).ToList();
+        var where = Describe(m1.Origin);
+        using var sub = new SubTransaction(doc);
+        sub.Start();
+        try
+        {
+            MEPCurve main;
+            var made = 0;
+            if (SameSize(m1, m2) && m1.Owner is MEPCurve a && m2.Owner is MEPCurve b && a.Id != b.Id)
+                main = Through(doc, a, m1, b, m2);
+            else
+            {
+                Lengthen(doc, doc.Create.NewTransitionFitting(m1, m2), m1, m2);
+                main = (MEPCurve)m1.Owner;
+                made = 1;
+            }
+
+            foreach (var (id, origin) in branches)
+            {
+                try
+                {
+                    ToSide(doc, id, origin, main);
+                }
+                catch (ArgumentException)
+                {
+                    // A branch shorter than the main is wide stays as drawn.
+                }
+            }
+
+            sub.Commit();
+            return made;
+        }
+        catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException or InvalidOperationException)
+        {
+            if (sub.HasStarted())
+                sub.RollBack();
+            failures.Add($"node {where}: main not made one ({ex.Message}); left open");
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// A cross Revit has no fitting for (no Cross in the type's routing preferences, or none for these sizes): the main
+    /// made one run through the node and both branches joined by taps; where the type has no tap, a tee for one branch
+    /// and the other left at the main's side to join by hand. Returns the fittings made.
+    /// </summary>
+    private static int CrossByParts(Document doc, (ElementId Id, XYZ Origin)[] keys, string where, string why, List<string> failures)
+    {
+        using (var sub = new SubTransaction(doc))
+        {
+            sub.Start();
+            try
+            {
+                var (m1, m2) = (End(doc, keys[0].Id, keys[0].Origin), End(doc, keys[1].Id, keys[1].Origin));
+                if (m1.Owner is MEPCurve main && m2.Owner is MEPCurve next && main.Id != next.Id && SameSize(m1, m2))
+                {
+                    var kept = Through(doc, main, m1, next, m2);
+                    Tap(doc, keys[2].Id, keys[2].Origin, kept, turn: false);
+                    Tap(doc, keys[3].Id, keys[3].Origin, kept, turn: false);
+                    sub.Commit();
+                    DssTechLog.Write($"mep fitting: node {where}: no cross ({why}); main through, branches by taps");
+                    return 2;
+                }
+
+                sub.RollBack();
+            }
+            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException or InvalidOperationException)
+            {
+                if (sub.HasStarted())
+                    sub.RollBack();
+            }
+        }
+
+        try
+        {
+            var fresh = keys.Take(3).Select(k => End(doc, k.Id, k.Origin)).ToArray();
+            doc.Create.NewTeeFitting(fresh[0], fresh[1], fresh[2]);
+            failures.Add($"node {where} (4 runs): {why}; tee for one branch, the other to join by hand");
+            return 1;
+        }
+        catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+        {
+            failures.Add($"node {where} (4 runs): {why}; tee: {ex.Message}");
             return 0;
         }
     }
@@ -1359,6 +1788,8 @@ internal static class MepFromCad
     /// <summary>
     /// A junction Revit gives no fitting for: the two mains, same size and straight on, made one duct (a straight run
     /// is not left broken), the branch drawn back to the main's side. False, nothing changed, when that does not apply.
+    /// Straight on to within 0.25°: two drain runs at different falls (1% and 2%, half a degree apart) stay two, else
+    /// the one run made of them takes a fall between (0.70% for 1% runs whose heights did not meet).
     /// </summary>
     private static bool MainOnly(Document doc, (ElementId Id, XYZ Origin)[] keys)
     {
@@ -1369,7 +1800,7 @@ internal static class MepFromCad
         {
             var (m1, m2) = (End(doc, keys[0].Id, keys[0].Origin), End(doc, keys[1].Id, keys[1].Origin));
             if (m1.Owner is not MEPCurve main || m2.Owner is not MEPCurve next || main.Id == next.Id ||
-                m1.CoordinateSystem.BasisZ.DotProduct(m2.CoordinateSystem.BasisZ) > -0.999 || !SameSize(m1, m2))
+                m1.CoordinateSystem.BasisZ.DotProduct(m2.CoordinateSystem.BasisZ) > -0.99999 || !SameSize(m1, m2))
             {
                 sub.RollBack();
                 return false;
@@ -1576,16 +2007,16 @@ internal static class MepFromCad
         try
         {
             var prefs = type.RoutingPreferenceManager;
-            var group = RoutingPreferenceRuleGroupType.Junctions;
-            var parts = Enumerable.Range(0, prefs.GetNumberOfRules(group))
+            IEnumerable<string> Parts(RoutingPreferenceRuleGroupType group) => Enumerable.Range(0, prefs.GetNumberOfRules(group))
                 .Select(i => doc.GetElement(prefs.GetRule(group, i).MEPPartId) as FamilySymbol)
                 .Where(s => s is not null)
                 .Select(s => $"{s!.FamilyName} : {s.Name} ({(PartType)s.Family.get_Parameter(BuiltInParameter.FAMILY_CONTENT_PART_TYPE).AsInteger()})");
-            DssTechLog.Write($"mep duct type {type.Name}: preferred junction {prefs.PreferredJunctionType}; junctions: {string.Join(" | ", parts)}");
+            DssTechLog.Write($"mep type {type.Name}: preferred junction {prefs.PreferredJunctionType}; junctions: " +
+                             $"{string.Join(" | ", Parts(RoutingPreferenceRuleGroupType.Junctions))}; crosses: {string.Join(" | ", Parts(RoutingPreferenceRuleGroupType.Crosses))}");
         }
         catch (Exception ex)
         {
-            DssTechLog.Write($"mep duct type {type.Name}: junctions not read ({ex.Message})");
+            DssTechLog.Write($"mep type {type.Name}: junctions not read ({ex.Message})");
         }
     }
 
@@ -1703,9 +2134,23 @@ internal static class MepFromCad
             second.RollBack();
             if (Tight(doc, keys, out var tight))
                 return tight;
+            if (OtherFamily(doc, keys[0].Id, RoutingPreferenceRuleGroupType.Elbows, new[] { PartType.Elbow },
+                    () => doc.Create.NewElbowFitting(End(doc, keys[0].Id, keys[0].Origin), End(doc, keys[1].Id, keys[1].Origin)),
+                    Describe(corner)) is { } other)
+                return other;
             var angles = "";
             try
             {
+                if (doc.GetElement(keys[0].Id) is Pipe)
+                {
+                    var pipeSettings = PipeSettings.GetPipeSettings(doc);
+                    angles = $"; pipe fitting angles {pipeSettings.FittingAngleUsage}" +
+                             (pipeSettings.FittingAngleUsage == FittingAngleUsage.UseSpecificAngles
+                                 ? " " + string.Join("/", pipeSettings.GetSpecificFittingAngles().Where(a => pipeSettings.GetSpecificFittingAngleStatus(a)).Select(a => (a * 180 / Math.PI).ToString("0")))
+                                 : "") + ElbowFamilies(doc, keys[0].Id);
+                    throw new ArgumentException($"{ex.Message} (bend {turn * 180 / Math.PI:0} deg, radius {UnitConv.ToMm(radius):0}{angles})");
+                }
+
                 var settings = DuctSettings.GetDuctSettings(doc);
                 angles = $"; duct fitting angles {settings.FittingAngleUsage}" +
                          (settings.FittingAngleUsage == FittingAngleUsage.UseSpecificAngles
@@ -1784,6 +2229,76 @@ internal static class MepFromCad
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// A fitting Revit refuses with the family the type's routing preferences give first (a fixed 90° bend family asked
+    /// for 45°, or for a bend between sloped pipes; a 90° tee asked for a 45° wye): every other pipe fitting family of
+    /// that kind loaded in the project is tried, put first in the preferences for this one fitting and taken out again.
+    /// Those already in the preferences first, then those whose name shares most with the first (the same maker and
+    /// material). Null when none will do.
+    /// </summary>
+    private static FamilyInstance? OtherFamily(Document doc, ElementId curveId, RoutingPreferenceRuleGroupType group, PartType[] kinds,
+        Func<FamilyInstance> make, string where)
+    {
+        if (doc.GetElement(curveId) is not Pipe pipe || doc.GetElement(pipe.GetTypeId()) is not PipeType type)
+            return null;
+        var prefs = type.RoutingPreferenceManager;
+        var listed = Enumerable.Range(0, prefs.GetNumberOfRules(group)).Select(i => prefs.GetRule(group, i).MEPPartId).ToList();
+        var first = listed.Count > 0 ? doc.GetElement(listed[0]) as FamilySymbol : null;
+        var firstName = first?.Family.Name ?? "";
+        static int Shared(string a, string b)
+        {
+            var n = 0;
+            while (n < a.Length && n < b.Length && char.ToUpperInvariant(a[n]) == char.ToUpperInvariant(b[n]))
+                n++;
+            return n;
+        }
+
+        var candidates = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_PipeFitting).OfClass(typeof(FamilySymbol))
+            .Cast<FamilySymbol>()
+            .Where(f => f.Id != first?.Id && f.Family.get_Parameter(BuiltInParameter.FAMILY_CONTENT_PART_TYPE)?.AsInteger() is int k
+                        && kinds.Contains((PartType)k))
+            .OrderBy(f => listed.Contains(f.Id) ? 0 : 1)
+            .ThenByDescending(f => Shared(f.Family.Name, firstName))
+            .Take(16)
+            .ToList();
+        foreach (var symbol in candidates)
+        {
+            using var sub = new SubTransaction(doc);
+            sub.Start();
+            try
+            {
+                if (!symbol.IsActive)
+                    symbol.Activate();
+                prefs.AddRule(group, new RoutingPreferenceRule(symbol.Id, "DSSTech"), 0);
+                var made = make();
+                prefs.RemoveRule(group, 0);
+                sub.Commit();
+                DssTechLog.Write($"mep fitting {where}: {group} refused with {firstName}; made with {symbol.Family.Name} : {symbol.Name}");
+                return made;
+            }
+            catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException or ArgumentException)
+            {
+                sub.RollBack();
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The elbow families loaded (for the log, where none would do): name and whether in the preferences.</summary>
+    private static string ElbowFamilies(Document doc, ElementId curveId)
+    {
+        var listed = doc.GetElement(doc.GetElement(curveId).GetTypeId()) is PipeType type
+            ? Enumerable.Range(0, type.RoutingPreferenceManager.GetNumberOfRules(RoutingPreferenceRuleGroupType.Elbows))
+                .Select(i => type.RoutingPreferenceManager.GetRule(RoutingPreferenceRuleGroupType.Elbows, i).MEPPartId).ToHashSet()
+            : new HashSet<ElementId>();
+        var names = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_PipeFitting).OfClass(typeof(FamilySymbol))
+            .Cast<FamilySymbol>()
+            .Where(f => f.Family.get_Parameter(BuiltInParameter.FAMILY_CONTENT_PART_TYPE)?.AsInteger() == (int)PartType.Elbow)
+            .Select(f => $"{f.Family.Name}{(listed.Contains(f.Id) ? "*" : "")}").Distinct().Take(12);
+        return "; elbow families (* in the type's preferences): " + string.Join(", ", names);
     }
 
     private static readonly string[] Multipliers = { "Radius Multiplier", "Bend Radius Multiplier", "Multiplier" };

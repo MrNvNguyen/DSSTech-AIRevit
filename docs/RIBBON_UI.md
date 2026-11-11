@@ -34,7 +34,7 @@ Mỗi icon có thêm bản `*-32-dark.png` / `*-16-dark.png`: nét `#D6E2EE` (x�
 | Thiết lập · Setup | [Giới thiệu / Tài khoản / Hướng dẫn] · [Tham số QS / Góp ý] |
 | Kiến trúc · Architecture | [Trục / Level] · Tường (to) · [Cửa / Cửa sổ] · [Khớp kết cấu / Lanh tô / Lỗ mở] · [Phòng / Hoàn thiện / Trần] |
 | Kết cấu & móng · Structure | [Cột / Vách / Dầm] · [Sàn / Móng bè / Móng băng] · [Cọc / Đài, móng đơn] — đài và móng đơn chung một nút (type theo tên trên CAD) |
-| MEPF | ĐHKK ▾ · Điện ▾ (Máng / thang cáp · Busway) · Nước ▾ · PCCC ▾ (to) · [Hệ thống / Thiết bị tường ▾ / Thiết bị trần ▾] |
+| MEPF | ĐHKK ▾ · Điện ▾ (Máng / thang cáp · Busway) · Nước ▾ · PCCC ▾ (to) · [Hệ thống / Thiết bị tường ▾ / Thiết bị trần ▾] — PCCC ▸ Tủ & thiết bị PCCC: tủ, họng, FM200… theo cao độ sàn; đầu phun, đầu báo cháy ở Thiết bị trần (theo trần) |
 | Combine | Combine · Clash Check (to) · [So sánh / Nâng sát dầm / Xung đột] |
 | Khối lượng · Quantity | Chọn định mức (to) · [Ván khuôn / Xuất BOQ / Bảng khối lượng] |
 | Tài sản · Assets | Tài sản (Asset Data): Form BIM Excel + catalogue PDF → tham số Type `TS_*`, ghi sau khi xác nhận |

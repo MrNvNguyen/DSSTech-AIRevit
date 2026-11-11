@@ -30,7 +30,8 @@ public static class GridPlanner
     private const double SameLineMm = 5;
     private const double ParallelDeg = 0.5;
 
-    private static readonly Regex Label = new(@"^([A-Z]{1,2}'?|\d{1,3}[A-Z]?'?|\d{1,2}[.\-][A-Z0-9]{1,3}'?|[A-Z][.\-]\d{1,3}'?)$",
+    /// <summary>A grid's name: A, AA, 1, 1A, 1.A, 2', A-1, and a letter with a number (B1, C12: skewed grids).</summary>
+    private static readonly Regex Label = new(@"^([A-Z]{1,2}'?|\d{1,3}[A-Z]?'?|\d{1,2}[.\-][A-Z0-9]{1,3}'?|[A-Z][.\-]\d{1,3}'?|[A-Z]{1,2}\d{1,3}'?)$",
         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private readonly struct Seg

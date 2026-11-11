@@ -907,11 +907,17 @@ internal static class CatalogCreate
         var move = XYZ.Zero;
         foreach (var (along, normal) in new[] { (u, v), (v, u) })
         {
-            if (LocatingGridOffset(grids, along, normal, mid) is not double g)
+            if (LocatingGrid(grids, along, normal, mid) is not { } grid)
                 continue;
-            var distMm = UnitConv.ToMm(at.X * normal.X + at.Y * normal.Y - g);
+            // Square to the grid's own line, not the cap's axis: a hair of angle between them over the grid's length
+            // put the pile 0.03 mm off the whole 5 mm on the dimension.
+            var own = new XYZ(-grid.Direction.Y, grid.Direction.X, 0).Normalize();
+            if (own.DotProduct(normal) < 0)
+                own = -own;
+            var p0 = grid.GetEndPoint(0);
+            var distMm = UnitConv.ToMm((at.X - p0.X) * own.X + (at.Y - p0.Y) * own.Y);
             var shiftMm = Math.Round(distMm / 5.0, MidpointRounding.AwayFromZero) * 5.0 - distMm;
-            move += normal * UnitConv.MmToInternal(shiftMm);
+            move += own * UnitConv.MmToInternal(shiftMm);
         }
 
         var moveMm = UnitConv.ToMm(move.GetLength());
@@ -919,8 +925,8 @@ internal static class CatalogCreate
             ElementTransformUtils.MoveElement(doc, pile.Id, move);
     }
 
-    /// <summary>Offset (along <paramref name="normal"/>) of the grid running along <paramref name="along"/> nearest <paramref name="mid"/>.</summary>
-    private static double? LocatingGridOffset(List<Line> grids, XYZ along, XYZ normal, XYZ mid)
+    /// <summary>The grid running along <paramref name="along"/> nearest <paramref name="mid"/> (offsets along <paramref name="normal"/>).</summary>
+    private static Line? LocatingGrid(List<Line> grids, XYZ along, XYZ normal, XYZ mid)
     {
         var parallel = grids.Where(l => Math.Abs(l.Direction.X * along.Y - l.Direction.Y * along.X) < GridParallelSin).ToList();
         if (parallel.Count == 0)
@@ -928,8 +934,7 @@ internal static class CatalogCreate
         var reaching = parallel.Where(l => Reaches(l, along, mid)).ToList();
         var at = mid.X * normal.X + mid.Y * normal.Y;
         return (reaching.Count > 0 ? reaching : parallel)
-            .Select(l => l.GetEndPoint(0).X * normal.X + l.GetEndPoint(0).Y * normal.Y)
-            .OrderBy(o => Math.Abs(o - at)).First();
+            .OrderBy(l => Math.Abs(l.GetEndPoint(0).X * normal.X + l.GetEndPoint(0).Y * normal.Y - at)).First();
     }
 
     private static List<Line> PlanGridLines(Document doc) =>
@@ -948,20 +953,39 @@ internal static class CatalogCreate
         return points;
     }
 
-    /// <summary>The pile's embedment cuts into the cap: joined, with the pile as the cutting element.</summary>
+    /// <summary>
+    /// The pile's embedment cuts into the cap: joined, with the pile as the cutting element. So with the cap's lean
+    /// concrete (bê tông lót) the pile passes through, modelled on its own (a foundation, a slab): the pile cuts it too.
+    /// </summary>
     private static void JoinPileIntoCap(Document doc, FamilyInstance pile, FamilyInstance cap)
     {
-        try
+        doc.Regenerate();
+        var others = new List<Element> { cap };
+        if (cap.get_BoundingBox(null) is { } box && pile.get_BoundingBox(null) is { } pileBox)
         {
-            doc.Regenerate();
-            if (!JoinGeometryUtils.AreElementsJoined(doc, pile, cap))
-                JoinGeometryUtils.JoinGeometry(doc, pile, cap);
-            if (!JoinGeometryUtils.IsCuttingElementInJoin(doc, pile, cap))
-                JoinGeometryUtils.SwitchJoinOrder(doc, pile, cap);
+            // Under or around the cap only: below it the pile runs on through soil, not other foundations.
+            var reach = UnitConv.MmToInternal(1000);
+            var outline = new Outline(new XYZ(pileBox.Min.X, pileBox.Min.Y, box.Min.Z - reach), new XYZ(pileBox.Max.X, pileBox.Max.Y, box.Max.Z));
+            var categories = new ElementMulticategoryFilter(new[] { BuiltInCategory.OST_StructuralFoundation, BuiltInCategory.OST_Floors });
+            others.AddRange(new FilteredElementCollector(doc).WherePasses(categories).WhereElementIsNotElementType()
+                .WherePasses(new BoundingBoxIntersectsFilter(outline))
+                .WherePasses(new ElementIntersectsElementFilter(pile))
+                .Where(e => e.Id != cap.Id && e.Id != pile.Id && !(e is FamilyInstance fi && fi.Symbol.Family.Id == pile.Symbol.Family.Id)));
         }
-        catch (Autodesk.Revit.Exceptions.ApplicationException)
+
+        foreach (var other in others)
         {
-            // Not joinable (no overlap, or the families do not allow it): the pile stays as placed.
+            try
+            {
+                if (!JoinGeometryUtils.AreElementsJoined(doc, pile, other))
+                    JoinGeometryUtils.JoinGeometry(doc, pile, other);
+                if (!JoinGeometryUtils.IsCuttingElementInJoin(doc, pile, other))
+                    JoinGeometryUtils.SwitchJoinOrder(doc, pile, other);
+            }
+            catch (Autodesk.Revit.Exceptions.ApplicationException)
+            {
+                // Not joinable (no overlap, or the families do not allow it): the pile stays as placed.
+            }
         }
     }
 

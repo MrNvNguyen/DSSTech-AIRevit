@@ -110,7 +110,7 @@ public sealed class ModelFinishWallCommand : IExternalCommand
             .ToList();
         if (notBounding.Count > 0)
             summary.AppendLine($"File link chưa bật Room Bounding nên cột/vách trong đó chưa bao phòng: {string.Join(", ", notBounding)}.");
-        TaskDialog.Show(Title, summary.ToString());
+        DoneReport.Show(Title, summary.ToString());
         return Result.Succeeded;
     }
 
