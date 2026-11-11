@@ -23,6 +23,10 @@
          the old product's removal deletes it (DSSTech.dll missing after the upgrade). -->
     <Property Id="REINSTALLMODE" Value="amus" />
 
+    <!-- Brand icon in Programs and Features (scripts\generate-installer-icon.ps1 draws it). -->
+    <Icon Id="DSSTech.ico" SourceFile="DSSTech.ico" />
+    <Property Id="ARPPRODUCTICON" Value="DSSTech.ico" />
+
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Feature Id="ProductFeature" Title="DSSTech Revit" Level="1">
