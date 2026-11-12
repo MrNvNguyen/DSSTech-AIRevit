@@ -47,6 +47,8 @@ public sealed class MepEdge
     /// (bottom unless told otherwise); null where none is written or carried on.
     /// </summary>
     public double? ElevationMm { get; set; }
+    /// <summary>Flow written on the run (0.90 L/S): litres per second; null where none is written or carried on.</summary>
+    public double? FlowLps { get; set; }
 }
 
 public sealed class MepNetwork
@@ -220,7 +222,7 @@ public static class MepRoutePlanner
         var fine = segs.GroupBy(x => x.Layer, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.Select(x => new Seg(x.X0, x.Y0, x.X1, x.Y1) { Arc = x.Arc }).Where(x => x.Length > 1).ToList(), StringComparer.OrdinalIgnoreCase);
         segs = segs.Where(x => Math.Sqrt(Sq(x.X1 - x.X0) + Sq(x.Y1 - x.Y0)) > minRun).ToList();
-        var textList = (texts ?? Enumerable.Empty<CadText>()).ToList();
+        var textList = WithStackedSizes((texts ?? Enumerable.Empty<CadText>()).ToList());
         var widths = segs.Select(_ => 0.0).ToList();
         if (family is null && doubleLine != false)
         {
@@ -525,6 +527,7 @@ public static class MepRoutePlanner
         if (axisStart != int.MaxValue || singleLine)
             MergeStraight(net, singleLine);
         Falls(net, textList);
+        Flows(net, textList);
         Elevations(net, textList, doubleLine, busway);
         net.OpeningsSkipped = DropOpenings(net);
         if (ladders)
@@ -1231,6 +1234,408 @@ public static class MepRoutePlanner
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// A size stacked over a flow ("DN32" over "0.80 L/S", the pipe on the flow's side): the size is also read at the
+    /// flow's place, so it reaches the pipe the flow sits by (the DN line alone is often beyond label reach).
+    /// </summary>
+    internal static List<CadText> WithStackedSizes(List<CadText> texts)
+    {
+        var flows = texts.Where(t => FlowLabel.IsMatch(t.Value) && !TryParseSize(t.Value, out _)).ToList();
+        if (flows.Count == 0)
+            return texts;
+        var added = new List<CadText>();
+        foreach (var t in texts)
+        {
+            if (!TryParseSize(t.Value, out _) || FlowLabel.IsMatch(t.Value))
+                continue;
+            var (x, y) = (t.CenterX ?? t.X, t.CenterY ?? t.Y);
+            var flow = flows.Select(f => (F: f, D: Math.Sqrt(Sq((f.CenterX ?? f.X) - x) + Sq((f.CenterY ?? f.Y) - y))))
+                .Where(f => f.D <= 1000).OrderBy(f => f.D).Select(f => f.F).FirstOrDefault();
+            if (flow is not null)
+                added.Add(new CadText { Layer = t.Layer, Value = t.Value, X = flow.X, Y = flow.Y, CenterX = flow.CenterX, CenterY = flow.CenterY, RotationDeg = t.RotationDeg });
+        }
+
+        return added.Count == 0 ? texts : texts.Concat(added).ToList();
+    }
+
+    /// <summary>A flow written on a pipe: 0.90 L/S, 1,6 l/s, Q=0.45L/S.</summary>
+    private static readonly Regex FlowLabel = new(@"(\d+(?:[.,]\d+)?)\s*L\s*/\s*S\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    /// <summary>
+    /// The flow written on a run (stacked under its DN, "0.90 L/S") goes to the run nearest to it within label reach,
+    /// then along the straight run of that size up to a piece with a flow of its own (Revit's Additional Flow).
+    /// </summary>
+    private static void Flows(MepNetwork net, List<CadText> texts)
+    {
+        var labelled = new Dictionary<MepEdge, double>();
+        foreach (var text in texts)
+        {
+            var m = FlowLabel.Match(text.Value);
+            if (!m.Success || !double.TryParse(m.Groups[1].Value.Replace(',', '.'), System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var lps) || lps <= 0)
+                continue;
+            var tx = text.CenterX ?? text.X;
+            var ty = text.CenterY ?? text.Y;
+            MepEdge? best = null;
+            var bestD = LabelReachMm;
+            foreach (var e in net.Edges.Where(x => !x.IsTransition))
+            {
+                var (x0, y0) = net.Nodes[e.A];
+                var (x1, y1) = net.Nodes[e.B];
+                var len = Math.Sqrt(Sq(x1 - x0) + Sq(y1 - y0));
+                if (len < 1)
+                    continue;
+                var t = Math.Max(0, Math.Min(1, ((tx - x0) * (x1 - x0) + (ty - y0) * (y1 - y0)) / (len * len)));
+                var d = Math.Max(0, Math.Sqrt(Sq(x0 + (x1 - x0) * t - tx) + Sq(y0 + (y1 - y0) * t - ty)) - e.DrawnWidthMm / 2);
+                if (d >= bestD)
+                    continue;
+                bestD = d;
+                best = e;
+            }
+
+            if (best is null)
+                continue;
+            best.FlowLps = lps;
+            labelled[best] = lps;
+        }
+
+        foreach (var pair in labelled)
+            foreach (var piece in StraightRun(net, pair.Key).Where(x => !labelled.ContainsKey(x) && x.FlowLps is null))
+                piece.FlowLps = pair.Value;
+        FlowsThroughBends(net);
+    }
+
+    /// <summary>
+    /// Pipes drawn with both walls (a chilled water plan at large scale) as single lines, so they route like any pipe:
+    /// each wall paired with its mutually nearest parallel wall (8–400 mm apart, overlapping) gives the centreline over
+    /// their overlap; unpaired strokes (end caps, fitting outlines) are dropped. <paramref name="twoLine"/>: most of the
+    /// length pairs, so the drawing is two-line; otherwise the strokes are returned as drawn.
+    /// </summary>
+    public static List<CadEntity> PipeCenterlines(IEnumerable<CadEntity> strokes, out bool twoLine) =>
+        PipeCenterlines(strokes, out twoLine, out _);
+
+    /// <summary>As above, with each centreline's wall-to-wall width (the pipe's outside diameter as drawn).</summary>
+    public static List<CadEntity> PipeCenterlines(IEnumerable<CadEntity> strokes, out bool twoLine, out List<(CadLine Axis, double WidthMm)> widths)
+    {
+        widths = new List<(CadLine Axis, double WidthMm)>();
+        var all = strokes.ToList();
+        var segs = new List<(double X0, double Y0, double X1, double Y1, string Layer)>();
+        foreach (var e in all)
+        {
+            if (e is CadLine l)
+                segs.Add((l.X0, l.Y0, l.X1, l.Y1, l.Layer));
+            else if (e is CadPolyline { FromArc: false } poly && (poly.Bulges is null || poly.Bulges.All(x => Math.Abs(x) < 1e-6)))
+            {
+                var n = poly.Points.Count;
+                for (var i = 0; i < (poly.Closed ? n : n - 1); i++)
+                    segs.Add((poly.Points[i].X, poly.Points[i].Y, poly.Points[(i + 1) % n].X, poly.Points[(i + 1) % n].Y, poly.Layer));
+            }
+        }
+
+        segs = segs.Where(x => Math.Sqrt(Sq(x.X1 - x.X0) + Sq(x.Y1 - x.Y0)) >= 50).ToList();
+        const double MinGap = 8, MaxGap = 400;
+        var cells = new Buckets(1000);
+        for (var k = 0; k < segs.Count; k++)
+            cells.Add(k, Math.Min(segs[k].X0, segs[k].X1), Math.Min(segs[k].Y0, segs[k].Y1), Math.Max(segs[k].X0, segs[k].X1), Math.Max(segs[k].Y0, segs[k].Y1));
+
+        // A parallel stroke of the same layer facing this one: its signed distance and the stretch along this one.
+        (bool Ok, double D, double S0, double S1) Facing(int i, int j)
+        {
+            var a = segs[i];
+            var c = segs[j];
+            var len = Math.Sqrt(Sq(a.X1 - a.X0) + Sq(a.Y1 - a.Y0));
+            double ux = (a.X1 - a.X0) / len, uy = (a.Y1 - a.Y0) / len;
+            var lc = Math.Sqrt(Sq(c.X1 - c.X0) + Sq(c.Y1 - c.Y0));
+            double vx = (c.X1 - c.X0) / lc, vy = (c.Y1 - c.Y0) / lc;
+            if (Math.Abs(ux * vy - uy * vx) > 0.02 || !string.Equals(a.Layer, c.Layer, StringComparison.OrdinalIgnoreCase))
+                return (false, 0, 0, 0);
+            var d = (c.X0 - a.X0) * -uy + (c.Y0 - a.Y0) * ux;
+            double t0 = (c.X0 - a.X0) * ux + (c.Y0 - a.Y0) * uy, t1 = (c.X1 - a.X0) * ux + (c.Y1 - a.Y0) * uy;
+            double s0 = Math.Max(0, Math.Min(t0, t1)), s1 = Math.Min(len, Math.Max(t0, t1));
+            if (Math.Abs(d) < MinGap || Math.Abs(d) > MaxGap || s1 - s0 < Math.Max(30, Math.Abs(d)))
+                return (false, 0, 0, 0);
+            return (true, d, s0, s1);
+        }
+
+        var nearest = new double[segs.Count];
+        var facing = new List<(int J, double D, double S0, double S1)>[segs.Count];
+        for (var i = 0; i < segs.Count; i++)
+        {
+            facing[i] = new List<(int, double, double, double)>();
+            var a = segs[i];
+            foreach (var j in cells.Query(Math.Min(a.X0, a.X1) - MaxGap, Math.Min(a.Y0, a.Y1) - MaxGap, Math.Max(a.X0, a.X1) + MaxGap, Math.Max(a.Y0, a.Y1) + MaxGap).Distinct())
+            {
+                if (j == i)
+                    continue;
+                var (ok, d, s0, s1) = Facing(i, j);
+                if (ok)
+                    facing[i].Add((j, d, s0, s1));
+            }
+
+            nearest[i] = facing[i].Count == 0 ? double.MaxValue : facing[i].Min(f => Math.Abs(f.D));
+        }
+
+        var axes = new List<CadEntity>();
+        double total = segs.Sum(x => Math.Sqrt(Sq(x.X1 - x.X0) + Sq(x.Y1 - x.Y0))), paired = 0;
+        for (var i = 0; i < segs.Count; i++)
+        {
+            foreach (var (j, d, s0, s1) in facing[i])
+            {
+                // Mutually nearest walls: a pipe's two walls, not one wall of each of two pipes side by side.
+                if (Math.Abs(Math.Abs(d) - nearest[i]) > 2 || Math.Abs(Math.Abs(d) - nearest[j]) > 2)
+                    continue;
+                paired += s1 - s0;
+                if (j < i)
+                    continue;
+                var a = segs[i];
+                var len = Math.Sqrt(Sq(a.X1 - a.X0) + Sq(a.Y1 - a.Y0));
+                double ux = (a.X1 - a.X0) / len, uy = (a.Y1 - a.Y0) / len, nx = -uy * d / 2, ny = ux * d / 2;
+                var axis = new CadLine
+                {
+                    Layer = a.Layer,
+                    X0 = a.X0 + ux * s0 + nx,
+                    Y0 = a.Y0 + uy * s0 + ny,
+                    X1 = a.X0 + ux * s1 + nx,
+                    Y1 = a.Y0 + uy * s1 + ny
+                };
+                axes.Add(axis);
+                widths.Add((axis, Math.Abs(d)));
+            }
+        }
+
+        twoLine = total > 0 && paired >= 0.6 * total;
+        if (twoLine)
+            JoinPipeAxes(widths);
+        return twoLine ? axes : all;
+    }
+
+    /// <summary>
+    /// Centrelines of two-line pipes meet where the drawing joins them, beyond the 300 mm the router bridges: a bend
+    /// drawn round stops both walls a bend radius short of the corner (≈ 1.5 DN, 450 mm on a DN300), and a valve or a
+    /// coupling drawn on a run breaks it. Free ends facing each other on one line (same width) are closed across the gap
+    /// (up to 3 × the width, at least 600 mm); two ends whose lines cross just ahead of both (within 2.5 × the width, at
+    /// least 300 mm) are drawn on to that corner. Each end joins once, nearest first.
+    /// </summary>
+    private static void JoinPipeAxes(List<(CadLine Axis, double WidthMm)> axes)
+    {
+        (double X, double Y) End(int i, int k) => k == 0 ? (axes[i].Axis.X0, axes[i].Axis.Y0) : (axes[i].Axis.X1, axes[i].Axis.Y1);
+        (double X, double Y) Out(int i, int k)
+        {
+            var a = axes[i].Axis;
+            var len = Math.Sqrt(Sq(a.X1 - a.X0) + Sq(a.Y1 - a.Y0));
+            return k == 1 ? ((a.X1 - a.X0) / len, (a.Y1 - a.Y0) / len) : ((a.X0 - a.X1) / len, (a.Y0 - a.Y1) / len);
+        }
+
+        var cells = new Buckets(1000);
+        var ends = new List<(int I, int K)>();
+        for (var i = 0; i < axes.Count; i++)
+            for (var k = 0; k < 2; k++)
+            {
+                var (x, y) = End(i, k);
+                cells.Add(ends.Count, x, y, x, y);
+                ends.Add((i, k));
+            }
+
+        var options = new List<(double Cost, int A, int B, double X, double Y)>();
+        for (var a = 0; a < ends.Count; a++)
+        {
+            var (i, ki) = ends[a];
+            var (px, py) = End(i, ki);
+            var (ux, uy) = Out(i, ki);
+            var wi = axes[i].WidthMm;
+            const double far = 1200;
+            foreach (var b in cells.Query(px - far, py - far, px + far, py + far).Distinct())
+            {
+                var (j, kj) = ends[b];
+                if (b <= a || j == i)
+                    continue;
+                var (qx, qy) = End(j, kj);
+                var (vx, vy) = Out(j, kj);
+                var w = Math.Max(wi, axes[j].WidthMm);
+                var cross = ux * vy - uy * vx;
+                if (Math.Abs(cross) < 0.02)
+                {
+                    // On one line, facing each other, the same pipe: close the gap.
+                    var gap = (qx - px) * ux + (qy - py) * uy;
+                    var side = Math.Abs((qx - px) * -uy + (qy - py) * ux);
+                    if (ux * vx + uy * vy > -0.99 || gap < 0 || gap > Math.Max(600, 3 * w) || side > Math.Max(5, w / 4)
+                        || Math.Abs(wi - axes[j].WidthMm) > 0.12 * w)
+                        continue;
+                    options.Add((gap, a, b, (px + qx) / 2, (py + qy) / 2));
+                    continue;
+                }
+
+                // A corner: the two lines cross just ahead of both ends.
+                var t = ((qx - px) * vy - (qy - py) * vx) / cross;
+                var xx = px + ux * t;
+                var xy = py + uy * t;
+                var tj = (xx - qx) * vx + (xy - qy) * vy;
+                var reach = Math.Max(300, 2.5 * w);
+                if (t < -w / 2 || tj < -w / 2 || t > reach || tj > reach)
+                    continue;
+                options.Add((Math.Max(t, 0) + Math.Max(tj, 0), a, b, xx, xy));
+            }
+        }
+
+        var used = new HashSet<int>();
+        foreach (var (_, a, b, x, y) in options.OrderBy(o => o.Cost))
+        {
+            if (used.Contains(a) || used.Contains(b))
+                continue;
+            used.Add(a);
+            used.Add(b);
+            foreach (var e in new[] { ends[a], ends[b] })
+            {
+                var line = axes[e.I].Axis;
+                if (e.K == 0)
+                {
+                    line.X0 = x;
+                    line.Y0 = y;
+                }
+                else
+                {
+                    line.X1 = x;
+                    line.Y1 = y;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// A flow carried on through bends (a node of two runs of one size): the short leg of a branch takes the flow
+    /// written on its long leg.
+    /// </summary>
+    private static void FlowsThroughBends(MepNetwork net)
+    {
+        var adjacent = Adjacency(net);
+        var changed = true;
+        while (changed)
+        {
+            changed = false;
+            foreach (var e in net.Edges.Where(x => x.FlowLps is null && !x.IsTransition))
+            {
+                foreach (var node in new[] { e.A, e.B })
+                {
+                    var at = adjacent[node].Where(x => x != e).ToList();
+                    if (at.Count != 1 || at[0].FlowLps is not { } carried || !at[0].Size.Equals(e.Size))
+                        continue;
+                    e.FlowLps = carried;
+                    changed = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>Steel pipe outside diameters (mm) by DN: what two walls drawn this far apart are.</summary>
+    private static readonly (int Dn, double Od)[] SteelOd =
+    {
+        (15, 21.3), (20, 26.7), (25, 33.4), (32, 42.2), (40, 48.3), (50, 60.3), (65, 73.0), (80, 88.9), (100, 114.3),
+        (125, 141.3), (150, 168.3), (200, 219.1), (250, 273.0), (300, 323.9), (350, 355.6), (400, 406.4)
+    };
+
+    /// <summary>The DN whose outside diameter two walls this far apart draw (within 12 %), else null.</summary>
+    public static int? DnForOutside(double widthMm)
+    {
+        var best = SteelOd.OrderBy(x => Math.Abs(Math.Log(widthMm / x.Od))).First();
+        return Math.Abs(widthMm / best.Od - 1) <= 0.12 ? best.Dn : null;
+    }
+
+    /// <summary>
+    /// Pipes drawn with both walls: the walls say the size. Each run lying on a centreline takes the DN of its
+    /// wall-to-wall width (DN25 for 33.4 mm, DN300 for 324 mm), whatever label is nearest; then each flow ("0.33 L/S",
+    /// with the "DN25" stacked over it) goes to the nearest run of that DN, not merely the nearest run, and on along its
+    /// straight run. A flow whose DN no run near it has is left out rather than put on the wrong pipe.
+    /// </summary>
+    public static (int Sized, int Flows) SizeByWalls(MepNetwork net, List<(CadLine Axis, double WidthMm)> widths, IEnumerable<CadText> texts)
+    {
+        var sized = 0;
+        foreach (var e in net.Edges.Where(x => !x.IsTransition))
+        {
+            var (ax, ay) = net.Nodes[e.A];
+            var (bx, by) = net.Nodes[e.B];
+            var len = Math.Sqrt(Sq(bx - ax) + Sq(by - ay));
+            if (len < 1)
+                continue;
+            double mx = (ax + bx) / 2, my = (ay + by) / 2, ux = (bx - ax) / len, uy = (by - ay) / len;
+            foreach (var (axis, w) in widths)
+            {
+                var al = Math.Sqrt(Sq(axis.X1 - axis.X0) + Sq(axis.Y1 - axis.Y0));
+                if (al < 1)
+                    continue;
+                double vx = (axis.X1 - axis.X0) / al, vy = (axis.Y1 - axis.Y0) / al;
+                if (Math.Abs(ux * vy - uy * vx) > 0.05)
+                    continue;
+                var t = ((mx - axis.X0) * vx + (my - axis.Y0) * vy) / al;
+                if (t < -0.01 || t > 1.01 || Math.Abs((mx - axis.X0) * -vy + (my - axis.Y0) * vx) > Math.Max(5, w / 4))
+                    continue;
+                e.DrawnWidthMm = w;
+                if (DnForOutside(w) is int dn && TryParseSize($"DN{dn}", out var size))
+                {
+                    e.Size = size;
+                    e.SizeFrom = "drawn";
+                    sized++;
+                }
+
+                break;
+            }
+        }
+
+        // Flows again, each to a run of its own DN.
+        var list = texts.ToList();
+        var sizeTexts = list.Where(t => TryParseSize(t.Value, out _) && !FlowLabel.IsMatch(t.Value)).ToList();
+        foreach (var e in net.Edges)
+            e.FlowLps = null;
+        var labelled = new Dictionary<MepEdge, double>();
+        foreach (var text in list)
+        {
+            var m = FlowLabel.Match(text.Value);
+            if (!m.Success || TryParseSize(text.Value, out _) || !double.TryParse(m.Groups[1].Value.Replace(',', '.'),
+                    System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lps) || lps <= 0)
+                continue;
+            var tx = text.CenterX ?? text.X;
+            var ty = text.CenterY ?? text.Y;
+            var dnText = sizeTexts.Select(t => (T: t, D: Math.Sqrt(Sq((t.CenterX ?? t.X) - tx) + Sq((t.CenterY ?? t.Y) - ty))))
+                .Where(x => x.D <= 1000).OrderBy(x => x.D).Select(x => x.T).FirstOrDefault();
+            MepSize? want = dnText is not null && TryParseSize(dnText.Value, out var ws) ? ws : null;
+            if (dnText is not null)
+            {
+                // The tag's middle (between "DN50" and "2.45 L/S") says which side of a tee it stands on.
+                tx = (tx + (dnText.CenterX ?? dnText.X)) / 2;
+                ty = (ty + (dnText.CenterY ?? dnText.Y)) / 2;
+            }
+            MepEdge? best = null;
+            var bestD = want is null ? LabelReachMm : 2 * LabelReachMm;
+            foreach (var e in net.Edges.Where(x => !x.IsTransition))
+            {
+                if (want is { } wz && (e.SizeFrom != "drawn" || Math.Abs(e.Size.DiameterMm - wz.DiameterMm) > 0.5))
+                    continue;
+                var (x0, y0) = net.Nodes[e.A];
+                var (x1, y1) = net.Nodes[e.B];
+                var len = Math.Sqrt(Sq(x1 - x0) + Sq(y1 - y0));
+                if (len < 1)
+                    continue;
+                var t = Math.Max(0, Math.Min(1, ((tx - x0) * (x1 - x0) + (ty - y0) * (y1 - y0)) / (len * len)));
+                var d = Math.Max(0, Math.Sqrt(Sq(x0 + (x1 - x0) * t - tx) + Sq(y0 + (y1 - y0) * t - ty)) - e.DrawnWidthMm / 2);
+                if (d >= bestD)
+                    continue;
+                bestD = d;
+                best = e;
+            }
+
+            if (best is null)
+                continue;
+            best.FlowLps = lps;
+            labelled[best] = lps;
+        }
+
+        foreach (var pair in labelled)
+            foreach (var piece in StraightRun(net, pair.Key).Where(x => !labelled.ContainsKey(x) && x.FlowLps is null))
+                piece.FlowLps = pair.Value;
+        FlowsThroughBends(net);
+        return (sized, net.Edges.Count(e => e.FlowLps is not null));
     }
 
     /// <summary>

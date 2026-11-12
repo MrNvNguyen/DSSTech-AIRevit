@@ -3680,6 +3680,84 @@ public static class SectionFootprintSelfTest
             return false;
         }
 
+        // Chiller pipes drawn with both walls (DN25, 33.4 mm across) become one centreline sized by the DN written over
+        // its flow, the flow (0.90 L/S) on the run; the same pipe drawn single-line stays as drawn.
+        var walls = new List<CadEntity>
+        {
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 0, X1 = 6000, Y1 = 0 },
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 33.4, X1 = 6000, Y1 = 33.4 },
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 0, X1 = 0, Y1 = 33.4 },
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 2000, X1 = 6000, Y1 = 2000 },
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 2050, X1 = 6000, Y1 = 2050 }
+        };
+        var chwTexts = new List<CadText>
+        {
+            new() { Value = "DN25", X = 3000, Y = 1000, CenterX = 3000, CenterY = 1000 },
+            new() { Value = "0.90 L/S", X = 3300, Y = 420, CenterX = 3300, CenterY = 420 }
+        };
+        var axesOnly = MepRoutePlanner.PipeCenterlines(walls, out var chwTwoLine);
+        var chw = MepRoutePlanner.Build(axesOnly, null, new MepSize(50, 50, 50), chwTexts, false);
+        var chwLower = chw.Edges.FirstOrDefault(e => Math.Abs(chw.Nodes[e.A].Y - 16.7) < 1);
+        MepRoutePlanner.PipeCenterlines(new List<CadEntity> { walls[0], walls[3] }, out var chwSingle);
+        if (!chwTwoLine || chw.Edges.Count != 2 || chwLower is null || Math.Abs(chwLower.Size.DiameterMm - 25) > 0.1
+            || chwLower.FlowLps is not { } chwFlow || Math.Abs(chwFlow - 0.9) > 1e-9 || chwSingle)
+        {
+            message = $"chiller two-line: twoLine {chwTwoLine}, {chw.Edges.Count} runs, lower D{chwLower?.Size.DiameterMm} flow {chwLower?.FlowLps}, single read as two-line {chwSingle}";
+            return false;
+        }
+
+        // Two-line pipes sized by their walls: DN50 (60.3 apart) and DN25 (33.4 apart). The "DN25 / 0.33 L/S" tag sits
+        // nearer the DN50 pipe, yet its flow is the DN25 pipe's; a "DN25" label by the DN50 pipe does not make it DN25.
+        var pair = new List<CadEntity>
+        {
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 0, X1 = 6000, Y1 = 0 },
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 60.3, X1 = 6000, Y1 = 60.3 },
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 1000, X1 = 6000, Y1 = 1000 },
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 1033.4, X1 = 6000, Y1 = 1033.4 }
+        };
+        var pairTexts = new List<CadText>
+        {
+            new() { Value = "DN25", X = 3000, Y = 600, CenterX = 3000, CenterY = 600 },
+            new() { Value = "0.33 L/S", X = 3000, Y = 200, CenterX = 3000, CenterY = 200 }
+        };
+        var pairAxes = MepRoutePlanner.PipeCenterlines(pair, out _, out var pairWidths);
+        var pairNet = MepRoutePlanner.Build(pairAxes, null, new MepSize(50, 50, 50), pairTexts, false);
+        MepRoutePlanner.SizeByWalls(pairNet, pairWidths, pairTexts);
+        var big = pairNet.Edges.FirstOrDefault(e => Math.Abs(pairNet.Nodes[e.A].Y - 30.15) < 1);
+        var small = pairNet.Edges.FirstOrDefault(e => Math.Abs(pairNet.Nodes[e.A].Y - 1016.7) < 1);
+        if (big is null || small is null || Math.Abs(big.Size.DiameterMm - 50) > 0.1 || Math.Abs(small.Size.DiameterMm - 25) > 0.1
+            || big.FlowLps is not null || small.FlowLps is not { } smallFlow || Math.Abs(smallFlow - 0.33) > 1e-9
+            || MepRoutePlanner.DnForOutside(323.9) != 300 || MepRoutePlanner.DnForOutside(26.7) != 20 || MepRoutePlanner.DnForOutside(5) is not null)
+        {
+            message = $"walls size: big D{big?.Size.DiameterMm} flow {big?.FlowLps}, small D{small?.Size.DiameterMm} flow {small?.FlowLps}";
+            return false;
+        }
+
+        // A DN300 bend drawn round: both walls stop ~a bend radius short of the corner, beyond the router's 300 mm; the
+        // centrelines are drawn on to the corner and meet. The flow written on one leg goes on through the bend.
+        var bend = new List<CadEntity>
+        {
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 0, X1 = 5000, Y1 = 0 },
+            new CadLine { Layer = "CHW", X0 = 0, Y0 = 323.9, X1 = 5000, Y1 = 323.9 },
+            new CadLine { Layer = "CHW", X0 = 5400, Y0 = 400, X1 = 5400, Y1 = 5000 },
+            new CadLine { Layer = "CHW", X0 = 5723.9, Y0 = 400, X1 = 5723.9, Y1 = 5000 }
+        };
+        var bendTexts = new List<CadText>
+        {
+            new() { Value = "DN300", X = 2500, Y = 900, CenterX = 2500, CenterY = 900 },
+            new() { Value = "5.00 L/S", X = 2500, Y = 600, CenterX = 2500, CenterY = 600 }
+        };
+        var bendAxes = MepRoutePlanner.PipeCenterlines(bend, out _, out var bendWidths);
+        var bendNet = MepRoutePlanner.Build(bendAxes, null, new MepSize(50, 50, 50), bendTexts, false);
+        MepRoutePlanner.SizeByWalls(bendNet, bendWidths, bendTexts);
+        var bendCorner = bendNet.Nodes.FindIndex(n => Math.Abs(n.X - 5562) < 2 && Math.Abs(n.Y - 162) < 2);
+        if (bendNet.Edges.Count != 2 || (bendCorner < 0) || bendNet.Edges.Any(e => e.A != bendCorner && e.B != bendCorner)
+            || bendNet.Edges.Any(e => e.FlowLps is not { } bf || Math.Abs(bf - 5) > 1e-9 || Math.Abs(e.Size.DiameterMm - 300) > 0.1))
+        {
+            message = $"round bend: {bendNet.Edges.Count} runs, corner {bendCorner}, flows {string.Join(",", bendNet.Edges.Select(e => e.FlowLps))}";
+            return false;
+        }
+
         // Pipe bottoms written at the ends (BOP=-0.50 by end 0, BOP = -570 by end 4); one mid-run (by node 3) is not an
         // end's; a plinth's "BỆ MÁY H 200" is no bottom.
         var bops = MepRoutePlanner.EndBottoms(fromStart, fromStartPart, new List<CadText>
