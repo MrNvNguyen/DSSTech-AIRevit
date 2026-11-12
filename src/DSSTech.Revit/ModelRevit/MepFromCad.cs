@@ -192,9 +192,16 @@ internal static class MepFromCad
                 lines = BuswayStrokes(lines);
             else if (choice.Run != MepRun.CableTray)
                 lines = MepRoutePlanner.WithoutDevices(lines, out devices);
+            // Chiller plans come drawn either way: walls paired into centrelines when the drawing is two-line.
+            var twoLinePipes = false;
+            var wallWidths = new List<(CadLine Axis, double WidthMm)>();
+            if (choice.Run == MepRun.PressurePipe && choice.Group == MepSystemCatalog.Mech)
+                lines = MepRoutePlanner.PipeCenterlines(lines, out twoLinePipes, out wallWidths);
             // Ducts are drawn with both sides; trays either way (each layer read as it looks); pipes and busways single-line.
             bool? readAs = choice.Run switch { MepRun.Duct => true, MepRun.CableTray => null, _ => false };
             var net = MepRoutePlanner.Build(lines, null, setup.Fallback, texts, readAs, busway: choice.Run == MepRun.Busway);
+            // Two-line pipes: the walls give the DN (outside diameter between them), and each DN / flow tag goes to a pipe of its DN.
+            var bySize = twoLinePipes ? MepRoutePlanner.SizeByWalls(net, wallWidths, texts).Sized : 0;
             // A busway's section is not drawn: every run at the size typed in.
             if (choice.Run == MepRun.Busway)
             {
@@ -273,6 +280,8 @@ internal static class MepFromCad
             var report = Build(doc, net, level, topLevel, setup, outlets, heads, texts);
             if (reducersMoved > 0)
                 report += $"Côn giảm dời {150} mm qua đầu phun / tê nhánh sang phía ống nhỏ: {reducersMoved} chỗ.\n";
+            if (twoLinePipes)
+                report += $"CAD vẽ ống 2 nét: đọc đường tâm giữa 2 thành ống; size theo khoảng cách 2 thành (đường kính ngoài → DN) {bySize} đoạn; chữ DN / l/s gán cho ống cùng DN gần nhất.\n";
             if (teesSquared + cornersSquared > 0)
                 report += $"Nét CAD lệch vài độ được chỉnh vuông: {teesSquared} tê trượt dọc ống chính, {cornersSquared} góc có đầu tự do xoay về 90°.\n";
             // Heads are joined by «Nối đầu phun» only (rigid or flexible, chosen there), not here.
@@ -385,6 +394,9 @@ internal static class MepFromCad
         /// branch stops at its side, to be joined after Combine has moved the runs.
         /// </summary>
         public bool JoinBranches { get; init; } = true;
+
+        /// <summary>Condensate drain (ĐHKK): set like water supply (under the ceiling), falls to its riser on every floor.</summary>
+        public bool Condensate { get; init; }
 
         /// <summary>
         /// Outside diameter (mm) of each nominal size of the pipe type's segment: a DN150 steel pipe is 168.3 across, and
@@ -534,6 +546,10 @@ internal static class MepFromCad
 
             System.Windows.Controls.TextBox? slope = null;
             System.Windows.Controls.ComboBox? drainMode = null;
+            // Condensate drains (ĐHKK) hang under the ceiling like water supply: the head's height, clearance and
+            // reference as there, then the fall to the outlet as drainage.
+            var condensate = choice.Run == MepRun.DrainPipe && choice.Group == MepSystemCatalog.Mech;
+            var underSlab = choice.Run == MepRun.DrainPipe && !condensate;
             if (choice.Run == MepRun.DrainPipe)
             {
                 slope = dlg.AddInput("Độ dốc (%) — chảy về điểm xả", "1");
@@ -546,13 +562,14 @@ internal static class MepFromCad
                 _ => "Cao độ theo đáy dầm/sàn kết cấu, uốn né dầm"
             }, false); // Off on opening (every tool): ticked by hand when the runs should follow the beams.
             var clearance = dlg.AddInput(choice.Run == MepRun.DrainPipe ? "Khe hở từ đáy dầm/sàn đến đỉnh ống tại điểm đầu tuyến (mm)" : "Khe hở dưới đáy dầm/sàn (mm)",
-                choice.Run == MepRun.DrainPipe ? "150" : "50");
+                underSlab ? "150" : "50");
             var storeyMm = topLevel.Id == level.Id ? 3300 : Math.Round(UnitConv.ToMm(topLevel.Elevation - level.Elevation));
             var reference = dlg.AddCombo(choice.Run == MepRun.DrainPipe ? "Cao độ tự nhập tại điểm đầu tuyến theo (khi không có dầm/sàn)" : "Cao độ tự nhập theo",
-                new[] { TopOf, CenterOf, BottomOf }, choice.Run == MepRun.DrainPipe ? BottomOf : TopOf);
+                new[] { TopOf, CenterOf, BottomOf }, underSlab ? BottomOf : TopOf);
             // Drainage under the floor it is drawn on: below the level, a negative height.
-            var manual = dlg.AddInput(choice.Run == MepRun.DrainPipe ? "Cao độ tự nhập so với level (mm, âm = dưới level)" : "Cao độ tự nhập so với level (mm)",
-                (choice.Run == MepRun.DrainPipe ? -500 : storeyMm - 500).ToString("0"));
+            var manual = dlg.AddInput(underSlab ? "Cao độ tự nhập so với level (mm, âm = dưới level)"
+                    : condensate ? "Cao độ tự nhập tại điểm đầu tuyến so với level (mm)" : "Cao độ tự nhập so với level (mm)",
+                (underSlab ? -500 : storeyMm - 500).ToString("0"));
             // Drainage keeps its fall from the outlet; the others take the height written on the CAD where there is one.
             System.Windows.Controls.CheckBox? useCad = null;
             System.Windows.Controls.ComboBox? cadRef = null;
@@ -587,7 +604,8 @@ internal static class MepFromCad
                 Fallback = MepRoutePlanner.TryParseSize(fallback.Text, out var fs) ? fs : new MepSize(400, 300, 0),
                 Overhead = underStructure.IsChecked == true ? overhead : new List<ModelRevitWallFit.Piece>(),
                 ClearanceMm = Math.Max(0, Num(clearance, 50)),
-                ManualMm = Num(manual, choice.Run == MepRun.DrainPipe ? -500 : storeyMm - 500),
+                ManualMm = Num(manual, underSlab ? -500 : storeyMm - 500),
+                Condensate = condensate,
                 ManualRef = DssTheme.ComboValue(reference),
                 SlopePercent = Math.Max(0, Num(slope, 1)),
                 DrainMode = drainMode is null ? DrainAuto : DssTheme.ComboValue(drainMode),
@@ -759,7 +777,8 @@ internal static class MepFromCad
             var allEnds = Enumerable.Range(0, net.Nodes.Count).Where(n => edgesAt[n].Count == 1).ToList();
             // The lowest floor (no level under it) runs from the riser foot out; a basement over a foundation level is
             // told by the tank / manhole notes at its ends instead.
-            var lowestFloor = !new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+            // Condensate always runs from the units to its riser / drain point, on the lowest floor too.
+            var lowestFloor = !setup.Condensate && !new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                 .Any(l => l.ProjectElevation < level.ProjectElevation - UnitConv.MmToInternal(1));
             for (var p = 0; p < parts.Count; p++)
             {
@@ -1095,7 +1114,7 @@ internal static class MepFromCad
 
         if (fromCad > 0)
             notes.AppendLine($"Cao độ ghi trên CAD (H=…, {setup.CadRef.ToLowerInvariant()}): {fromCad}/{net.Edges.Count} đoạn; chỗ hai đoạn khác cao độ gặp nhau có đoạn đứng nối.");
-        int curves = 0, risers = 0, fittings = 0, failed = 0, skipped = 0, joined = 0;
+        int curves = 0, risers = 0, fittings = 0, failed = 0, skipped = 0, joined = 0, flows = 0;
         var failures = new List<string>();
         // Runs first, in one transaction; fittings after, each batch on its own so a fitting Revit refuses (one that
         // would flip a short piece end for end) is dropped alone instead of rolling the whole command back.
@@ -1166,6 +1185,13 @@ internal static class MepFromCad
                 {
                     failed++;
                     continue;
+                }
+
+                // The flow written on the run (0.90 L/S) as the pipe's Additional Flow.
+                if (e.FlowLps is { } lps && run is Pipe)
+                {
+                    run.get_Parameter(BuiltInParameter.RBS_PIPE_ADDITIONAL_FLOW_PARAM)?.Set(UnitUtils.ConvertToInternalUnits(lps, UnitTypeId.LitersPerSecond));
+                    flows++;
                 }
 
                 curves++;
@@ -1270,6 +1296,8 @@ internal static class MepFromCad
 
         var sb = new StringBuilder();
         sb.AppendLine($"Tuyến: {net.Edges.Count} đoạn, {net.Nodes.Count} nút, {parts.Count} mạng. Tạo: {curves} đoạn, {risers} đoạn đứng né dầm, {fittings} fitting.");
+        if (flows > 0)
+            sb.AppendLine($"Lưu lượng ghi trên CAD (l/s) đưa vào Additional Flow: {flows} đoạn.");
         if (!setup.JoinBranches)
             sb.AppendLine("Nhánh chưa nối vào tuyến chính: tuyến chính liền qua chỗ rẽ, nhánh dừng ở mép ống — nối sau khi Combine.");
         if (setup.Run == MepRun.DrainPipe)

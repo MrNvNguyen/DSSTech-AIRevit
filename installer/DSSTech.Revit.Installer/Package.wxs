@@ -4,14 +4,14 @@
   <!-- Stable UpgradeCode across versions. ProductCode regenerates each build (*). -->
   <Package
       Name="DSSTech Revit"
-      Manufacturer="OneCAD Viet Nam"
+      Manufacturer="DSS Technology Co. Ltd"
       Version="$(var.ProductVersion)"
       UpgradeCode="B8E4F2A1-5C3D-4E9F-A7B1-2D6C8E0F4A91"
       Scope="perMachine"
       Language="1033">
     <SummaryInformation
         Description="DSSTech Revit add-in (hosts 2025–2027)"
-        Manufacturer="OneCAD Viet Nam" />
+        Manufacturer="DSS Technology Co. Ltd" />
 
     <MajorUpgrade
         AllowSameVersionUpgrades="yes"
